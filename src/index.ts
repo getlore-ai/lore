@@ -423,6 +423,37 @@ program
 // Watch Command (Continuous file watching)
 // ============================================================================
 
+// ANSI color codes for terminal output
+const colors = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m',
+  gray: '\x1b[90m',
+  bgGreen: '\x1b[42m',
+  bgYellow: '\x1b[43m',
+  bgBlue: '\x1b[44m',
+  bgRed: '\x1b[41m',
+};
+
+const c = {
+  title: (s: string) => `${colors.bold}${colors.cyan}${s}${colors.reset}`,
+  success: (s: string) => `${colors.green}${s}${colors.reset}`,
+  warning: (s: string) => `${colors.yellow}${s}${colors.reset}`,
+  error: (s: string) => `${colors.bgRed}${colors.white} ${s} ${colors.reset}`,
+  info: (s: string) => `${colors.blue}${s}${colors.reset}`,
+  dim: (s: string) => `${colors.dim}${s}${colors.reset}`,
+  file: (s: string) => `${colors.magenta}${s}${colors.reset}`,
+  path: (s: string) => `${colors.gray}${s}${colors.reset}`,
+  time: (s: string) => `${colors.dim}${s}${colors.reset}`,
+  badge: (s: string, bg: string) => `${bg}${colors.white}${colors.bold} ${s} ${colors.reset}`,
+};
+
 program
   .command('watch')
   .description('Watch configured directories and sync automatically when files change')
@@ -438,10 +469,14 @@ program
     const dbPath = path.join(dataDir, 'lore.lance');
     const debounceMs = parseInt(options.interval, 10);
 
-    console.log(`\n🔍 Lore Watch`);
-    console.log(`=============`);
-    console.log(`Data dir: ${dataDir}`);
-    console.log(`Debounce: ${debounceMs}ms`);
+    // Header
+    console.log('');
+    console.log(c.title('  ╔══════════════════════════════════════╗'));
+    console.log(c.title('  ║           🔍 LORE WATCH              ║'));
+    console.log(c.title('  ╚══════════════════════════════════════╝'));
+    console.log('');
+    console.log(`  ${c.dim('Data:')}     ${dataDir}`);
+    console.log(`  ${c.dim('Debounce:')} ${debounceMs}ms`);
     console.log('');
 
     // Load sync sources
@@ -449,87 +484,119 @@ program
     const sources = getEnabledSources(config);
 
     if (sources.length === 0) {
-      console.log('No sync sources configured. Run "lore sources add" first.');
+      console.log(c.error('No sync sources configured'));
+      console.log(c.dim('  Run "lore sources add" to add directories to watch'));
       process.exit(1);
     }
 
-    // Build watch paths with their globs
+    // Show watched directories
+    console.log(c.info('  📁 Watching:'));
     const watchPaths: string[] = [];
     for (const source of sources) {
       const expanded = expandPath(source.path);
-      console.log(`📁 ${source.name}`);
-      console.log(`   Path: ${expanded}`);
-      console.log(`   Glob: ${source.glob}`);
-      console.log(`   Project: ${source.project}`);
+      console.log(`     ${c.file(source.name)}`);
+      console.log(`     ${c.path(expanded)}`);
+      console.log(`     ${c.dim(`glob: ${source.glob} → project: ${source.project}`)}`);
+      console.log('');
       watchPaths.push(expanded);
     }
-    console.log('');
 
     // Run initial sync
     if (options.initial !== false) {
-      console.log('Running initial sync...\n');
+      console.log(c.info('  ⚡ Initial sync...'));
       try {
         const result = await handleSync(dbPath, dataDir, {
           git_pull: true,
           git_push: true,
         });
-        if (result.discovery) {
-          console.log(`  Found ${result.discovery.total_files} files, ${result.discovery.new_files} new`);
+
+        const totalFiles = result.discovery?.total_files || 0;
+        const newFiles = result.discovery?.new_files || 0;
+        const processed = result.processing?.processed || 0;
+
+        if (processed > 0) {
+          console.log(`     ${c.success('✓')} Processed ${c.file(String(processed))} new file(s)`);
+          for (const title of result.processing?.titles || []) {
+            console.log(`       ${c.dim('•')} ${title}`);
+          }
+        } else {
+          console.log(`     ${c.success('✓')} ${totalFiles} files indexed, ${newFiles} new`);
         }
-        if (result.processing && result.processing.processed > 0) {
-          console.log(`  Processed ${result.processing.processed} new files`);
-        }
-        console.log('  Initial sync complete\n');
       } catch (error) {
-        console.error('  Initial sync failed:', error);
+        console.log(`     ${c.error('✗')} Initial sync failed: ${error}`);
       }
+      console.log('');
     }
 
-    console.log('Watching for changes... (Ctrl+C to stop)\n');
+    // Divider
+    console.log(c.dim('  ─────────────────────────────────────────'));
+    console.log(`  ${c.success('●')} Watching for changes... ${c.dim('(Ctrl+C to stop)')}`);
+    console.log(c.dim('  ─────────────────────────────────────────'));
+    console.log('');
 
     // Track pending changes for debouncing
-    let pendingChanges = new Set<string>();
+    let pendingChanges = new Map<string, { type: 'add' | 'change'; path: string }>();
     let syncTimeout: ReturnType<typeof setTimeout> | null = null;
     let isSyncing = false;
+
+    function getTimestamp() {
+      return new Date().toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
 
     async function runSync() {
       if (isSyncing) return;
       isSyncing = true;
 
-      const changes = Array.from(pendingChanges);
+      const changes = Array.from(pendingChanges.values());
       pendingChanges.clear();
 
-      const timestamp = new Date().toLocaleTimeString();
-      console.log(`[${timestamp}] Syncing ${changes.length} change(s)...`);
+      const ts = getTimestamp();
+      console.log(`  ${c.time(ts)} ${c.badge('SYNC', colors.bgBlue)} Processing ${changes.length} file(s)...`);
+
+      // Show files being processed
+      for (const change of changes) {
+        const icon = change.type === 'add' ? '+' : '~';
+        const relativePath = change.path.replace(process.env.HOME || '', '~');
+        console.log(`             ${c.dim(icon)} ${c.file(path.basename(change.path))}`);
+        console.log(`               ${c.path(relativePath)}`);
+      }
 
       try {
         const result = await handleSync(dbPath, dataDir, {
-          git_pull: false,  // Don't pull on file changes, only on startup
+          git_pull: false,
           git_push: true,
         });
 
-        if (result.processing && result.processing.processed > 0) {
-          console.log(`[${timestamp}] ✓ Processed ${result.processing.processed} file(s):`);
-          for (const title of result.processing.titles) {
-            console.log(`    • ${title}`);
+        const processed = result.processing?.processed || 0;
+        const errors = result.processing?.errors || 0;
+
+        if (processed > 0) {
+          console.log(`  ${c.time(ts)} ${c.badge('DONE', colors.bgGreen)} Indexed ${processed} file(s):`);
+          for (const title of result.processing?.titles || []) {
+            console.log(`             ${c.success('✓')} ${title}`);
           }
         } else if (result.discovery && result.discovery.new_files === 0) {
-          console.log(`[${timestamp}] ✓ No new files to process`);
+          console.log(`  ${c.time(ts)} ${c.badge('SKIP', colors.bgYellow)} Already indexed`);
         }
 
-        if (result.processing && result.processing.errors > 0) {
-          console.log(`[${timestamp}] ⚠ ${result.processing.errors} error(s) during processing`);
+        if (errors > 0) {
+          console.log(`  ${c.time(ts)} ${c.error(`${errors} ERROR(S)`)}`);
         }
       } catch (error) {
-        console.error(`[${timestamp}] ✗ Sync error:`, error);
+        console.log(`  ${c.time(ts)} ${c.error('SYNC FAILED')} ${error}`);
       }
 
       isSyncing = false;
       console.log('');
     }
 
-    function scheduleSync(filePath: string) {
-      pendingChanges.add(filePath);
+    function scheduleSync(filePath: string, type: 'add' | 'change') {
+      pendingChanges.set(filePath, { type, path: filePath });
 
       if (syncTimeout) {
         clearTimeout(syncTimeout);
@@ -546,7 +613,7 @@ program
         /__pycache__/,
       ],
       persistent: true,
-      ignoreInitial: true,  // Don't trigger on existing files
+      ignoreInitial: true,
       awaitWriteFinish: {
         stabilityThreshold: 500,
         pollInterval: 100,
@@ -555,17 +622,17 @@ program
 
     watcher
       .on('add', (filePath) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] + ${path.basename(filePath)}`);
-        scheduleSync(filePath);
+        const ts = getTimestamp();
+        console.log(`  ${c.time(ts)} ${c.success('+')} ${c.file(path.basename(filePath))} ${c.dim('added')}`);
+        scheduleSync(filePath, 'add');
       })
       .on('change', (filePath) => {
-        const timestamp = new Date().toLocaleTimeString();
-        console.log(`[${timestamp}] ~ ${path.basename(filePath)}`);
-        scheduleSync(filePath);
+        const ts = getTimestamp();
+        console.log(`  ${c.time(ts)} ${c.warning('~')} ${c.file(path.basename(filePath))} ${c.dim('modified')}`);
+        scheduleSync(filePath, 'change');
       })
       .on('error', (error) => {
-        console.error('Watcher error:', error);
+        console.log(`  ${c.error('WATCHER ERROR')} ${error}`);
       });
 
     // Handle graceful shutdown
