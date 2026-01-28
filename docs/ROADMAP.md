@@ -6,18 +6,21 @@
 - [x] Project structure
 - [x] TypeScript setup
 - [x] Core types with citation model
-- [x] Vector store (LanceDB)
+- [x] Vector store (Supabase + pgvector)
 - [x] Embedder (OpenAI)
 - [x] MCP server
 - [x] Tool definitions (Zod schemas)
 
 ### MCP Handlers
 - [x] `search` - Semantic search with filters
-- [x] `get_source` - Full source retrieval
+- [x] `get_source` - Full source retrieval (includes quotes)
 - [x] `list_sources` - Browse by project/type
-- [x] `get_quotes` - Find citable quotes by theme
 - [x] `list_projects` - Project overview with stats
 - [x] `retain` - Save insights/decisions (instant indexing)
+- [x] `ingest` - Add documents directly via MCP
+- [x] `sync` - Refresh index (git pull + index new sources)
+- [x] `archive_project` - Archive completed/superseded projects
+- [x] `research` - Agentic research with Claude Agent SDK
 
 ## Phase 2: Granola Integration ✅
 
@@ -103,6 +106,6 @@
 - **Web UI**: Browse and manage knowledge visually
 - **API Server**: REST/GraphQL access beyond MCP
 - **Collaborative**: Multi-user with permissions
-- **Cloud Sync**: Optional backup/sync
+- ~~**Cloud Sync**: Optional backup/sync~~ (done - Supabase for vectors, git for raw docs)
 - **Plugin System**: Custom source adapters
 - **Real-time Ingestion**: Watch folders for new sources
