@@ -21,13 +21,12 @@ import { ingestMarkdownDirectory, listMarkdownFiles } from './ingest/markdown.js
 import {
   initializeTables,
   storeSources,
-  storeChunks,
   searchSources,
   getAllSources,
   indexExists,
 } from './core/vector-store.js';
 import { generateEmbedding, generateEmbeddings, createSearchableText } from './core/embedder.js';
-import type { SourceDocument, SourceRecord, ChunkRecord, Quote, Theme } from './core/types.js';
+import type { SourceDocument, SourceRecord, Quote, Theme } from './core/types.js';
 
 const program = new Command();
 
@@ -503,10 +502,7 @@ program
     await mkdir(path.join(expandedPath, 'retained'), { recursive: true });
 
     // Create .gitignore
-    const gitignore = `# Vector database (binary, rebuilt with \`lore sync\`)
-lore.lance/
-
-# Environment files
+    const gitignore = `# Environment files
 .env
 .env.local
 `;
@@ -521,7 +517,8 @@ Your personal knowledge repository for Lore.
 
 - \`sources/\` - Ingested documents
 - \`retained/\` - Explicitly saved insights
-- \`lore.lance/\` - Vector index (git-ignored, rebuild with \`lore sync\`)
+
+Vector embeddings are stored in Supabase (cloud) for multi-machine access.
 
 ## Usage
 
@@ -603,10 +600,9 @@ async function buildIndex(
 
   // Prepare source records
   const sourceRecords: Array<{ source: SourceRecord; vector: number[] }> = [];
-  const chunkRecords: ChunkRecord[] = [];
 
-  // Collect all texts for batch embedding
-  const textsToEmbed: { id: string; text: string; type: string }[] = [];
+  // Collect all texts for batch embedding (source summaries only)
+  const textsToEmbed: { id: string; text: string }[] = [];
 
   for (const result of results) {
     const { source, insights } = result;
@@ -616,42 +612,7 @@ async function buildIndex(
     textsToEmbed.push({
       id: `source_${source.id}`,
       text: createSearchableText({ type: 'summary', text: summary, project: source.projects[0] }),
-      type: 'source',
     });
-
-    // Add quotes for chunk embeddings
-    const quotes = insights?.quotes || [];
-    for (let i = 0; i < quotes.length; i++) {
-      const quote = quotes[i];
-      textsToEmbed.push({
-        id: `${source.id}_quote_${i}`,
-        text: createSearchableText({
-          type: 'quote',
-          text: quote.text,
-          context: quote.citation?.context,
-          project: source.projects[0],
-        }),
-        type: 'quote',
-      });
-    }
-
-    // Add themes for chunk embeddings
-    const themes = insights?.themes || [];
-    for (const theme of themes) {
-      for (let i = 0; i < theme.evidence.length; i++) {
-        const evidence = theme.evidence[i];
-        textsToEmbed.push({
-          id: `${source.id}_theme_${theme.name}_${i}`,
-          text: createSearchableText({
-            type: 'theme',
-            text: evidence.text,
-            theme_name: theme.name,
-            project: source.projects[0],
-          }),
-          type: 'theme',
-        });
-      }
-    }
   }
 
   // Generate embeddings in batch
@@ -677,7 +638,6 @@ async function buildIndex(
   for (const result of results) {
     const { source, insights } = result;
     const summary = insights?.summary || source.content.substring(0, 500);
-    const quotes = insights?.quotes || [];
     const themes = insights?.themes || [];
 
     // Source record
@@ -692,55 +652,17 @@ async function buildIndex(
         created_at: source.created_at,
         summary,
         themes_json: JSON.stringify(themes),
-        quotes_json: JSON.stringify(quotes),
+        quotes_json: JSON.stringify([]),
         has_full_content: true,
         vector: [],
       },
       vector: embeddingMap.get(`source_${source.id}`) || [],
     });
-
-    // Quote chunks
-    for (let i = 0; i < quotes.length; i++) {
-      const quote = quotes[i];
-      const vector = embeddingMap.get(`${source.id}_quote_${i}`);
-      if (vector) {
-        chunkRecords.push({
-          id: `${source.id}_quote_${i}`,
-          source_id: source.id,
-          content: quote.text,
-          type: 'quote',
-          theme_name: quote.theme,
-          speaker: quote.speaker,
-          timestamp: quote.timestamp,
-          vector,
-        });
-      }
-    }
-
-    // Theme chunks
-    for (const theme of themes) {
-      for (let i = 0; i < theme.evidence.length; i++) {
-        const evidence = theme.evidence[i];
-        const vector = embeddingMap.get(`${source.id}_theme_${theme.name}_${i}`);
-        if (vector) {
-          chunkRecords.push({
-            id: `${source.id}_theme_${theme.name}_${i}`,
-            source_id: source.id,
-            content: evidence.text,
-            type: 'theme',
-            theme_name: theme.name,
-            speaker: evidence.speaker,
-            vector,
-          });
-        }
-      }
-    }
   }
 
   // Store in database
-  console.log(`  Storing ${sourceRecords.length} sources and ${chunkRecords.length} chunks...`);
+  console.log(`  Storing ${sourceRecords.length} sources...`);
   await storeSources(dbPath, sourceRecords);
-  await storeChunks(dbPath, chunkRecords);
 }
 
 program.parse();

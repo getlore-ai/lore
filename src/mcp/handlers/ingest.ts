@@ -9,11 +9,11 @@
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { addSource, addChunks } from '../../core/vector-store.js';
+import { addSource } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { extractInsights } from '../../core/insight-extractor.js';
 import { gitCommitAndPush } from '../../core/git.js';
-import type { SourceRecord, ChunkRecord, ContentType } from '../../core/types.js';
+import type { SourceRecord, ContentType } from '../../core/types.js';
 
 interface IngestArgs {
   content: string;
@@ -134,20 +134,6 @@ export async function handleIngest(
     };
 
     await addSource(dbPath, sourceRecord, vector);
-
-    // Add content as a searchable chunk
-    const contentChunk: ChunkRecord = {
-      id: `${id}_chunk`,
-      source_id: id,
-      content: content.slice(0, 4000), // Limit chunk size
-      type: 'summary',
-      theme_name: '',
-      vector: await generateEmbedding(
-        createSearchableText({ type: 'summary', text: content.slice(0, 2000), project })
-      ),
-    };
-
-    await addChunks(dbPath, [contentChunk]);
 
     // Auto-push to git if enabled
     let pushed = false;

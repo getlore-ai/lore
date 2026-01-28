@@ -8,7 +8,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   SourceRecord,
-  ChunkRecord,
   Quote,
   Theme,
   SourceType,
@@ -98,34 +97,6 @@ export async function addSource(
   }
 }
 
-export async function addChunks(
-  _dbPath: string,
-  chunks: ChunkRecord[]
-): Promise<void> {
-  if (chunks.length === 0) return;
-
-  const client = getSupabase();
-
-  const records = chunks.map((chunk) => ({
-    id: chunk.id,
-    source_id: chunk.source_id,
-    content: chunk.content,
-    type: chunk.type,
-    theme_name: chunk.theme_name || null,
-    speaker: chunk.speaker || null,
-    timestamp: chunk.timestamp || null,
-    embedding: chunk.vector,
-    indexed_at: new Date().toISOString(),
-  }));
-
-  const { error } = await client.from('chunks').upsert(records);
-
-  if (error) {
-    console.error('[addChunks] Error:', error);
-    throw error;
-  }
-}
-
 export async function storeSources(
   _dbPath: string,
   sources: Array<{
@@ -157,14 +128,6 @@ export async function storeSources(
     console.error('[storeSources] Error:', error);
     throw error;
   }
-}
-
-export async function storeChunks(
-  _dbPath: string,
-  chunks: ChunkRecord[]
-): Promise<void> {
-  if (chunks.length === 0) return;
-  await addChunks(_dbPath, chunks);
 }
 
 // ============================================================================
@@ -224,55 +187,6 @@ export async function searchSources(
     summary: row.summary as string,
     themes: (row.themes_json || []) as Theme[],
     quotes: (row.quotes_json || []) as Quote[],
-    score: row.score as number,
-  }));
-}
-
-export async function searchChunks(
-  _dbPath: string,
-  queryVector: number[],
-  options: {
-    limit?: number;
-    type?: ChunkRecord['type'];
-    theme_name?: string;
-    source_id?: string;
-  } = {}
-): Promise<
-  Array<{
-    id: string;
-    source_id: string;
-    content: string;
-    type: string;
-    theme_name: string;
-    speaker: string;
-    timestamp: string;
-    score: number;
-  }>
-> {
-  const { limit = 20, type, theme_name, source_id } = options;
-  const client = getSupabase();
-
-  const { data, error } = await client.rpc('search_chunks', {
-    query_embedding: queryVector,
-    match_count: limit,
-    filter_type: type || null,
-    filter_theme_name: theme_name || null,
-    filter_source_id: source_id || null,
-  });
-
-  if (error) {
-    console.error('Error searching chunks:', error);
-    return [];
-  }
-
-  return (data || []).map((row: Record<string, unknown>) => ({
-    id: row.id as string,
-    source_id: row.source_id as string,
-    content: row.content as string,
-    type: row.type as string,
-    theme_name: (row.theme_name || '') as string,
-    speaker: (row.speaker || '') as string,
-    timestamp: (row.timestamp || '') as string,
     score: row.score as number,
   }));
 }

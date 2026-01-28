@@ -9,10 +9,10 @@
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { addSource, addChunks } from '../../core/vector-store.js';
+import { addSource } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { gitCommitAndPush } from '../../core/git.js';
-import type { SourceRecord, ChunkRecord } from '../../core/types.js';
+import type { SourceRecord } from '../../core/types.js';
 
 interface RetainArgs {
   content: string;
@@ -81,18 +81,6 @@ export async function handleRetain(
     };
 
     await addSource(dbPath, sourceRecord, vector);
-
-    // Also add as a chunk for fine-grained search
-    const chunk: ChunkRecord = {
-      id: `${id}_chunk`,
-      source_id: id,
-      content,
-      type: type,
-      theme_name: type === 'decision' ? 'decisions' : '',
-      vector,
-    };
-
-    await addChunks(dbPath, [chunk]);
 
     // Auto-push to git if enabled
     let pushed = false;

@@ -44,10 +44,9 @@ WORKING CONTEXT (research packages, project summaries for agents)
 
 | Tool | Type | Purpose |
 |------|------|---------|
-| `search` | Simple | Semantic search, returns summaries + quotes |
+| `search` | Simple | Semantic search, returns summaries with relevance scores |
 | `get_source` | Simple | Full source with original content |
 | `list_sources` | Simple | Browse by project/type |
-| `get_quotes` | Simple | Find citable quotes by theme |
 | `list_projects` | Simple | Project overview |
 | `retain` | Simple | Explicitly save insights (push-based) |
 | `ingest` | Simple | Add a document directly (meeting notes, interviews, etc.) |
@@ -71,7 +70,7 @@ src/
 ├── mcp/
 │   ├── server.ts      # MCP server entry
 │   ├── tools.ts       # Tool definitions (Zod schemas)
-│   └── handlers/      # 7 handler implementations
+│   └── handlers/      # 9 handler implementations
 └── index.ts           # CLI with ingest, sync, search commands
 ```
 

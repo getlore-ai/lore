@@ -96,26 +96,6 @@ const ListSourcesSchema = z.object({
   limit: z.number().optional().describe('Max results (default 20)'),
 });
 
-const GetQuotesSchema = z.object({
-  query: z.string().optional().describe('Semantic search for relevant quotes'),
-  theme: z
-    .enum([
-      'pain-points',
-      'feature-requests',
-      'positive-feedback',
-      'pricing',
-      'competition',
-      'workflow',
-      'decisions',
-      'requirements',
-      'insights',
-    ])
-    .optional()
-    .describe('Filter by theme'),
-  project: z.string().optional().describe('Filter to specific project'),
-  limit: z.number().optional().describe('Max quotes (default 20)'),
-});
-
 const RetainSchema = z.object({
   content: z.string().describe('The insight, decision, or note to retain'),
   project: z.string().describe('Project this belongs to'),
@@ -224,12 +204,6 @@ export const toolDefinitions = [
     description:
       'List all sources in the repository, optionally filtered by project or type. Returns summaries sorted by date.',
     inputSchema: zodToJsonSchema(ListSourcesSchema),
-  },
-  {
-    name: 'get_quotes',
-    description:
-      'Find specific quotes with citations. Can search semantically or filter by theme. Each quote includes speaker attribution and source reference for citation.',
-    inputSchema: zodToJsonSchema(GetQuotesSchema),
   },
   {
     name: 'list_projects',

@@ -24,7 +24,6 @@ import { toolDefinitions } from './tools.js';
 import { handleSearch } from './handlers/search.js';
 import { handleGetSource } from './handlers/get-source.js';
 import { handleListSources } from './handlers/list-sources.js';
-import { handleGetQuotes } from './handlers/get-quotes.js';
 import { handleRetain } from './handlers/retain.js';
 import { handleIngest } from './handlers/ingest.js';
 import { handleResearch } from './handlers/research.js';
@@ -168,10 +167,6 @@ async function main() {
 
         case 'list_sources':
           result = await handleListSources(DB_PATH, args as any);
-          break;
-
-        case 'get_quotes':
-          result = await handleGetQuotes(DB_PATH, args as any);
           break;
 
         case 'list_projects':

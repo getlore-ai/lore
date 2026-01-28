@@ -9,7 +9,7 @@
  */
 
 import OpenAI from 'openai';
-import { searchSources, searchChunks, getSourceById } from '../../core/vector-store.js';
+import { searchSources, getSourceById } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
 import { runResearchAgent } from './research-agent.js';
@@ -194,7 +194,7 @@ async function handleResearchSimple(
     .filter((s) => !s.projects.some((p) => archivedNames.has(p.toLowerCase())))
     .slice(0, sourceLimit);
 
-  // Step 2: Gather all quotes from found sources
+  // Step 2: Gather quotes from found sources (quotes are stored in source.quotes_json)
   const allQuotes: Quote[] = [];
   for (const source of sources) {
     for (const quote of source.quotes) {
@@ -208,37 +208,8 @@ async function handleResearchSimple(
     }
   }
 
-  // Step 3: Search for additional relevant quotes
-  const chunkResults = await searchChunks(dbPath, queryVector, {
-    limit: quoteLimit,
-    type: 'quote',
-  });
-
-  // Dedupe and merge quotes
-  const seenQuotes = new Set(allQuotes.map((q) => q.text));
-  for (const chunk of chunkResults) {
-    if (!seenQuotes.has(chunk.content)) {
-      allQuotes.push({
-        id: chunk.id,
-        text: chunk.content,
-        speaker: chunk.speaker as Quote['speaker'],
-        timestamp: chunk.timestamp,
-        theme: chunk.theme_name,
-        citation: {
-          source_id: chunk.source_id,
-        },
-      });
-      seenQuotes.add(chunk.content);
-    }
-  }
-
-  // Step 4: Find any decisions related to the task
-  const decisionChunks = await searchChunks(dbPath, queryVector, {
-    limit: 10,
-    type: 'decision',
-  });
-
-  // Step 5: Synthesize findings with LLM (conflict-aware)
+  // Step 3: Synthesize findings with LLM (conflict-aware)
+  // Note: Decisions are now extracted at query time by the agentic research mode
   const synthesis = await synthesizeFindings(
     task,
     sources.map((s) => ({
@@ -249,7 +220,7 @@ async function handleResearchSimple(
       created_at: s.created_at,
     })),
     allQuotes,
-    decisionChunks.map((d) => ({ content: d.content, source_id: d.source_id }))
+    [] // No pre-indexed decisions - agentic mode extracts them dynamically
   );
 
   const researchPackage: ResearchPackage = {
@@ -267,14 +238,7 @@ async function handleResearchSimple(
 
     // Evidence
     supporting_quotes: allQuotes.slice(0, quoteLimit),
-    related_decisions: decisionChunks.map((d) => ({
-      id: d.id,
-      decision: d.content,
-      rationale: '',
-      made_at: '',
-      citation: { source_id: d.source_id },
-      project_id: project || '',
-    })),
+    related_decisions: [],
 
     // Sources
     sources_consulted: include_sources

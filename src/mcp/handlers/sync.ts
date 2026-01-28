@@ -10,12 +10,11 @@ import path from 'path';
 import {
   getAllSources,
   addSource,
-  addChunks,
   resetDatabaseConnection,
 } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { gitPull, gitCommitAndPush, hasChanges } from '../../core/git.js';
-import type { SourceRecord, ChunkRecord, Quote, Theme, SourceType, ContentType } from '../../core/types.js';
+import type { SourceRecord, Theme, SourceType, ContentType } from '../../core/types.js';
 
 interface SyncArgs {
   git_pull?: boolean;
@@ -49,7 +48,7 @@ async function loadSourceFromDisk(
     tags: string[];
     content: string;
   };
-  insights: { summary: string; themes: Theme[]; quotes: Quote[] };
+  insights: { summary: string; themes: Theme[] };
 } | null> {
   const sourceDir = path.join(sourcesDir, sourceId);
 
@@ -57,9 +56,11 @@ async function loadSourceFromDisk(
     const metadata = JSON.parse(await readFile(path.join(sourceDir, 'metadata.json'), 'utf-8'));
     const content = await readFile(path.join(sourceDir, 'content.md'), 'utf-8');
 
-    let insights = { summary: '', themes: [] as Theme[], quotes: [] as Quote[] };
+    let insights = { summary: '', themes: [] as Theme[] };
     try {
-      insights = JSON.parse(await readFile(path.join(sourceDir, 'insights.json'), 'utf-8'));
+      const insightsFile = JSON.parse(await readFile(path.join(sourceDir, 'insights.json'), 'utf-8'));
+      insights.summary = insightsFile.summary || '';
+      insights.themes = insightsFile.themes || [];
     } catch {
       // No insights file - generate a basic summary from content
       insights.summary = content.substring(0, 500) + (content.length > 500 ? '...' : '');
@@ -92,7 +93,7 @@ async function indexSource(
     tags: string[];
     content: string;
   },
-  insights: { summary: string; themes: Theme[]; quotes: Quote[] }
+  insights: { summary: string; themes: Theme[] }
 ): Promise<void> {
   const summary = insights.summary || source.content.substring(0, 500);
 
@@ -115,42 +116,12 @@ async function indexSource(
     created_at: source.created_at,
     summary,
     themes_json: JSON.stringify(insights.themes || []),
-    quotes_json: JSON.stringify(insights.quotes || []),
+    quotes_json: JSON.stringify([]),
     has_full_content: true,
     vector: [],
   };
 
   await addSource(dbPath, sourceRecord, vector);
-
-  // Index quotes as chunks
-  const quotes = insights.quotes || [];
-  const chunkRecords: ChunkRecord[] = [];
-
-  for (let i = 0; i < quotes.length; i++) {
-    const quote = quotes[i];
-    const quoteText = createSearchableText({
-      type: 'quote',
-      text: quote.text,
-      context: quote.citation?.context,
-      project: source.projects[0],
-    });
-    const quoteVector = await generateEmbedding(quoteText);
-
-    chunkRecords.push({
-      id: `${source.id}_quote_${i}`,
-      source_id: source.id,
-      content: quote.text,
-      type: 'quote',
-      theme_name: quote.theme,
-      speaker: quote.speaker,
-      timestamp: quote.timestamp,
-      vector: quoteVector,
-    });
-  }
-
-  if (chunkRecords.length > 0) {
-    await addChunks(dbPath, chunkRecords);
-  }
 }
 
 export async function handleSync(

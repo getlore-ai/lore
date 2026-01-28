@@ -3,14 +3,14 @@
  *
  * This is the "real" agent that:
  * 1. Takes a research task
- * 2. Uses Lore's own tools iteratively (search, get_source, get_quotes)
+ * 2. Uses Lore's own tools iteratively (search, get_source, list_sources)
  * 3. Follows leads, cross-references, refines queries
  * 4. Synthesizes findings into a comprehensive research package
  */
 
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { searchSources, searchChunks, getSourceById, getAllSources } from '../../core/vector-store.js';
+import { searchSources, getSourceById, getAllSources } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
 import type { ResearchPackage, Quote, SourceType, Theme } from '../../core/types.js';
@@ -140,103 +140,6 @@ ${quotes || 'No quotes extracted'}`,
         }
       ),
 
-      // Get quotes - find specific quotes by theme or search
-      tool(
-        'get_quotes',
-        'Find specific quotes with citations. Can search semantically or filter by theme. Use this to find evidence for specific claims.',
-        {
-          query: z.string().optional().describe('Semantic search for relevant quotes'),
-          theme: z
-            .enum([
-              'pain-points',
-              'feature-requests',
-              'positive-feedback',
-              'pricing',
-              'competition',
-              'workflow',
-              'decisions',
-              'requirements',
-              'insights',
-            ])
-            .optional()
-            .describe('Filter by theme'),
-          project: z.string().optional().describe('Filter to specific project'),
-          limit: z.number().optional().describe('Max quotes (default 10)'),
-        },
-        async (args) => {
-          try {
-            if (!args.query && !args.theme) {
-              return {
-                content: [{ type: 'text', text: 'Please provide either a query or theme to search for quotes.' }],
-              };
-            }
-
-            let quotes: Array<{
-              text: string;
-              speaker?: string;
-              source_id: string;
-              theme_name?: string;
-              score: number;
-            }> = [];
-
-            if (args.query) {
-              const queryVector = await generateEmbedding(args.query);
-              const chunks = await searchChunks(dbPath, queryVector, {
-                limit: args.limit || 10,
-                type: 'quote',
-                theme_name: args.theme,
-              });
-
-              quotes = chunks.map((c) => ({
-                text: c.content,
-                speaker: c.speaker,
-                source_id: c.source_id,
-                theme_name: c.theme_name,
-                score: c.score,
-              }));
-            } else if (args.theme) {
-              // Search by theme
-              const chunks = await searchChunks(dbPath, [], {
-                limit: args.limit || 10,
-                type: 'quote',
-                theme_name: args.theme,
-              });
-
-              quotes = chunks.map((c) => ({
-                text: c.content,
-                speaker: c.speaker,
-                source_id: c.source_id,
-                theme_name: c.theme_name,
-                score: c.score,
-              }));
-            }
-
-            if (quotes.length === 0) {
-              return {
-                content: [{ type: 'text', text: 'No quotes found matching your criteria.' }],
-              };
-            }
-
-            const quotesText = quotes
-              .map(
-                (q, i) =>
-                  `${i + 1}. [${q.speaker || 'unknown'}] "${q.text}"
-   Source: ${q.source_id}
-   Theme: ${q.theme_name || 'unthemed'}`
-              )
-              .join('\n\n');
-
-            return {
-              content: [{ type: 'text', text: `Found ${quotes.length} quotes:\n\n${quotesText}` }],
-            };
-          } catch (error) {
-            return {
-              content: [{ type: 'text', text: `Error getting quotes: ${error}` }],
-            };
-          }
-        }
-      ),
-
       // List sources - browse available sources
       tool(
         'list_sources',
@@ -305,18 +208,16 @@ ${project ? `\nFocus on project: ${project}` : ''}
 
 ## Your Tools
 - **search**: Semantic search across all sources. Start broad, then refine.
-- **get_source**: Dive deep into a specific source for full context.
-- **get_quotes**: Find specific evidence by theme or query.
+- **get_source**: Dive deep into a specific source for full context and quotes.
 - **list_sources**: See what knowledge is available.
 
 ## Research Methodology
 
 1. **Explore First**: Start with broad searches to understand what's available.
-2. **Follow Leads**: When you find relevant sources, use get_source to read more.
-3. **Gather Evidence**: Use get_quotes to find specific citable evidence.
-4. **Cross-Reference**: Look for patterns across multiple sources.
-5. **Identify Conflicts**: Note when sources disagree - prefer newer sources.
-6. **Synthesize When Ready**: When you feel you have sufficient evidence to answer the research task comprehensively, produce your findings.
+2. **Follow Leads**: When you find relevant sources, use get_source to read more and gather quotes.
+3. **Cross-Reference**: Look for patterns across multiple sources.
+4. **Identify Conflicts**: Note when sources disagree - prefer newer sources.
+5. **Synthesize When Ready**: When you feel you have sufficient evidence to answer the research task comprehensively, produce your findings.
 
 ## Output Requirements
 
@@ -394,7 +295,6 @@ export async function runResearchAgent(
         allowedTools: [
           'mcp__lore-tools__search',
           'mcp__lore-tools__get_source',
-          'mcp__lore-tools__get_quotes',
           'mcp__lore-tools__list_sources',
         ],
         maxTurns: MAX_TURNS,
