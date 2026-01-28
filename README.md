@@ -23,6 +23,9 @@ npm install
 # Build
 npm run build
 
+# Make 'lore' command available globally
+npm link
+
 # Set up environment
 cp .env.example .env.local
 # Edit .env.local with your API keys
