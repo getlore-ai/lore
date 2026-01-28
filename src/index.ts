@@ -10,10 +10,36 @@
  * - mcp: Start the MCP server
  */
 
+// Load environment variables from .env files
+// .env.local takes precedence over .env
+import { config } from 'dotenv';
+import { existsSync as envExists, readFileSync } from 'fs';
+import { parse } from 'dotenv';
+
+// Load .env files silently (without the v17 logging)
+function loadEnvFile(filePath: string, override = false): void {
+  if (!envExists(filePath)) return;
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    const parsed = parse(content);
+    for (const [key, value] of Object.entries(parsed)) {
+      if (override || process.env[key] === undefined) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Silently ignore errors
+  }
+}
+
+// Load .env first, then .env.local (overrides)
+loadEnvFile('.env');
+loadEnvFile('.env.local', true);
+
 import { Command } from 'commander';
 import path from 'path';
 import { mkdir, writeFile, readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync } from 'fs';  // Re-import for use in CLI commands
 
 import { ingestGranolaExports, listGranolaExports } from './ingest/granola.js';
 import { ingestClaudeCodeConversations, listClaudeCodeConversations } from './ingest/claude-code.js';
