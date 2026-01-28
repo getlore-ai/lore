@@ -50,7 +50,9 @@ WORKING CONTEXT (research packages, project summaries for agents)
 | `get_quotes` | Simple | Find citable quotes by theme |
 | `list_projects` | Simple | Project overview |
 | `retain` | Simple | Explicitly save insights (push-based) |
-| `research` | Agentic | Comprehensive research with Claude Agent SDK |
+| `sync` | Simple | Refresh index (git pull + index new sources) |
+| `archive_project` | Simple | Archive a project (human-triggered curation) |
+| `research` | Agentic | Comprehensive research with conflict-aware synthesis |
 
 ## Project Structure
 
@@ -58,15 +60,18 @@ WORKING CONTEXT (research packages, project summaries for agents)
 src/
 ├── core/              # Shared infrastructure
 │   ├── types.ts       # Full data model with Citation type
-│   ├── embedder.ts    # OpenAI embeddings (from granola-extractor)
-│   └── vector-store.ts # LanceDB wrapper (adapted)
-├── ingest/            # Source adapters (TODO)
-├── projects/          # Project management (TODO)
+│   ├── embedder.ts    # OpenAI embeddings
+│   ├── vector-store.ts # LanceDB wrapper
+│   └── insight-extractor.ts # Summary generation (agent does deep analysis)
+├── ingest/            # Source adapters
+│   ├── granola.ts     # Granola meeting exports
+│   ├── claude-code.ts # Claude Code conversations
+│   └── markdown.ts    # Any markdown documents
 ├── mcp/
 │   ├── server.ts      # MCP server entry
-│   ├── tools.ts       # Tool definitions
+│   ├── tools.ts       # Tool definitions (Zod schemas)
 │   └── handlers/      # 7 handler implementations
-└── agents/            # Claude Agent SDK (TODO)
+└── index.ts           # CLI with ingest, sync, search commands
 ```
 
 ## Relationship to granola-extractor
@@ -90,31 +95,73 @@ npm run dev           # Run with tsx
 npm run mcp           # Start MCP server
 
 # Environment
-OPENAI_API_KEY=...    # Required for embeddings
-ANTHROPIC_API_KEY=... # Required for research agent
-LORE_DATA_DIR=./data  # Data directory
+OPENAI_API_KEY=...              # Required for embeddings
+ANTHROPIC_API_KEY=...           # Required for research agent
+LORE_DATA_DIR=~/lore-data       # Data directory (SEPARATE from this repo!)
+LORE_AUTO_GIT_PULL=true         # Auto git pull every 5 min (default: true)
+LORE_AUTO_INDEX=true            # Auto-index new sources (default: true, costs API calls)
 ```
 
-## Priority Tasks
+## Code vs Data Separation
 
-1. **Granola Adapter** - `src/ingest/granola.ts`
-   - Read granola-extractor export format
-   - Convert to Lore SourceDocument
-   - Preserve speaker attribution and timestamps
+**Lore (this repo)** = reusable tool, shareable
+**Data directory** = your personal knowledge, separate location
 
-2. **Sync Command** - `lore sync`
-   - Full reindexing of all sources
-   - Generate embeddings
-   - Progress reporting
+The `LORE_DATA_DIR` should point to a separate directory (optionally its own git repo for cross-machine sync). This keeps personal project data out of the Lore codebase.
 
-3. **Research Agent** - `src/mcp/handlers/research.ts`
-   - Replace placeholder with Claude Agent SDK
-   - Multi-step search and synthesis
-   - Proper citations in output
+```
+~/lore-data/              # Your data repo (separate git repo)
+├── sources/              # Ingested documents (git-tracked)
+├── retained/             # Explicitly saved insights (git-tracked)
+├── lore.lance/           # Vector index (git-ignored, rebuild with `lore sync`)
+└── archived-projects.json
+```
 
-4. **Retain to Vector Store** - `src/mcp/handlers/retain.ts`
-   - Currently saves to disk only
-   - Add immediate vector store insertion
+## Implementation Status
+
+All core features are implemented:
+
+- **Ingestion Adapters**: Granola, Claude Code, Markdown
+- **CLI Commands**: `ingest`, `sync`, `search`, `projects`, `mcp`
+- **MCP Tools**: All 7 tools fully functional
+- **LLM-powered Research**: Uses GPT-4o-mini for synthesis
+- **Instant Indexing**: Retained items immediately searchable
+
+## Usage
+
+```bash
+# Ingest Granola meeting exports
+lore ingest ~/exports/granola --type granola -p myproject
+
+# Ingest Claude Code conversations
+lore ingest ~/.claude/projects --type claude-code -p myproject
+
+# Ingest any markdown documents (competitor analyses, ChatGPT dumps, specs, etc.)
+lore ingest ~/docs --type markdown -p myproject
+
+# Search
+lore search "user pain points"
+
+# Start MCP server
+lore mcp
+```
+
+## Design Philosophy: Agentic Extraction
+
+**What we store at ingest time:**
+- Raw content (complete, lossless)
+- Summary (for quick context)
+- Embeddings (for retrieval)
+
+**What we DON'T do:**
+- Pre-categorize into themes
+- Force content into predefined buckets
+- Extract quotes/insights at ingest time
+
+**Why:** The agent reasons at query time with full context. This is more accurate than pre-categorizing because:
+- No mis-categorization
+- Extracts what's relevant to YOUR query, not generic categories
+- Adapts to new types of questions without code changes
 
 ## Key Design Decisions
 
@@ -123,6 +170,22 @@ LORE_DATA_DIR=./data  # Data directory
 3. **Citations are first-class**: Every Quote has a Citation linking to source
 4. **Projects organize knowledge**: All sources associate with projects
 5. **Lineage tracks history**: Decisions, pivots, milestones logged per project
+
+## Knowledge Evolution & Conflicts
+
+Lore handles outdated/conflicting information through **smart synthesis, not automatic curation**:
+
+1. **Time-weighted ranking**: Recent sources naturally rank higher in search results
+2. **Conflict-aware synthesis**: Research agent detects contradictions and prefers newer sources
+3. **Transparent resolution**: When conflicts exist, the response includes `conflicts_resolved` showing the evolution (e.g., "Earlier approach was X (Jan 5), changed to Y (Jan 15). Current: Y")
+4. **Human-triggered archiving**: Use `archive_project` to archive entire projects when they're completed/superseded
+5. **Nothing auto-deleted**: All sources preserved for historical context, just filtered from default search
+
+This approach ensures:
+- Consumers get current understanding without confusion
+- Historical context remains accessible (`include_archived: true`)
+- No silent data loss from AI reasoning errors
+- Transparent, traceable reasoning
 
 ## Non-Goals
 

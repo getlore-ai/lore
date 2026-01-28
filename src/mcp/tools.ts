@@ -76,6 +76,10 @@ const SearchSchema = z.object({
     .optional()
     .describe('Filter by content type'),
   limit: z.number().optional().describe('Max results (default 10)'),
+  include_archived: z
+    .boolean()
+    .optional()
+    .describe('Include sources from archived projects (default: false)'),
 });
 
 const GetSourceSchema = z.object({
@@ -147,6 +151,41 @@ const ResearchSchema = z.object({
 });
 
 // ============================================================================
+// Sync Tool
+// ============================================================================
+
+const SyncSchema = z.object({
+  git_pull: z
+    .boolean()
+    .optional()
+    .describe('Pull latest changes from git remote (default: true)'),
+  git_push: z
+    .boolean()
+    .optional()
+    .describe('Push local changes to git remote (default: true)'),
+  index_new: z
+    .boolean()
+    .optional()
+    .describe('Index any new sources found on disk (default: true)'),
+});
+
+// ============================================================================
+// Project Management Tools
+// ============================================================================
+
+const ArchiveProjectSchema = z.object({
+  project: z.string().describe('Name of the project to archive'),
+  reason: z
+    .string()
+    .optional()
+    .describe('Reason for archiving (e.g., "Pivoted to new approach", "Project completed")'),
+  successor_project: z
+    .string()
+    .optional()
+    .describe('Name of the project that supersedes this one, if any'),
+});
+
+// ============================================================================
 // Tool Definitions for MCP
 // ============================================================================
 
@@ -198,5 +237,21 @@ export const toolDefinitions = [
     description:
       'Comprehensive research across the knowledge repository. Uses an internal agent to search, cross-reference, and synthesize findings into a research package with citations. More thorough than simple search but takes longer. Use for complex questions that need multiple sources.',
     inputSchema: zodToJsonSchema(ResearchSchema),
+  },
+
+  // Sync tool
+  {
+    name: 'sync',
+    description:
+      'Sync the knowledge repository with the latest sources. Optionally pulls from git remote and indexes any new sources found on disk. Use this to refresh the knowledge base when you know new content has been added.',
+    inputSchema: zodToJsonSchema(SyncSchema),
+  },
+
+  // Project management
+  {
+    name: 'archive_project',
+    description:
+      'Archive a project and all its sources. Archived projects are excluded from search by default but preserved for historical reference. Use when a project is completed, abandoned, or superseded by a new approach. This is a human-triggered curation action.',
+    inputSchema: zodToJsonSchema(ArchiveProjectSchema),
   },
 ];

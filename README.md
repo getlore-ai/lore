@@ -21,8 +21,29 @@ npm install
 
 # Build
 npm run build
+```
 
-# Configure MCP (add to Claude Desktop or Claude Code config)
+### Data Repository Setup
+
+**Important:** Lore separates code from data. Your knowledge is stored in a separate data directory (optionally its own git repo for syncing across machines).
+
+```bash
+# Copy the template to your desired location
+cp -r /path/to/lore/data-repo-template ~/lore-data
+cd ~/lore-data
+
+# Initialize git and commit
+git init
+git add . && git commit -m "Initial lore data repo"
+
+# (Optional) Push to private remote for cross-machine sync
+git remote add origin git@github.com:you/lore-data-private.git
+git push -u origin main
+```
+
+### MCP Configuration
+
+```json
 {
   "mcpServers": {
     "lore": {
@@ -30,12 +51,18 @@ npm run build
       "args": ["/path/to/lore/dist/mcp/server.js"],
       "env": {
         "OPENAI_API_KEY": "your-key",
-        "LORE_DATA_DIR": "/path/to/data"
+        "LORE_DATA_DIR": "/path/to/your/lore-data"
       }
     }
   }
 }
 ```
+
+The data directory contains:
+- `sources/` - Ingested source documents (git-tracked)
+- `retained/` - Explicitly retained insights (git-tracked)
+- `lore.lance/` - Vector index (git-ignored, rebuilt with `lore sync`)
+- `archived-projects.json` - Archived project list (git-tracked)
 
 ## MCP Tools
 
@@ -49,6 +76,8 @@ npm run build
 | `get_quotes` | Find citable quotes by theme |
 | `list_projects` | Project overview with stats |
 | `retain` | Explicitly save insights |
+| `sync` | Refresh index from disk (optional git pull) |
+| `archive_project` | Archive a project (excludes from search) |
 
 ### Agentic Research
 
@@ -59,9 +88,33 @@ npm run build
 ## Supported Sources
 
 - **Granola** - Meeting transcripts with speaker attribution
-- **Claude Code** - Conversation histories (coming soon)
-- **Claude Desktop** - Exports (coming soon)
-- **Markdown** - Documents and notes
+- **Claude Code** - Conversation histories from `~/.claude/projects/`
+- **Markdown** - Any documents (research, competitor analysis, ChatGPT dumps, etc.)
+
+## CLI Commands
+
+```bash
+# Ingest Granola meeting exports
+lore ingest /path/to/granola-exports --type granola -p myproject
+
+# Ingest Claude Code conversations
+lore ingest ~/.claude/projects --type claude-code -p myproject
+
+# Ingest markdown documents (competitor analyses, ChatGPT context dumps, specs, etc.)
+lore ingest /path/to/docs --type markdown -p myproject
+
+# Search from command line
+lore search "user pain points with onboarding"
+
+# List projects
+lore projects
+
+# Rebuild index
+lore sync
+
+# Start MCP server
+lore mcp
+```
 
 ## Architecture
 

@@ -17,7 +17,8 @@ export type SourceType =
   | 'claude-desktop' // Claude Desktop exports
   | 'chatgpt'        // ChatGPT conversation exports
   | 'markdown'       // Markdown documents/notes
-  | 'document';      // Other documents (PDFs, etc.)
+  | 'document'       // Other documents (PDFs, etc.)
+  | 'retained';      // Explicitly retained via MCP
 
 export type ContentType =
   | 'interview'      // User interview/research call
@@ -25,7 +26,12 @@ export type ContentType =
   | 'conversation'   // AI conversation (Claude, ChatGPT)
   | 'document'       // Written document
   | 'note'           // Quick note/memo
-  | 'analysis';      // Competitor analysis, research synthesis
+  | 'analysis'       // Competitor analysis, market research
+  | 'survey'         // Survey results, user feedback data
+  | 'research'       // Research synthesis, literature review
+  | 'decision'       // Retained decision
+  | 'insight'        // Retained insight
+  | 'requirement';   // Retained requirement
 
 // ============================================================================
 // Source Document - The immutable original
@@ -173,7 +179,7 @@ export interface ChunkRecord {
   id: string;
   source_id: string;
   content: string;
-  type: 'quote' | 'theme' | 'summary' | 'decision' | 'requirement';
+  type: 'quote' | 'theme' | 'summary' | 'decision' | 'requirement' | 'note' | 'insight';
   theme_name?: string;
   speaker?: string;
   timestamp?: string;
@@ -204,6 +210,9 @@ export interface ResearchPackage {
   // Synthesized findings
   summary: string;
   key_findings: string[];
+
+  // Conflict resolution (when sources contradict, shows how it was resolved)
+  conflicts_resolved?: string[];
 
   // Evidence with citations
   supporting_quotes: Quote[];

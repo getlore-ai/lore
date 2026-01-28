@@ -2,11 +2,17 @@
  * Retain Handler - Save insights, decisions, and notes
  *
  * This is the "push" mechanism for adding knowledge explicitly.
+ * Retained items are immediately added to the vector store for instant searchability.
+ * Auto-pushes to git remote if configured.
  */
 
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { addSource, addChunks } from '../../core/vector-store.js';
+import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
+import { gitCommitAndPush } from '../../core/git.js';
+import type { SourceRecord, ChunkRecord } from '../../core/types.js';
 
 interface RetainArgs {
   content: string;
@@ -19,9 +25,11 @@ interface RetainArgs {
 export async function handleRetain(
   dbPath: string,
   dataDir: string,
-  args: RetainArgs
+  args: RetainArgs,
+  options: { autoPush?: boolean } = {}
 ): Promise<unknown> {
   const { content, project, type, source_context, tags = [] } = args;
+  const { autoPush = true } = options;
 
   const id = randomUUID();
   const timestamp = new Date().toISOString();
@@ -37,7 +45,7 @@ export async function handleRetain(
     created_at: timestamp,
   };
 
-  // Save to disk (will be indexed on next sync)
+  // Save to disk
   const retainedDir = path.join(dataDir, 'retained', project);
   await mkdir(retainedDir, { recursive: true });
 
@@ -46,12 +54,84 @@ export async function handleRetain(
 
   await writeFile(filepath, JSON.stringify(entry, null, 2));
 
-  // TODO: Also add to vector store immediately for instant availability
+  // Add to vector store immediately for instant searchability
+  try {
+    // Generate embedding for the content
+    const searchableText = createSearchableText({
+      type: type === 'decision' ? 'theme' : 'summary',
+      text: content,
+      project,
+    });
+    const vector = await generateEmbedding(searchableText);
 
-  return {
-    success: true,
-    id,
-    message: `Retained ${type} for project "${project}"`,
-    note: 'Run "lore sync" to make this searchable immediately',
-  };
+    // Create source record
+    const sourceRecord: SourceRecord = {
+      id,
+      title: `${type.charAt(0).toUpperCase() + type.slice(1)}: ${content.substring(0, 50)}...`,
+      source_type: 'retained',
+      content_type: type === 'decision' ? 'decision' : 'note',
+      projects: JSON.stringify([project]),
+      tags: JSON.stringify(tags),
+      created_at: timestamp,
+      summary: content,
+      themes_json: JSON.stringify([]),
+      quotes_json: JSON.stringify([]),
+      has_full_content: true,
+      vector: [],
+    };
+
+    await addSource(dbPath, sourceRecord, vector);
+
+    // Also add as a chunk for fine-grained search
+    const chunk: ChunkRecord = {
+      id: `${id}_chunk`,
+      source_id: id,
+      content,
+      type: type,
+      theme_name: type === 'decision' ? 'decisions' : '',
+      vector,
+    };
+
+    await addChunks(dbPath, [chunk]);
+
+    // Auto-push to git if enabled
+    let pushed = false;
+    if (autoPush) {
+      const pushResult = await gitCommitAndPush(
+        dataDir,
+        `Retain ${type}: ${content.substring(0, 50)}...`
+      );
+      pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
+    }
+
+    return {
+      success: true,
+      id,
+      message: `Retained ${type} for project "${project}"`,
+      indexed: true,
+      synced: pushed,
+    };
+  } catch (error) {
+    // Still saved to disk, just not indexed yet
+    console.error('Failed to index retained item:', error);
+
+    // Still try to push even if indexing failed
+    let pushed = false;
+    if (autoPush) {
+      const pushResult = await gitCommitAndPush(
+        dataDir,
+        `Retain ${type}: ${content.substring(0, 50)}...`
+      );
+      pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
+    }
+
+    return {
+      success: true,
+      id,
+      message: `Retained ${type} for project "${project}"`,
+      indexed: false,
+      synced: pushed,
+      note: 'Saved to disk but indexing failed. Run "lore sync" to index.',
+    };
+  }
 }

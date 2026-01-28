@@ -4,7 +4,8 @@ node_modules/
 # Build output
 dist/
 
-# Data (user-specific)
+# Data directory (should be a separate repo or location)
+# Users should set LORE_DATA_DIR to their own data repository
 data/
 
 # Environment

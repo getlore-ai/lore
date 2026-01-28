@@ -45,7 +45,8 @@ export async function indexExists(dbPath: string): Promise<boolean> {
   try {
     const database = await getDatabase(dbPath);
     const tables = await database.tableNames();
-    return tables.includes(SOURCES_TABLE) && tables.includes(CHUNKS_TABLE);
+    // Only sources table is required - chunks may be empty
+    return tables.includes(SOURCES_TABLE);
   } catch {
     return false;
   }
@@ -66,6 +67,71 @@ export async function initializeTables(dbPath: string): Promise<void> {
 // ============================================================================
 // Source Storage
 // ============================================================================
+
+/**
+ * Add a single source to the existing index (for retain operations)
+ */
+export async function addSource(
+  dbPath: string,
+  source: SourceRecord,
+  vector: number[]
+): Promise<void> {
+  const database = await getDatabase(dbPath);
+
+  const record = {
+    id: source.id,
+    title: source.title,
+    source_type: source.source_type,
+    content_type: source.content_type,
+    projects: source.projects,
+    tags: source.tags,
+    created_at: source.created_at,
+    summary: source.summary,
+    themes_json: source.themes_json,
+    quotes_json: source.quotes_json,
+    has_full_content: source.has_full_content,
+    vector,
+  };
+
+  try {
+    const table = await database.openTable(SOURCES_TABLE);
+    await table.add([record]);
+  } catch {
+    // Table doesn't exist, create it
+    await database.createTable(SOURCES_TABLE, [record]);
+  }
+}
+
+/**
+ * Add chunks to the existing index
+ */
+export async function addChunks(
+  dbPath: string,
+  chunks: ChunkRecord[]
+): Promise<void> {
+  if (chunks.length === 0) return;
+
+  const database = await getDatabase(dbPath);
+
+  const records = chunks.map((chunk) => ({
+    id: chunk.id,
+    source_id: chunk.source_id,
+    content: chunk.content,
+    type: chunk.type,
+    theme_name: chunk.theme_name || '',
+    speaker: chunk.speaker || '',
+    timestamp: chunk.timestamp || '',
+    vector: chunk.vector,
+  }));
+
+  try {
+    const table = await database.openTable(CHUNKS_TABLE);
+    await table.add(records);
+  } catch {
+    // Table doesn't exist, create it
+    await database.createTable(CHUNKS_TABLE, records);
+  }
+}
 
 export async function storeSources(
   dbPath: string,
@@ -98,6 +164,11 @@ export async function storeChunks(
   dbPath: string,
   chunks: ChunkRecord[]
 ): Promise<void> {
+  if (chunks.length === 0) {
+    // Nothing to store - skip creating empty table
+    return;
+  }
+
   const database = await getDatabase(dbPath);
 
   const records = chunks.map((chunk) => ({
@@ -118,6 +189,28 @@ export async function storeChunks(
 // Search Operations
 // ============================================================================
 
+/**
+ * Calculate time-weighted score
+ * Recent sources get a boost, but semantic relevance is still primary
+ */
+function calculateTimeWeightedScore(
+  semanticScore: number,
+  createdAt: string,
+  recencyBoost: number = 0.15
+): number {
+  const now = Date.now();
+  const created = new Date(createdAt).getTime();
+  const ageInDays = (now - created) / (1000 * 60 * 60 * 24);
+
+  // Decay function: sources lose up to recencyBoost over 90 days
+  // After 90 days, no additional penalty
+  const ageFactor = Math.min(ageInDays / 90, 1);
+  const recencyScore = 1 - ageFactor * recencyBoost;
+
+  // Combine: semantic is primary (85%), recency is secondary (15%)
+  return semanticScore * (1 - recencyBoost) + semanticScore * recencyScore * recencyBoost;
+}
+
 export async function searchSources(
   dbPath: string,
   queryVector: number[],
@@ -126,6 +219,7 @@ export async function searchSources(
     project?: string;
     source_type?: SourceType;
     content_type?: ContentType;
+    recency_boost?: number; // 0-1, how much to favor recent sources (default 0.15)
   } = {}
 ): Promise<
   Array<{
@@ -142,16 +236,16 @@ export async function searchSources(
     score: number;
   }>
 > {
-  const { limit = 10, project, source_type, content_type } = options;
+  const { limit = 10, project, source_type, content_type, recency_boost = 0.15 } = options;
   const database = await getDatabase(dbPath);
 
   try {
     const table = await database.openTable(SOURCES_TABLE);
-    const query = table.search(queryVector).limit(limit * 2); // Over-fetch for filtering
+    const query = table.search(queryVector).limit(limit * 3); // Over-fetch for filtering and re-ranking
 
     const results = await query.toArray();
 
-    return results
+    const filtered = results
       .filter((row) => {
         if (source_type && row.source_type !== source_type) return false;
         if (content_type && row.content_type !== content_type) return false;
@@ -163,20 +257,33 @@ export async function searchSources(
         }
         return true;
       })
-      .slice(0, limit)
-      .map((row) => ({
-        id: row.id as string,
-        title: row.title as string,
-        source_type: row.source_type as SourceType,
-        content_type: row.content_type as ContentType,
-        projects: JSON.parse(row.projects as string) as string[],
-        tags: JSON.parse(row.tags as string) as string[],
-        created_at: row.created_at as string,
-        summary: row.summary as string,
-        themes: JSON.parse(row.themes_json as string) as Theme[],
-        quotes: JSON.parse(row.quotes_json as string) as Quote[],
-        score: row._distance !== undefined ? 1 / (1 + (row._distance as number)) : 0,
-      }));
+      .map((row) => {
+        const semanticScore = row._distance !== undefined ? 1 / (1 + (row._distance as number)) : 0;
+        const timeWeightedScore = calculateTimeWeightedScore(
+          semanticScore,
+          row.created_at as string,
+          recency_boost
+        );
+
+        return {
+          id: row.id as string,
+          title: row.title as string,
+          source_type: row.source_type as SourceType,
+          content_type: row.content_type as ContentType,
+          projects: JSON.parse(row.projects as string) as string[],
+          tags: JSON.parse(row.tags as string) as string[],
+          created_at: row.created_at as string,
+          summary: row.summary as string,
+          themes: JSON.parse(row.themes_json as string) as Theme[],
+          quotes: JSON.parse(row.quotes_json as string) as Quote[],
+          score: timeWeightedScore,
+        };
+      });
+
+    // Re-sort by time-weighted score
+    filtered.sort((a, b) => b.score - a.score);
+
+    return filtered.slice(0, limit);
   } catch (error) {
     console.error('Error searching sources:', error);
     return [];
@@ -231,8 +338,8 @@ export async function searchChunks(
         timestamp: row.timestamp as string,
         score: row._distance !== undefined ? 1 / (1 + (row._distance as number)) : 0,
       }));
-  } catch (error) {
-    console.error('Error searching chunks:', error);
+  } catch {
+    // Table may not exist if no chunks have been stored
     return [];
   }
 }
