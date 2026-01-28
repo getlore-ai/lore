@@ -17,7 +17,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 import type { DiscoveredFile } from './discover.js';
 import type { ContentType, SourceRecord } from '../core/types.js';
-import { processFile } from './processors.js';
+import { processFile, type ProcessedContent, type ImageMediaType } from './processors.js';
 import { generateEmbedding, createSearchableText } from '../core/embedder.js';
 import { addSource } from '../core/vector-store.js';
 import { gitCommitAndPush } from '../core/git.js';
@@ -89,16 +89,42 @@ Be specific in the summary. Include concrete details, names, numbers when presen
 export async function extractMetadata(
   content: string,
   filePath: string,
-  options: { model?: string } = {}
+  options: {
+    model?: string;
+    image?: { base64: string; mediaType: ImageMediaType };
+  } = {}
 ): Promise<ExtractedMetadata> {
-  const { model = 'claude-sonnet-4-20250514' } = options;
+  const { model = 'claude-sonnet-4-20250514', image } = options;
   const client = getAnthropic();
 
-  // Truncate content if too long
-  const maxChars = 50000;
-  const truncatedContent = content.length > maxChars
-    ? content.substring(0, maxChars) + '\n\n[Content truncated...]'
-    : content;
+  // Build message content based on whether we have an image or text
+  let messageContent: Anthropic.MessageCreateParams['messages'][0]['content'];
+
+  if (image) {
+    // Image analysis with Claude Vision
+    messageContent = [
+      {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: image.mediaType,
+          data: image.base64,
+        },
+      },
+      {
+        type: 'text' as const,
+        text: `${EXTRACTION_PROMPT}\n\nFile: ${path.basename(filePath)}\n\nAnalyze this image and extract metadata. Describe what's in the image in detail in the summary.`,
+      },
+    ];
+  } else {
+    // Text-based analysis
+    const maxChars = 50000;
+    const truncatedContent = content.length > maxChars
+      ? content.substring(0, maxChars) + '\n\n[Content truncated...]'
+      : content;
+
+    messageContent = `${EXTRACTION_PROMPT}\n\nFile: ${path.basename(filePath)}\n\n---\n\n${truncatedContent}`;
+  }
 
   const response = await client.messages.create({
     model,
@@ -106,7 +132,7 @@ export async function extractMetadata(
     messages: [
       {
         role: 'user',
-        content: `${EXTRACTION_PROMPT}\n\nFile: ${path.basename(filePath)}\n\n---\n\n${truncatedContent}`,
+        content: messageContent,
       },
     ],
   });
@@ -292,12 +318,17 @@ export async function processFiles(
         // 1. Read and preprocess file
         const processed = await processFile(file.absolutePath);
 
-        // 2. Extract metadata with Claude
+        // 2. Extract metadata with Claude (handles both text and images)
         const metadata = await extractMetadata(
           processed.text,
           file.absolutePath,
-          { model }
+          { model, image: processed.image }
         );
+
+        // For images, use the summary as the text content
+        const contentText = processed.image
+          ? `# ${metadata.title}\n\n${metadata.summary}`
+          : processed.text;
 
         // 3. Generate source ID
         const sourceId = generateSourceId();
@@ -310,7 +341,7 @@ export async function processFiles(
           sourceId,
           file,
           metadata,
-          processed.text,
+          contentText,
           dataDir
         );
 

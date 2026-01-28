@@ -37,6 +37,7 @@
     "commander": "^12.1.0",
     "dotenv": "^17.2.3",
     "openai": "^4.77.0",
+    "pdf-parse": "^2.4.5",
     "zod": "^3.24.0"
   },
   "devDependencies": {

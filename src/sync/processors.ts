@@ -7,18 +7,48 @@
 
 import { readFile } from 'fs/promises';
 import path from 'path';
+import Anthropic from '@anthropic-ai/sdk';
+
+// PDF parser - dynamically imported to avoid issues if not installed
+type PdfParser = (buffer: Buffer) => Promise<{ text: string }>;
+let pdfParser: PdfParser | null = null;
+
+async function getPdfParser(): Promise<PdfParser | null> {
+  if (!pdfParser) {
+    try {
+      const { PDFParse } = await import('pdf-parse');
+      // Wrap the class in a function
+      pdfParser = async (buffer: Buffer): Promise<{ text: string }> => {
+        const parser = new (PDFParse as any)({ data: buffer });
+        await parser.load();
+        const text = await parser.getText();
+        return { text: text || '' };
+      };
+    } catch {
+      return null;
+    }
+  }
+  return pdfParser;
+}
 
 // ============================================================================
 // Types
 // ============================================================================
 
+export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
 export interface ProcessedContent {
-  text: string;           // Extracted text content
-  format: string;         // Original format (md, jsonl, json, etc.)
+  text: string;           // Extracted text content (empty for images)
+  format: string;         // Original format (md, jsonl, json, pdf, image, etc.)
   metadata?: {
     title?: string;
     date?: string;
     participants?: string[];
+  };
+  // For images - used with Claude vision
+  image?: {
+    base64: string;
+    mediaType: ImageMediaType;
   };
 }
 
@@ -197,12 +227,176 @@ function processPlainText(content: string): ProcessedContent {
 }
 
 // ============================================================================
+// PDF Processing
+// ============================================================================
+
+async function processPdf(filePath: string): Promise<ProcessedContent> {
+  const parser = await getPdfParser();
+  if (!parser) {
+    return {
+      text: '[PDF processing not available - install pdf-parse]',
+      format: 'pdf-unsupported',
+    };
+  }
+
+  const buffer = await readFile(filePath);
+  const data = await parser(buffer);
+
+  return {
+    text: data.text,
+    format: 'pdf',
+    metadata: {
+      title: path.basename(filePath, '.pdf'),
+    },
+  };
+}
+
+// ============================================================================
+// Image Processing (for Claude Vision)
+// ============================================================================
+
+function getImageMediaType(ext: string): ImageMediaType | null {
+  const types: Record<string, ImageMediaType> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+  };
+  return types[ext.toLowerCase()] || null;
+}
+
+async function processImage(filePath: string): Promise<ProcessedContent> {
+  const ext = path.extname(filePath).toLowerCase();
+  const mediaType = getImageMediaType(ext);
+
+  if (!mediaType) {
+    return {
+      text: '[Unsupported image format]',
+      format: 'image-unsupported',
+    };
+  }
+
+  const buffer = await readFile(filePath);
+  const base64 = buffer.toString('base64');
+
+  return {
+    text: '', // Will be filled by Claude vision
+    format: 'image',
+    image: {
+      base64,
+      mediaType,
+    },
+  };
+}
+
+// ============================================================================
+// CSV Processing
+// ============================================================================
+
+function processCsv(content: string, filePath: string): ProcessedContent {
+  const lines = content.split('\n').filter(line => line.trim());
+  if (lines.length === 0) {
+    return { text: content, format: 'csv' };
+  }
+
+  // Parse header and data
+  const header = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const rows = lines.slice(1);
+
+  // Convert to readable format
+  const formatted = rows.map((row, idx) => {
+    const values = row.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const pairs = header.map((h, i) => `${h}: ${values[i] || ''}`);
+    return `Row ${idx + 1}:\n  ${pairs.join('\n  ')}`;
+  }).join('\n\n');
+
+  return {
+    text: `CSV Data (${rows.length} rows, ${header.length} columns)\n\nColumns: ${header.join(', ')}\n\n${formatted}`,
+    format: 'csv',
+    metadata: {
+      title: path.basename(filePath, '.csv'),
+    },
+  };
+}
+
+// ============================================================================
+// HTML Processing
+// ============================================================================
+
+function processHtml(content: string): ProcessedContent {
+  // Simple HTML to text conversion
+  let text = content
+    // Remove scripts and styles
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    // Convert common elements
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<\/li>/gi, '\n')
+    // Remove remaining tags
+    .replace(/<[^>]+>/g, '')
+    // Decode common entities
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // Clean up whitespace
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  // Extract title from <title> tag
+  const titleMatch = content.match(/<title[^>]*>([^<]+)<\/title>/i);
+
+  return {
+    text,
+    format: 'html',
+    metadata: titleMatch ? { title: titleMatch[1].trim() } : undefined,
+  };
+}
+
+// ============================================================================
+// XML Processing
+// ============================================================================
+
+function processXml(content: string): ProcessedContent {
+  // Extract text content from XML, preserving structure
+  const text = content
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1') // Unwrap CDATA
+    .replace(/<[^>]+>/g, ' ') // Remove tags
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+
+  return {
+    text: `XML Document:\n\n${text}`,
+    format: 'xml',
+  };
+}
+
+// ============================================================================
 // Main Processing Function
 // ============================================================================
 
 export async function processFile(filePath: string): Promise<ProcessedContent> {
-  const content = await readFile(filePath, 'utf-8');
   const ext = path.extname(filePath).toLowerCase();
+
+  // Handle binary formats first (before trying to read as utf-8)
+  if (ext === '.pdf') {
+    return processPdf(filePath);
+  }
+
+  const imageMediaType = getImageMediaType(ext);
+  if (imageMediaType) {
+    return processImage(filePath);
+  }
+
+  // Text-based formats
+  const content = await readFile(filePath, 'utf-8');
 
   switch (ext) {
     case '.md':
@@ -217,6 +411,17 @@ export async function processFile(filePath: string): Promise<ProcessedContent> {
 
     case '.txt':
       return processPlainText(content);
+
+    case '.csv':
+      return processCsv(content, filePath);
+
+    case '.html':
+    case '.htm':
+      return processHtml(content);
+
+    case '.xml':
+    case '.xhtml':
+      return processXml(content);
 
     default:
       // Try to detect format from content
