@@ -613,6 +613,280 @@ program
   });
 
 // ============================================================================
+// Get Source Command
+// ============================================================================
+
+program
+  .command('get')
+  .description('Get full details of a specific source')
+  .argument('<source_id>', 'Source ID')
+  .option('-c, --content', 'Include full content')
+  .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
+  .action(async (sourceId, options) => {
+    const { handleGetSource } = await import('./mcp/handlers/get-source.js');
+    const dataDir = options.dataDir;
+    const dbPath = path.join(dataDir, 'lore.lance');
+
+    const result = await handleGetSource(dbPath, dataDir, {
+      source_id: sourceId,
+      include_content: options.content,
+    }) as Record<string, unknown>;
+
+    if (result.error) {
+      console.error(`Error: ${result.error}`);
+      process.exit(1);
+    }
+
+    console.log(`\n📄 ${result.title}`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`ID: ${result.id}`);
+    console.log(`Type: ${result.source_type} | ${result.content_type}`);
+    console.log(`Projects: ${(result.projects as string[])?.join(', ') || '(none)'}`);
+    console.log(`Tags: ${(result.tags as string[])?.join(', ') || '(none)'}`);
+    console.log(`Created: ${result.created_at}`);
+    console.log(`\nSummary:\n${result.summary}`);
+
+    const themes = result.themes as Array<{ name: string }>;
+    if (themes && themes.length > 0) {
+      console.log(`\nThemes:`);
+      for (const theme of themes) {
+        console.log(`  • ${theme.name}`);
+      }
+    }
+
+    const quotes = result.quotes as Array<{ speaker: string; text: string }>;
+    if (quotes && quotes.length > 0) {
+      console.log(`\nQuotes (${quotes.length}):`);
+      for (const quote of quotes.slice(0, 5)) {
+        const speaker = quote.speaker === 'user' ? '[You]' : '[Participant]';
+        console.log(`  ${speaker} "${quote.text.substring(0, 100)}${quote.text.length > 100 ? '...' : ''}"`);
+      }
+      if (quotes.length > 5) {
+        console.log(`  ... and ${quotes.length - 5} more`);
+      }
+    }
+
+    if (result.full_content) {
+      console.log(`\n${'─'.repeat(60)}`);
+      console.log(`Full Content:\n`);
+      console.log(result.full_content);
+    }
+    console.log('');
+  });
+
+// ============================================================================
+// List Sources Command
+// ============================================================================
+
+program
+  .command('list')
+  .description('List sources in the knowledge repository')
+  .option('-p, --project <project>', 'Filter by project')
+  .option('-t, --type <type>', 'Filter by source type')
+  .option('-l, --limit <limit>', 'Max results', '20')
+  .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
+  .action(async (options) => {
+    const { handleListSources } = await import('./mcp/handlers/list-sources.js');
+    const dataDir = options.dataDir;
+    const dbPath = path.join(dataDir, 'lore.lance');
+
+    const result = await handleListSources(dbPath, {
+      project: options.project,
+      source_type: options.type,
+      limit: parseInt(options.limit),
+    }) as { sources: Array<{ id: string; title: string; source_type: string; content_type: string; projects: string[]; created_at: string; summary: string }>; total: number };
+
+    console.log(`\nSources (${result.total}):`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    if (result.sources.length === 0) {
+      console.log('No sources found.');
+      return;
+    }
+
+    for (const source of result.sources) {
+      const date = new Date(source.created_at).toLocaleDateString();
+      console.log(`\n📄 ${source.title}`);
+      console.log(`   ID: ${source.id}`);
+      console.log(`   Type: ${source.source_type} | ${source.content_type}`);
+      console.log(`   Projects: ${source.projects.join(', ') || '(none)'}`);
+      console.log(`   Date: ${date}`);
+    }
+    console.log('');
+  });
+
+// ============================================================================
+// Retain Command
+// ============================================================================
+
+program
+  .command('retain')
+  .description('Save an insight, decision, or note')
+  .argument('<content>', 'Content to retain')
+  .requiredOption('-p, --project <project>', 'Project this belongs to')
+  .option('-t, --type <type>', 'Type: insight, decision, requirement, note', 'note')
+  .option('--context <context>', 'Source context (e.g., "from interview with Sarah")')
+  .option('--tags <tags>', 'Comma-separated tags')
+  .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
+  .option('--no-push', 'Skip git push')
+  .action(async (content, options) => {
+    const { handleRetain } = await import('./mcp/handlers/retain.js');
+    const dataDir = options.dataDir;
+    const dbPath = path.join(dataDir, 'lore.lance');
+
+    const validTypes = ['insight', 'decision', 'requirement', 'note'];
+    if (!validTypes.includes(options.type)) {
+      console.error(`Invalid type: ${options.type}. Must be one of: ${validTypes.join(', ')}`);
+      process.exit(1);
+    }
+
+    const result = await handleRetain(dbPath, dataDir, {
+      content,
+      project: options.project,
+      type: options.type as 'insight' | 'decision' | 'requirement' | 'note',
+      source_context: options.context,
+      tags: options.tags?.split(',').map((t: string) => t.trim()),
+    }, { autoPush: options.push !== false }) as { success: boolean; id: string; message: string; indexed: boolean; synced: boolean };
+
+    if (result.success) {
+      console.log(`\n✓ ${result.message}`);
+      console.log(`  ID: ${result.id}`);
+      console.log(`  Indexed: ${result.indexed ? 'yes' : 'no'}`);
+      console.log(`  Synced: ${result.synced ? 'yes' : 'no'}`);
+    } else {
+      console.error(`\nFailed to retain: ${result.message}`);
+      process.exit(1);
+    }
+  });
+
+// ============================================================================
+// Research Command
+// ============================================================================
+
+program
+  .command('research')
+  .description('Run comprehensive research on a topic')
+  .argument('<query>', 'Research query')
+  .option('-p, --project <project>', 'Focus on specific project')
+  .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
+  .option('--simple', 'Use simple mode (single-pass, faster)')
+  .action(async (query, options) => {
+    const { handleResearch } = await import('./mcp/handlers/research.js');
+    const dataDir = options.dataDir;
+    const dbPath = path.join(dataDir, 'lore.lance');
+
+    if (options.simple) {
+      process.env.LORE_RESEARCH_MODE = 'simple';
+    }
+
+    console.log(`\nResearching: "${query}"\n`);
+    console.log('This may take a moment...\n');
+
+    const result = await handleResearch(dbPath, dataDir, {
+      task: query,
+      project: options.project,
+      include_sources: true,
+    });
+
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`📊 Research Results`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+    console.log(`Summary:\n${result.summary}\n`);
+
+    if (result.key_findings && result.key_findings.length > 0) {
+      console.log(`Key Findings:`);
+      for (const finding of result.key_findings) {
+        console.log(`  • ${finding}`);
+      }
+      console.log('');
+    }
+
+    if (result.conflicts_resolved && result.conflicts_resolved.length > 0) {
+      console.log(`Conflicts Resolved:`);
+      for (const conflict of result.conflicts_resolved) {
+        console.log(`  ⚡ ${conflict}`);
+      }
+      console.log('');
+    }
+
+    if (result.supporting_quotes && result.supporting_quotes.length > 0) {
+      console.log(`Supporting Quotes (${result.supporting_quotes.length}):`);
+      for (const quote of result.supporting_quotes.slice(0, 5)) {
+        const speaker = quote.speaker === 'user' ? '[You]' : '[Participant]';
+        console.log(`  ${speaker} "${quote.text.substring(0, 80)}${quote.text.length > 80 ? '...' : ''}"`);
+      }
+      if (result.supporting_quotes.length > 5) {
+        console.log(`  ... and ${result.supporting_quotes.length - 5} more`);
+      }
+      console.log('');
+    }
+
+    if (result.sources_consulted && result.sources_consulted.length > 0) {
+      console.log(`Sources Consulted (${result.sources_consulted.length}):`);
+      for (const source of result.sources_consulted.slice(0, 5)) {
+        const relevance = source.relevance ? ` (${(source.relevance * 100).toFixed(0)}%)` : '';
+        console.log(`  • ${source.title}${relevance}`);
+      }
+      if (result.sources_consulted.length > 5) {
+        console.log(`  ... and ${result.sources_consulted.length - 5} more`);
+      }
+      console.log('');
+    }
+
+    if (result.gaps_identified && result.gaps_identified.length > 0) {
+      console.log(`Gaps Identified:`);
+      for (const gap of result.gaps_identified) {
+        console.log(`  ? ${gap}`);
+      }
+      console.log('');
+    }
+
+    if (result.suggested_queries && result.suggested_queries.length > 0) {
+      console.log(`Suggested Follow-up Queries:`);
+      for (const q of result.suggested_queries) {
+        console.log(`  → ${q}`);
+      }
+      console.log('');
+    }
+  });
+
+// ============================================================================
+// Archive Command
+// ============================================================================
+
+program
+  .command('archive')
+  .description('Archive a project')
+  .argument('<project>', 'Project name to archive')
+  .option('-r, --reason <reason>', 'Reason for archiving')
+  .option('-s, --successor <project>', 'Successor project name')
+  .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
+  .option('--no-push', 'Skip git push')
+  .action(async (project, options) => {
+    const { handleArchiveProject } = await import('./mcp/handlers/archive-project.js');
+    const dataDir = options.dataDir;
+    const dbPath = path.join(dataDir, 'lore.lance');
+
+    const result = await handleArchiveProject(dbPath, dataDir, {
+      project,
+      reason: options.reason,
+      successor_project: options.successor,
+    }, { autoPush: options.push !== false });
+
+    if (result.success) {
+      console.log(`\n✓ Archived project "${result.project}"`);
+      console.log(`  Sources affected: ${result.sources_affected}`);
+      if (result.reason) console.log(`  Reason: ${result.reason}`);
+      if (result.successor_project) console.log(`  Successor: ${result.successor_project}`);
+      console.log(`  Synced: ${result.synced ? 'yes' : 'no'}`);
+    } else {
+      console.error(`\nFailed to archive: ${result.error}`);
+      process.exit(1);
+    }
+  });
+
+// ============================================================================
 // Init Command - Set up data repository
 // ============================================================================
 
