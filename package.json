@@ -1,0 +1,45 @@
+{
+  "name": "lore",
+  "version": "0.1.0",
+  "description": "Research knowledge repository with semantic search, citations, and project lineage tracking",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "lore": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "mcp": "node dist/mcp/server.js"
+  },
+  "keywords": [
+    "knowledge-base",
+    "research",
+    "mcp",
+    "model-context-protocol",
+    "semantic-search",
+    "citations",
+    "project-management",
+    "ai-agents",
+    "claude"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@lancedb/lancedb": "^0.23.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "apache-arrow": "^18.1.0",
+    "commander": "^12.1.0",
+    "openai": "^4.77.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
