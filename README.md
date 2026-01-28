@@ -11,6 +11,7 @@ When doing user research and rapid prototyping, you need:
 - **Citations**: "In the Jan 15 interview, Sarah said '...'" not just "users want faster exports"
 - **Full context**: Access original transcripts when you need to dig deeper
 - **Cross-tool access**: Same knowledge base from Claude Code, Claude Desktop, or custom agents
+- **Multi-machine sync**: Content hash deduplication across all your machines
 - **Project organization**: Group knowledge by project with lineage tracking
 
 ## Quick Start
@@ -21,25 +22,52 @@ npm install
 
 # Build
 npm run build
+
+# Set up environment
+cp .env.example .env.local
+# Edit .env.local with your API keys
+```
+
+### Environment Variables
+
+```bash
+OPENAI_API_KEY=...              # Required for embeddings
+ANTHROPIC_API_KEY=...           # Required for sync metadata extraction & research
+SUPABASE_URL=...                # Supabase project URL
+SUPABASE_ANON_KEY=...           # Supabase anon/service key
+LORE_DATA_DIR=~/lore-data       # Data directory for raw documents
 ```
 
 ### Data Repository Setup
 
-**Important:** Lore separates code from data. Your knowledge is stored in a separate data directory (optionally its own git repo for syncing across machines).
+Lore separates code from data. Your knowledge is stored in a separate data directory (optionally its own git repo for syncing across machines).
 
 ```bash
-# Copy the template to your desired location
-cp -r /path/to/lore/data-repo-template ~/lore-data
-cd ~/lore-data
+# Initialize a new data repository
+lore init ~/lore-data
 
-# Initialize git and commit
-git init
-git add . && git commit -m "Initial lore data repo"
-
-# (Optional) Push to private remote for cross-machine sync
-git remote add origin git@github.com:you/lore-data-private.git
-git push -u origin main
+# Or with a git remote for cross-machine sync
+lore init ~/lore-data --remote git@github.com:you/lore-data-private.git
 ```
+
+### Configure Sync Sources
+
+Tell Lore where to find your documents:
+
+```bash
+# Add directories to watch
+lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
+lore sources add --name "Research Notes" --path ~/research --glob "**/*.{md,txt}" --project research
+
+# List configured sources
+lore sources list
+
+# Enable/disable sources
+lore sources disable "Granola Meetings"
+lore sources enable "Granola Meetings"
+```
+
+Config is stored at `~/.config/lore/sync-sources.json` (machine-specific, not in data repo).
 
 ### MCP Configuration
 
@@ -51,18 +79,15 @@ git push -u origin main
       "args": ["/path/to/lore/dist/mcp/server.js"],
       "env": {
         "OPENAI_API_KEY": "your-key",
+        "ANTHROPIC_API_KEY": "your-key",
+        "SUPABASE_URL": "your-url",
+        "SUPABASE_ANON_KEY": "your-key",
         "LORE_DATA_DIR": "/path/to/your/lore-data"
       }
     }
   }
 }
 ```
-
-The data directory contains:
-- `sources/` - Ingested source documents (git-tracked)
-- `retained/` - Explicitly retained insights (git-tracked)
-- `lore.lance/` - Vector index (git-ignored, rebuilt with `lore sync`)
-- `archived-projects.json` - Archived project list (git-tracked)
 
 ## MCP Tools
 
@@ -73,10 +98,10 @@ The data directory contains:
 | `search` | Semantic search across all sources |
 | `get_source` | Full source document with content |
 | `list_sources` | Browse by project or type |
-| `get_quotes` | Find citable quotes by theme |
 | `list_projects` | Project overview with stats |
-| `retain` | Explicitly save insights |
-| `sync` | Refresh index from disk (optional git pull) |
+| `retain` | Explicitly save insights/decisions |
+| `ingest` | Add documents directly via MCP |
+| `sync` | Two-phase sync (discovery + processing) |
 | `archive_project` | Archive a project (excludes from search) |
 
 ### Agentic Research
@@ -85,23 +110,21 @@ The data directory contains:
 |------|-------------|
 | `research` | Comprehensive research with synthesis and citations |
 
-## Supported Sources
-
-- **Granola** - Meeting transcripts with speaker attribution
-- **Claude Code** - Conversation histories from `~/.claude/projects/`
-- **Markdown** - Any documents (research, competitor analysis, ChatGPT dumps, etc.)
-
 ## CLI Commands
 
 ```bash
-# Ingest Granola meeting exports
-lore ingest /path/to/granola-exports --type granola -p myproject
+# Sync sources (two-phase: discovery then processing)
+lore sync
 
-# Ingest Claude Code conversations
-lore ingest ~/.claude/projects --type claude-code -p myproject
+# Dry run - see what would be synced
+lore sync --dry-run
 
-# Ingest markdown documents (competitor analyses, ChatGPT context dumps, specs, etc.)
-lore ingest /path/to/docs --type markdown -p myproject
+# Manage sync sources
+lore sources list
+lore sources add
+lore sources enable <name>
+lore sources disable <name>
+lore sources remove <name>
 
 # Search from command line
 lore search "user pain points with onboarding"
@@ -109,12 +132,38 @@ lore search "user pain points with onboarding"
 # List projects
 lore projects
 
-# Rebuild index
-lore sync
-
 # Start MCP server
 lore mcp
+
+# Legacy: Direct ingest (still works)
+lore ingest /path/to/docs --type markdown -p myproject
 ```
+
+## How Sync Works
+
+Lore uses a **two-phase sync** for efficiency:
+
+### Phase 1: Discovery (FREE - no LLM calls)
+```
+For each configured source directory:
+  1. Find files matching glob pattern
+  2. Compute SHA256 hash of each file
+  3. Check Supabase: does this hash exist?
+  4. If yes: skip (already indexed)
+  5. If no: queue for processing
+```
+
+### Phase 2: Processing (only NEW files)
+```
+For each new file:
+  1. Pre-process content (JSONL → text, etc.)
+  2. Claude extracts: title, summary, date, participants, content_type
+  3. Generate embedding
+  4. Store in Supabase with content_hash
+  5. Copy to lore-data/sources/
+```
+
+**Multi-machine deduplication**: Same file content = same hash, regardless of path or machine. If you sync the same file on two machines, only the first one is processed.
 
 ## Architecture
 
@@ -129,7 +178,23 @@ lore mcp
 │ Conversations  │ Themes            │ Project summaries      │
 │ Documents      │ Decisions         │ Delegation context     │
 └────────────────┴───────────────────┴────────────────────────┘
+
+Storage:
+├── Supabase (cloud)     - Vector embeddings + metadata (shared across machines)
+├── lore-data/ (git)     - Raw documents (synced via git)
+└── ~/.config/lore/      - Machine-specific sync config
 ```
+
+## Supported File Formats
+
+The universal sync system handles:
+
+- **Markdown** (`.md`) - Documents, notes, research
+- **JSONL** (`.jsonl`) - Claude Code conversations, chat logs
+- **JSON** (`.json`) - Granola exports, structured data
+- **Plain text** (`.txt`) - Any text content
+
+Claude automatically extracts metadata and classifies content type (interview, meeting, document, note, analysis, etc.).
 
 ## License
 

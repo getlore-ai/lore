@@ -18,7 +18,7 @@
 - [x] `list_projects` - Project overview with stats
 - [x] `retain` - Save insights/decisions (instant indexing)
 - [x] `ingest` - Add documents directly via MCP
-- [x] `sync` - Refresh index (git pull + index new sources)
+- [x] `sync` - Two-phase sync with content hash deduplication
 - [x] `archive_project` - Archive completed/superseded projects
 - [x] `research` - Agentic research with Claude Agent SDK
 
@@ -36,7 +36,7 @@
 - [x] `lore ingest <path> --type granola`
 - [x] Process all documents in export directory
 - [x] Progress reporting
-- [x] `lore sync` - Rebuild index + git pull/push
+- [x] `lore sync` - Two-phase sync with git integration
 - [x] Auto-sync on interval (configurable)
 
 ## Phase 3: Research Agent ✅
@@ -59,22 +59,31 @@
 
 ## Phase 4: Source Adapters ✅
 
-### Claude Code Adapter
+### Claude Code Adapter (Legacy)
 - [x] Parse Claude Code conversation exports
 - [x] Extract decisions and insights
 - [x] Handle tool calls and code blocks
 - [x] Map to source document format
 
-### Markdown Adapter
+### Markdown Adapter (Legacy)
 - [x] Ingest any markdown documents
 - [x] Extract structure (headings, lists)
 - [x] Support frontmatter for metadata
 - [x] Useful for competitor analyses, ChatGPT exports, specs, etc.
 
-### Claude Desktop Adapter
-- [ ] Research export format (not yet available/documented)
-- [ ] Build parser
-- [ ] Handle project exports
+### Universal Sync (Replaces Legacy Adapters) ✅
+- [x] Two-phase sync architecture
+- [x] Phase 1: Discovery (no LLM calls, free)
+  - [x] Scan configured source directories
+  - [x] Compute SHA256 content hashes
+  - [x] Check Supabase for existing hashes
+- [x] Phase 2: Processing (only new files)
+  - [x] Claude extracts metadata (title, summary, date, participants, content_type)
+  - [x] Generate embeddings via OpenAI
+  - [x] Store with content_hash for cross-machine deduplication
+- [x] Format preprocessors (Markdown, JSONL, JSON)
+- [x] Machine-specific config (`~/.config/lore/sync-sources.json`)
+- [x] CLI: `lore sources list/add/enable/disable/remove`
 
 ## Phase 5: Project Management ✅
 
@@ -83,10 +92,17 @@
 - [x] Lineage reconstruction via `research` agent (no explicit tracking needed)
 - [x] Context building via `research` agent (produces ResearchPackage with citations)
 
-## Phase 6: Polish & Production
+## Phase 6: Multi-Machine Support ✅
+
+- [x] Supabase for cloud vector storage (shared across machines)
+- [x] Git for raw document sync
+- [x] Content hash deduplication (same content = same hash, regardless of path/machine)
+- [x] Machine-specific sync source configuration
+- [x] Database migration for `content_hash` and `source_path` columns
+
+## Phase 7: Polish & Production
 
 ### Performance
-- [ ] Batch embedding generation
 - [ ] Query caching
 - [ ] Large corpus optimization (1000+ sources)
 
@@ -94,7 +110,11 @@
 - [ ] Better error messages
 - [ ] Logging with levels
 - [ ] Debug mode for MCP
+
+### Documentation
 - [ ] Documentation site
+- [ ] API reference
+- [ ] Tutorial/getting started guide
 
 ### Testing
 - [ ] Unit tests for core
@@ -106,6 +126,5 @@
 - **Web UI**: Browse and manage knowledge visually
 - **API Server**: REST/GraphQL access beyond MCP
 - **Collaborative**: Multi-user with permissions
-- ~~**Cloud Sync**: Optional backup/sync~~ (done - Supabase for vectors, git for raw docs)
 - **Plugin System**: Custom source adapters
-- **Real-time Ingestion**: Watch folders for new sources
+- **Real-time Watch**: Auto-sync when files change in watched directories
