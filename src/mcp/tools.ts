@@ -140,14 +140,30 @@ const ResearchSchema = z.object({
       'Research task description (e.g., "Find all user feedback about export performance")'
     ),
   project: z.string().optional().describe('Focus research on specific project'),
-  depth: z
-    .enum(['quick', 'thorough', 'exhaustive'])
-    .optional()
-    .describe('How deep to research (default: thorough)'),
   include_sources: z
     .boolean()
     .optional()
     .describe('Include source document references (default: true)'),
+});
+
+// ============================================================================
+// Ingest Tool
+// ============================================================================
+
+const IngestSchema = z.object({
+  content: z.string().describe('The document content to ingest'),
+  title: z.string().describe('Title for the document'),
+  project: z.string().describe('Project this document belongs to'),
+  source_type: z
+    .enum(['meeting', 'interview', 'document', 'notes', 'analysis', 'conversation'])
+    .optional()
+    .describe('Type of source (default: document)'),
+  date: z.string().optional().describe('Date of the document (ISO format, defaults to now)'),
+  participants: z
+    .array(z.string())
+    .optional()
+    .describe('People involved (for meetings/interviews)'),
+  tags: z.array(z.string()).optional().describe('Optional tags for categorization'),
 });
 
 // ============================================================================
@@ -237,6 +253,14 @@ export const toolDefinitions = [
     description:
       'Comprehensive research across the knowledge repository. Uses an internal agent to search, cross-reference, and synthesize findings into a research package with citations. More thorough than simple search but takes longer. Use for complex questions that need multiple sources.',
     inputSchema: zodToJsonSchema(ResearchSchema),
+  },
+
+  // Ingest tool
+  {
+    name: 'ingest',
+    description:
+      'Ingest a document directly into the knowledge repository. Use this when you have document content (meeting notes, interview transcript, analysis, etc.) that should be added to Lore. The document will be saved, indexed, and immediately searchable.',
+    inputSchema: zodToJsonSchema(IngestSchema),
   },
 
   // Sync tool

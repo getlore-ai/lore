@@ -26,6 +26,7 @@ import { handleGetSource } from './handlers/get-source.js';
 import { handleListSources } from './handlers/list-sources.js';
 import { handleGetQuotes } from './handlers/get-quotes.js';
 import { handleRetain } from './handlers/retain.js';
+import { handleIngest } from './handlers/ingest.js';
 import { handleResearch } from './handlers/research.js';
 import { handleListProjects } from './handlers/list-projects.js';
 import { handleSync } from './handlers/sync.js';
@@ -180,6 +181,13 @@ async function main() {
         // Push-based retention
         case 'retain':
           result = await handleRetain(DB_PATH, LORE_DATA_DIR, args as any, {
+            autoPush: AUTO_GIT_PUSH,
+          });
+          break;
+
+        // Direct document ingestion
+        case 'ingest':
+          result = await handleIngest(DB_PATH, LORE_DATA_DIR, args as any, {
             autoPush: AUTO_GIT_PUSH,
           });
           break;

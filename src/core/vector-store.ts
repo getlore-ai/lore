@@ -1,12 +1,11 @@
 /**
- * Lore - Vector Store
+ * Lore - Vector Store (Supabase + pgvector)
  *
- * LanceDB-based vector storage for semantic search across sources and chunks.
- * Adapted from granola-extractor with expanded schema for projects and citations.
+ * Cloud-hosted vector storage for semantic search across sources and chunks.
+ * Replaces LanceDB for multi-machine, multi-agent support.
  */
 
-import * as lancedb from '@lancedb/lancedb';
-import { existsSync } from 'fs';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   SourceRecord,
   ChunkRecord,
@@ -16,210 +15,171 @@ import type {
   ContentType,
 } from './types.js';
 
-let db: lancedb.Connection | null = null;
+let supabase: SupabaseClient | null = null;
 
-export async function getDatabase(dbPath: string): Promise<lancedb.Connection> {
-  if (!db) {
-    db = await lancedb.connect(dbPath);
+function getSupabase(): SupabaseClient {
+  if (!supabase) {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+
+    if (!url || !key) {
+      throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY (or SUPABASE_ANON_KEY) are required');
+    }
+
+    supabase = createClient(url, key);
   }
-  return db;
+  return supabase;
 }
 
-export async function closeDatabase(): Promise<void> {
-  if (db) {
-    db = null;
-  }
-}
-
-const SOURCES_TABLE = 'sources';
-const CHUNKS_TABLE = 'chunks';
-const PROJECTS_TABLE = 'projects';
-const DECISIONS_TABLE = 'decisions';
-
 // ============================================================================
-// Index Management
+// Index Management (compatibility layer - not needed for Supabase)
 // ============================================================================
 
-export async function indexExists(dbPath: string): Promise<boolean> {
-  if (!existsSync(dbPath)) return false;
+export async function indexExists(_dbPath: string): Promise<boolean> {
+  // With Supabase, the index always "exists" if we can connect
   try {
-    const database = await getDatabase(dbPath);
-    const tables = await database.tableNames();
-    // Only sources table is required - chunks may be empty
-    return tables.includes(SOURCES_TABLE);
+    const client = getSupabase();
+    const { error } = await client.from('sources').select('id').limit(1);
+    return !error;
   } catch {
     return false;
   }
 }
 
-export async function initializeTables(dbPath: string): Promise<void> {
-  const database = await getDatabase(dbPath);
-  const existingTables = await database.tableNames();
+export async function initializeTables(_dbPath: string): Promise<void> {
+  // Tables are managed via migrations in Supabase
+  // This is a no-op for compatibility
+}
 
-  // Drop existing tables if they exist (for reindexing)
-  for (const table of [SOURCES_TABLE, CHUNKS_TABLE]) {
-    if (existingTables.includes(table)) {
-      await database.dropTable(table);
-    }
-  }
+export function resetDatabaseConnection(): void {
+  // Reset the client to force reconnection
+  supabase = null;
+}
+
+export async function closeDatabase(): Promise<void> {
+  supabase = null;
+}
+
+// For compatibility - Supabase doesn't use a local path
+export async function getDatabase(_dbPath: string): Promise<SupabaseClient> {
+  return getSupabase();
 }
 
 // ============================================================================
 // Source Storage
 // ============================================================================
 
-/**
- * Add a single source to the existing index (for retain operations)
- */
 export async function addSource(
-  dbPath: string,
+  _dbPath: string,
   source: SourceRecord,
   vector: number[]
 ): Promise<void> {
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
-  const record = {
+  const { error } = await client.from('sources').upsert({
     id: source.id,
     title: source.title,
     source_type: source.source_type,
     content_type: source.content_type,
-    projects: source.projects,
-    tags: source.tags,
+    projects: JSON.parse(source.projects),
+    tags: JSON.parse(source.tags),
     created_at: source.created_at,
     summary: source.summary,
-    themes_json: source.themes_json,
-    quotes_json: source.quotes_json,
+    themes_json: JSON.parse(source.themes_json),
+    quotes_json: JSON.parse(source.quotes_json),
     has_full_content: source.has_full_content,
-    vector,
-  };
+    embedding: vector,
+    indexed_at: new Date().toISOString(),
+  });
 
-  try {
-    const table = await database.openTable(SOURCES_TABLE);
-    await table.add([record]);
-  } catch {
-    // Table doesn't exist, create it
-    await database.createTable(SOURCES_TABLE, [record]);
+  if (error) {
+    console.error('[addSource] Error:', error);
+    throw error;
   }
 }
 
-/**
- * Add chunks to the existing index
- */
 export async function addChunks(
-  dbPath: string,
+  _dbPath: string,
   chunks: ChunkRecord[]
 ): Promise<void> {
   if (chunks.length === 0) return;
 
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
   const records = chunks.map((chunk) => ({
     id: chunk.id,
     source_id: chunk.source_id,
     content: chunk.content,
     type: chunk.type,
-    theme_name: chunk.theme_name || '',
-    speaker: chunk.speaker || '',
-    timestamp: chunk.timestamp || '',
-    vector: chunk.vector,
+    theme_name: chunk.theme_name || null,
+    speaker: chunk.speaker || null,
+    timestamp: chunk.timestamp || null,
+    embedding: chunk.vector,
+    indexed_at: new Date().toISOString(),
   }));
 
-  try {
-    const table = await database.openTable(CHUNKS_TABLE);
-    await table.add(records);
-  } catch {
-    // Table doesn't exist, create it
-    await database.createTable(CHUNKS_TABLE, records);
+  const { error } = await client.from('chunks').upsert(records);
+
+  if (error) {
+    console.error('[addChunks] Error:', error);
+    throw error;
   }
 }
 
 export async function storeSources(
-  dbPath: string,
+  _dbPath: string,
   sources: Array<{
     source: SourceRecord;
     vector: number[];
   }>
 ): Promise<void> {
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
   const records = sources.map(({ source, vector }) => ({
     id: source.id,
     title: source.title,
     source_type: source.source_type,
     content_type: source.content_type,
-    projects: source.projects,
-    tags: source.tags,
+    projects: JSON.parse(source.projects),
+    tags: JSON.parse(source.tags),
     created_at: source.created_at,
     summary: source.summary,
-    themes_json: source.themes_json,
-    quotes_json: source.quotes_json,
+    themes_json: JSON.parse(source.themes_json),
+    quotes_json: JSON.parse(source.quotes_json),
     has_full_content: source.has_full_content,
-    vector,
+    embedding: vector,
+    indexed_at: new Date().toISOString(),
   }));
 
-  await database.createTable(SOURCES_TABLE, records, { mode: 'overwrite' });
+  const { error } = await client.from('sources').upsert(records);
+
+  if (error) {
+    console.error('[storeSources] Error:', error);
+    throw error;
+  }
 }
 
 export async function storeChunks(
-  dbPath: string,
+  _dbPath: string,
   chunks: ChunkRecord[]
 ): Promise<void> {
-  if (chunks.length === 0) {
-    // Nothing to store - skip creating empty table
-    return;
-  }
-
-  const database = await getDatabase(dbPath);
-
-  const records = chunks.map((chunk) => ({
-    id: chunk.id,
-    source_id: chunk.source_id,
-    content: chunk.content,
-    type: chunk.type,
-    theme_name: chunk.theme_name || '',
-    speaker: chunk.speaker || '',
-    timestamp: chunk.timestamp || '',
-    vector: chunk.vector,
-  }));
-
-  await database.createTable(CHUNKS_TABLE, records, { mode: 'overwrite' });
+  if (chunks.length === 0) return;
+  await addChunks(_dbPath, chunks);
 }
 
 // ============================================================================
 // Search Operations
 // ============================================================================
 
-/**
- * Calculate time-weighted score
- * Recent sources get a boost, but semantic relevance is still primary
- */
-function calculateTimeWeightedScore(
-  semanticScore: number,
-  createdAt: string,
-  recencyBoost: number = 0.15
-): number {
-  const now = Date.now();
-  const created = new Date(createdAt).getTime();
-  const ageInDays = (now - created) / (1000 * 60 * 60 * 24);
-
-  // Decay function: sources lose up to recencyBoost over 90 days
-  // After 90 days, no additional penalty
-  const ageFactor = Math.min(ageInDays / 90, 1);
-  const recencyScore = 1 - ageFactor * recencyBoost;
-
-  // Combine: semantic is primary (85%), recency is secondary (15%)
-  return semanticScore * (1 - recencyBoost) + semanticScore * recencyScore * recencyBoost;
-}
-
 export async function searchSources(
-  dbPath: string,
+  _dbPath: string,
   queryVector: number[],
   options: {
     limit?: number;
     project?: string;
     source_type?: SourceType;
     content_type?: ContentType;
-    recency_boost?: number; // 0-1, how much to favor recent sources (default 0.15)
+    recency_boost?: number;
   } = {}
 ): Promise<
   Array<{
@@ -237,61 +197,39 @@ export async function searchSources(
   }>
 > {
   const { limit = 10, project, source_type, content_type, recency_boost = 0.15 } = options;
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
-  try {
-    const table = await database.openTable(SOURCES_TABLE);
-    const query = table.search(queryVector).limit(limit * 3); // Over-fetch for filtering and re-ranking
+  const { data, error } = await client.rpc('search_sources', {
+    query_embedding: queryVector,
+    match_count: limit,
+    filter_project: project || null,
+    filter_source_type: source_type || null,
+    filter_content_type: content_type || null,
+    recency_boost,
+  });
 
-    const results = await query.toArray();
-
-    const filtered = results
-      .filter((row) => {
-        if (source_type && row.source_type !== source_type) return false;
-        if (content_type && row.content_type !== content_type) return false;
-        if (project) {
-          const projects = JSON.parse(row.projects as string) as string[];
-          if (!projects.some((p) => p.toLowerCase().includes(project.toLowerCase()))) {
-            return false;
-          }
-        }
-        return true;
-      })
-      .map((row) => {
-        const semanticScore = row._distance !== undefined ? 1 / (1 + (row._distance as number)) : 0;
-        const timeWeightedScore = calculateTimeWeightedScore(
-          semanticScore,
-          row.created_at as string,
-          recency_boost
-        );
-
-        return {
-          id: row.id as string,
-          title: row.title as string,
-          source_type: row.source_type as SourceType,
-          content_type: row.content_type as ContentType,
-          projects: JSON.parse(row.projects as string) as string[],
-          tags: JSON.parse(row.tags as string) as string[],
-          created_at: row.created_at as string,
-          summary: row.summary as string,
-          themes: JSON.parse(row.themes_json as string) as Theme[],
-          quotes: JSON.parse(row.quotes_json as string) as Quote[],
-          score: timeWeightedScore,
-        };
-      });
-
-    // Re-sort by time-weighted score
-    filtered.sort((a, b) => b.score - a.score);
-
-    return filtered.slice(0, limit);
-  } catch (error) {
+  if (error) {
     console.error('Error searching sources:', error);
     return [];
   }
+
+  return (data || []).map((row: Record<string, unknown>) => ({
+    id: row.id as string,
+    title: row.title as string,
+    source_type: row.source_type as SourceType,
+    content_type: row.content_type as ContentType,
+    projects: row.projects as string[],
+    tags: row.tags as string[],
+    created_at: row.created_at as string,
+    summary: row.summary as string,
+    themes: (row.themes_json || []) as Theme[],
+    quotes: (row.quotes_json || []) as Quote[],
+    score: row.score as number,
+  }));
 }
 
 export async function searchChunks(
-  dbPath: string,
+  _dbPath: string,
   queryVector: number[],
   options: {
     limit?: number;
@@ -312,36 +250,31 @@ export async function searchChunks(
   }>
 > {
   const { limit = 20, type, theme_name, source_id } = options;
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
-  try {
-    const table = await database.openTable(CHUNKS_TABLE);
-    const query = table.search(queryVector).limit(limit * 2);
+  const { data, error } = await client.rpc('search_chunks', {
+    query_embedding: queryVector,
+    match_count: limit,
+    filter_type: type || null,
+    filter_theme_name: theme_name || null,
+    filter_source_id: source_id || null,
+  });
 
-    const results = await query.toArray();
-
-    return results
-      .filter((row) => {
-        if (type && row.type !== type) return false;
-        if (theme_name && row.theme_name !== theme_name) return false;
-        if (source_id && row.source_id !== source_id) return false;
-        return true;
-      })
-      .slice(0, limit)
-      .map((row) => ({
-        id: row.id as string,
-        source_id: row.source_id as string,
-        content: row.content as string,
-        type: row.type as string,
-        theme_name: row.theme_name as string,
-        speaker: row.speaker as string,
-        timestamp: row.timestamp as string,
-        score: row._distance !== undefined ? 1 / (1 + (row._distance as number)) : 0,
-      }));
-  } catch {
-    // Table may not exist if no chunks have been stored
+  if (error) {
+    console.error('Error searching chunks:', error);
     return [];
   }
+
+  return (data || []).map((row: Record<string, unknown>) => ({
+    id: row.id as string,
+    source_id: row.source_id as string,
+    content: row.content as string,
+    type: row.type as string,
+    theme_name: (row.theme_name || '') as string,
+    speaker: (row.speaker || '') as string,
+    timestamp: (row.timestamp || '') as string,
+    score: row.score as number,
+  }));
 }
 
 // ============================================================================
@@ -349,7 +282,7 @@ export async function searchChunks(
 // ============================================================================
 
 export async function getAllSources(
-  dbPath: string,
+  _dbPath: string,
   options: {
     project?: string;
     source_type?: SourceType;
@@ -367,51 +300,45 @@ export async function getAllSources(
   }>
 > {
   const { project, source_type, limit } = options;
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
-  try {
-    const table = await database.openTable(SOURCES_TABLE);
-    const results = await table.query().toArray();
+  let query = client
+    .from('sources')
+    .select('id, title, source_type, content_type, projects, created_at, summary')
+    .order('created_at', { ascending: false });
 
-    let filtered = results.filter((row) => {
-      if (source_type && row.source_type !== source_type) return false;
-      if (project) {
-        const projects = JSON.parse(row.projects as string) as string[];
-        if (!projects.some((p) => p.toLowerCase().includes(project.toLowerCase()))) {
-          return false;
-        }
-      }
-      return true;
-    });
+  if (source_type) {
+    query = query.eq('source_type', source_type);
+  }
 
-    // Sort by date descending
-    filtered.sort(
-      (a, b) =>
-        new Date(b.created_at as string).getTime() -
-        new Date(a.created_at as string).getTime()
-    );
+  if (project) {
+    query = query.contains('projects', [project]);
+  }
 
-    if (limit) {
-      filtered = filtered.slice(0, limit);
-    }
+  if (limit) {
+    query = query.limit(limit);
+  }
 
-    return filtered.map((row) => ({
-      id: row.id as string,
-      title: row.title as string,
-      source_type: row.source_type as SourceType,
-      content_type: row.content_type as ContentType,
-      projects: JSON.parse(row.projects as string) as string[],
-      created_at: row.created_at as string,
-      summary: row.summary as string,
-    }));
-  } catch (error) {
+  const { data, error } = await query;
+
+  if (error) {
     console.error('Error getting all sources:', error);
     return [];
   }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    source_type: row.source_type as SourceType,
+    content_type: row.content_type as ContentType,
+    projects: row.projects,
+    created_at: row.created_at,
+    summary: row.summary,
+  }));
 }
 
 export async function getSourceById(
-  dbPath: string,
+  _dbPath: string,
   sourceId: string
 ): Promise<{
   id: string;
@@ -425,31 +352,31 @@ export async function getSourceById(
   themes: Theme[];
   quotes: Quote[];
 } | null> {
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
 
-  try {
-    const table = await database.openTable(SOURCES_TABLE);
-    const results = await table.query().where(`id = '${sourceId}'`).toArray();
+  const { data, error } = await client
+    .from('sources')
+    .select('*')
+    .eq('id', sourceId)
+    .single();
 
-    if (results.length === 0) return null;
-
-    const row = results[0];
-    return {
-      id: row.id as string,
-      title: row.title as string,
-      source_type: row.source_type as SourceType,
-      content_type: row.content_type as ContentType,
-      projects: JSON.parse(row.projects as string) as string[],
-      tags: JSON.parse(row.tags as string) as string[],
-      created_at: row.created_at as string,
-      summary: row.summary as string,
-      themes: JSON.parse(row.themes_json as string) as Theme[],
-      quotes: JSON.parse(row.quotes_json as string) as Quote[],
-    };
-  } catch (error) {
+  if (error || !data) {
     console.error('Error getting source by ID:', error);
     return null;
   }
+
+  return {
+    id: data.id,
+    title: data.title,
+    source_type: data.source_type as SourceType,
+    content_type: data.content_type as ContentType,
+    projects: data.projects,
+    tags: data.tags,
+    created_at: data.created_at,
+    summary: data.summary,
+    themes: data.themes_json || [],
+    quotes: data.quotes_json || [],
+  };
 }
 
 // ============================================================================
@@ -457,42 +384,40 @@ export async function getSourceById(
 // ============================================================================
 
 export async function getThemeStats(
-  dbPath: string,
+  _dbPath: string,
   project?: string
 ): Promise<Map<string, { source_count: number; quote_count: number }>> {
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
   const stats = new Map<string, { source_count: number; quote_count: number }>();
 
-  try {
-    const table = await database.openTable(SOURCES_TABLE);
-    const results = await table.query().toArray();
+  let query = client.from('sources').select('themes_json, quotes_json, projects');
 
-    for (const row of results) {
-      // Filter by project if specified
-      if (project) {
-        const projects = JSON.parse(row.projects as string) as string[];
-        if (!projects.some((p) => p.toLowerCase().includes(project.toLowerCase()))) {
-          continue;
-        }
-      }
+  if (project) {
+    query = query.contains('projects', [project]);
+  }
 
-      const themes = JSON.parse(row.themes_json as string) as Theme[];
-      for (const theme of themes) {
-        const existing = stats.get(theme.name) || { source_count: 0, quote_count: 0 };
-        existing.source_count++;
-        existing.quote_count += theme.evidence.length;
-        stats.set(theme.name, existing);
-      }
-    }
-  } catch (error) {
+  const { data, error } = await query;
+
+  if (error) {
     console.error('Error getting theme stats:', error);
+    return stats;
+  }
+
+  for (const row of data || []) {
+    const themes = (row.themes_json || []) as Theme[];
+    for (const theme of themes) {
+      const existing = stats.get(theme.name) || { source_count: 0, quote_count: 0 };
+      existing.source_count++;
+      existing.quote_count += theme.evidence?.length || 0;
+      stats.set(theme.name, existing);
+    }
   }
 
   return stats;
 }
 
 export async function getProjectStats(
-  dbPath: string
+  _dbPath: string
 ): Promise<
   Array<{
     project: string;
@@ -501,37 +426,39 @@ export async function getProjectStats(
     latest_activity: string;
   }>
 > {
-  const database = await getDatabase(dbPath);
+  const client = getSupabase();
   const projectMap = new Map<
     string,
     { source_count: number; quote_count: number; latest_activity: string }
   >();
 
-  try {
-    const table = await database.openTable(SOURCES_TABLE);
-    const results = await table.query().toArray();
+  const { data, error } = await client
+    .from('sources')
+    .select('projects, quotes_json, created_at');
 
-    for (const row of results) {
-      const projects = JSON.parse(row.projects as string) as string[];
-      const quotes = JSON.parse(row.quotes_json as string) as Quote[];
-      const created_at = row.created_at as string;
-
-      for (const project of projects) {
-        const existing = projectMap.get(project) || {
-          source_count: 0,
-          quote_count: 0,
-          latest_activity: created_at,
-        };
-        existing.source_count++;
-        existing.quote_count += quotes.length;
-        if (new Date(created_at) > new Date(existing.latest_activity)) {
-          existing.latest_activity = created_at;
-        }
-        projectMap.set(project, existing);
-      }
-    }
-  } catch (error) {
+  if (error) {
     console.error('Error getting project stats:', error);
+    return [];
+  }
+
+  for (const row of data || []) {
+    const projects = row.projects as string[];
+    const quotes = (row.quotes_json || []) as Quote[];
+    const created_at = row.created_at as string;
+
+    for (const project of projects) {
+      const existing = projectMap.get(project) || {
+        source_count: 0,
+        quote_count: 0,
+        latest_activity: created_at,
+      };
+      existing.source_count++;
+      existing.quote_count += quotes.length;
+      if (new Date(created_at) > new Date(existing.latest_activity)) {
+        existing.latest_activity = created_at;
+      }
+      projectMap.set(project, existing);
+    }
   }
 
   return Array.from(projectMap.entries())

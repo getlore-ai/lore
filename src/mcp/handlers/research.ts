@@ -1,25 +1,33 @@
 /**
  * Research Handler - LLM-powered research synthesis
  *
- * This is the "smart" tool that:
- * 1. Searches across multiple sources (excluding archived by default)
- * 2. Cross-references findings
- * 3. Detects and resolves conflicts (preferring newer sources)
- * 4. Uses LLM to synthesize a research package with citations
+ * Two modes:
+ * 1. AGENTIC (default): Uses Claude Agent SDK for iterative, thorough research
+ * 2. SIMPLE (fallback): Single-pass search + GPT-4o-mini synthesis
+ *
+ * Set LORE_RESEARCH_MODE=simple to use the fallback mode.
  */
 
 import OpenAI from 'openai';
 import { searchSources, searchChunks, getSourceById } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
+import { runResearchAgent } from './research-agent.js';
 import type { ResearchPackage, Quote, SourceType } from '../../core/types.js';
 
-const openai = new OpenAI();
+// Lazy initialization for OpenAI (only used in simple mode)
+let openaiClient: OpenAI | null = null;
+
+function getOpenAI(): OpenAI {
+  if (!openaiClient) {
+    openaiClient = new OpenAI();
+  }
+  return openaiClient;
+}
 
 interface ResearchArgs {
   task: string;
   project?: string;
-  depth?: 'quick' | 'thorough' | 'exhaustive';
   include_sources?: boolean;
 }
 
@@ -98,7 +106,7 @@ CRITICAL GUIDELINES:
 Respond with only the JSON object.`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
@@ -136,15 +144,39 @@ export async function handleResearch(
   dataDir: string,
   args: ResearchArgs
 ): Promise<ResearchPackage> {
-  const { task, project, depth = 'thorough', include_sources = true } = args;
+  const { task, project, include_sources = true } = args;
 
-  const limits = {
-    quick: { sources: 5, quotes: 10 },
-    thorough: { sources: 10, quotes: 25 },
-    exhaustive: { sources: 20, quotes: 50 },
-  };
+  // Check if we should use agentic mode (default) or simple mode (fallback)
+  const useAgenticMode = process.env.LORE_RESEARCH_MODE !== 'simple';
 
-  const { sources: sourceLimit, quotes: quoteLimit } = limits[depth];
+  if (useAgenticMode) {
+    console.error('[research] Using agentic mode (Claude Agent SDK)');
+    try {
+      return await runResearchAgent(dbPath, dataDir, args);
+    } catch (error) {
+      console.error('[research] Agentic mode failed, falling back to simple mode:', error);
+      // Fall through to simple mode
+    }
+  }
+
+  console.error('[research] Using simple mode (single-pass synthesis)');
+  return handleResearchSimple(dbPath, dataDir, args);
+}
+
+/**
+ * Simple research mode - single pass search + synthesis
+ * This is the fallback when agentic mode fails or is disabled
+ */
+async function handleResearchSimple(
+  dbPath: string,
+  dataDir: string,
+  args: ResearchArgs
+): Promise<ResearchPackage> {
+  const { task, project, include_sources = true } = args;
+
+  // Use sensible defaults for simple mode
+  const sourceLimit = 10;
+  const quoteLimit = 25;
 
   // Load archived projects to filter them out
   const archivedProjects = await loadArchivedProjects(dataDir);

@@ -1,109 +1,91 @@
 # Lore - Development Roadmap
 
-## Phase 1: Foundation (Current)
+## Phase 1: Foundation ✅
 
-### Core Infrastructure ✅
+### Core Infrastructure
 - [x] Project structure
 - [x] TypeScript setup
 - [x] Core types with citation model
-- [x] Vector store (adapted from granola-extractor)
-- [x] Embedder (adapted from granola-extractor)
-- [x] MCP server skeleton
-- [x] Tool definitions
+- [x] Vector store (LanceDB)
+- [x] Embedder (OpenAI)
+- [x] MCP server
+- [x] Tool definitions (Zod schemas)
 
-### MCP Handlers ✅
-- [x] `search` - Basic implementation
-- [x] `get_source` - Basic implementation
-- [x] `list_sources` - Basic implementation
-- [x] `get_quotes` - Basic implementation
-- [x] `list_projects` - Basic implementation
-- [x] `retain` - Basic implementation (saves to disk)
-- [x] `research` - Placeholder (multi-step search, no Agent SDK yet)
+### MCP Handlers
+- [x] `search` - Semantic search with filters
+- [x] `get_source` - Full source retrieval
+- [x] `list_sources` - Browse by project/type
+- [x] `get_quotes` - Find citable quotes by theme
+- [x] `list_projects` - Project overview with stats
+- [x] `retain` - Save insights/decisions (instant indexing)
 
-## Phase 2: Granola Integration
+## Phase 2: Granola Integration ✅
 
 ### Granola Adapter
-- [ ] Create `src/ingest/granola.ts`
-- [ ] Read granola-extractor export format
-- [ ] Convert to Lore source document format
-- [ ] Extract quotes with speaker attribution
-- [ ] Map themes from granola-extractor
-- [ ] Preserve timestamps for citations
+- [x] `src/ingest/granola.ts`
+- [x] Read granola-extractor export format
+- [x] Convert to Lore source document format
+- [x] Extract quotes with speaker attribution
+- [x] Map themes from granola-extractor
+- [x] Preserve timestamps for citations
 
-### CLI Ingest Command
-- [ ] `lore ingest <path> --type granola`
-- [ ] Process all documents in export directory
-- [ ] Progress reporting
-- [ ] Incremental updates (skip already indexed)
+### CLI Commands
+- [x] `lore ingest <path> --type granola`
+- [x] Process all documents in export directory
+- [x] Progress reporting
+- [x] `lore sync` - Rebuild index + git pull/push
+- [x] Auto-sync on interval (configurable)
 
-### CLI Sync Command
-- [ ] `lore sync` - Full reindex
-- [ ] `lore sync --watch` - Watch for changes
-- [ ] Generate embeddings for all sources and chunks
-- [ ] Build vector index
-
-## Phase 3: Research Agent
+## Phase 3: Research Agent ✅
 
 ### Claude Agent SDK Integration
-- [ ] Add `@anthropic-ai/sdk` agent capabilities
-- [ ] Design research agent system prompt
-- [ ] Implement multi-step search strategy
-- [ ] Add source cross-referencing
-- [ ] Generate synthesized summaries
-- [ ] Include proper citations in output
+- [x] Add `@anthropic-ai/claude-agent-sdk`
+- [x] Design research agent system prompt
+- [x] Implement multi-step search strategy
+- [x] Source cross-referencing
+- [x] Synthesized summaries with citations
+- [x] Conflict detection and resolution (prefers newer sources)
 
-### Research Tool Enhancement
-- [ ] Replace placeholder with Agent SDK
-- [ ] Add depth levels (quick/thorough/exhaustive)
-- [ ] Identify knowledge gaps
-- [ ] Suggest follow-up queries
-- [ ] Track research provenance
+### Research Tool
+- [x] Full agentic research via Claude Agent SDK
+- [x] Fallback to simple mode (`LORE_RESEARCH_MODE=simple`)
+- [x] Agent self-determines when to stop (no forced depth levels)
+- [x] Identify knowledge gaps
+- [x] Suggest follow-up queries
+- [x] 50-turn safety limit
 
-## Phase 4: Additional Source Adapters
+## Phase 4: Source Adapters ✅
 
 ### Claude Code Adapter
-- [ ] Parse Claude Code conversation exports
-- [ ] Extract decisions and insights
-- [ ] Handle tool calls and code blocks
-- [ ] Map to source document format
+- [x] Parse Claude Code conversation exports
+- [x] Extract decisions and insights
+- [x] Handle tool calls and code blocks
+- [x] Map to source document format
 
 ### Markdown Adapter
-- [ ] Ingest markdown documents
-- [ ] Extract structure (headings, lists)
-- [ ] Support frontmatter for metadata
-- [ ] Handle links between documents
+- [x] Ingest any markdown documents
+- [x] Extract structure (headings, lists)
+- [x] Support frontmatter for metadata
+- [x] Useful for competitor analyses, ChatGPT exports, specs, etc.
 
 ### Claude Desktop Adapter
-- [ ] Research export format
+- [ ] Research export format (not yet available/documented)
 - [ ] Build parser
 - [ ] Handle project exports
 
-## Phase 5: Project Management
+## Phase 5: Project Management ✅
 
-### Project CRUD
-- [ ] `lore project create <name>`
-- [ ] `lore project list`
-- [ ] `lore project info <name>`
-- [ ] Project metadata storage
-
-### Lineage Tracking
-- [ ] Log decisions to project
-- [ ] Track pivots and milestones
-- [ ] Query project history
-- [ ] MCP tool: `get_project_lineage`
-
-### Context Building
-- [ ] Build delegation packages
-- [ ] Summarize project state
-- [ ] Export for agent handoff
+- [x] `list_projects` - Overview with source counts
+- [x] `archive_project` - Archive with reason and successor
+- [x] Lineage reconstruction via `research` agent (no explicit tracking needed)
+- [x] Context building via `research` agent (produces ResearchPackage with citations)
 
 ## Phase 6: Polish & Production
 
 ### Performance
 - [ ] Batch embedding generation
-- [ ] Incremental indexing
 - [ ] Query caching
-- [ ] Large corpus optimization
+- [ ] Large corpus optimization (1000+ sources)
 
 ### Developer Experience
 - [ ] Better error messages
@@ -118,9 +100,9 @@
 
 ## Future Ideas
 
-- **Web UI**: Browse and manage knowledge
+- **Web UI**: Browse and manage knowledge visually
 - **API Server**: REST/GraphQL access beyond MCP
 - **Collaborative**: Multi-user with permissions
-- **Cloud Sync**: Optional backup/sync (like Basic Memory Cloud)
+- **Cloud Sync**: Optional backup/sync
 - **Plugin System**: Custom source adapters
-- **LLM-Powered Extraction**: Use Claude for better theme extraction
+- **Real-time Ingestion**: Watch folders for new sources

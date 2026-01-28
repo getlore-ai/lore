@@ -9,9 +9,9 @@ import path from 'path';
 
 import {
   getAllSources,
-  initializeTables,
-  storeSources,
-  storeChunks,
+  addSource,
+  addChunks,
+  resetDatabaseConnection,
 } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { gitPull, gitCommitAndPush, hasChanges } from '../../core/git.js';
@@ -120,7 +120,7 @@ async function indexSource(
     vector: [],
   };
 
-  await storeSources(dbPath, [{ source: sourceRecord, vector }]);
+  await addSource(dbPath, sourceRecord, vector);
 
   // Index quotes as chunks
   const quotes = insights.quotes || [];
@@ -149,7 +149,7 @@ async function indexSource(
   }
 
   if (chunkRecords.length > 0) {
-    await storeChunks(dbPath, chunkRecords);
+    await addChunks(dbPath, chunkRecords);
   }
 }
 
@@ -162,6 +162,9 @@ export async function handleSync(
   const doPush = args.git_push !== false; // Default true
   const indexNew = args.index_new !== false; // Default true
   const sourcesDir = path.join(dataDir, 'sources');
+
+  // Reset database connection to ensure fresh reads
+  resetDatabaseConnection();
 
   const result: SyncResult = {
     git_pulled: false,
@@ -201,8 +204,8 @@ export async function handleSync(
 
       // Index unsynced sources
       if (unsyncedIds.length > 0) {
-        // Ensure tables exist
-        await initializeTables(dbPath);
+        // Note: Don't call initializeTables here - it drops existing data!
+        // addSource will create tables if they don't exist
 
         for (const sourceId of unsyncedIds) {
           const data = await loadSourceFromDisk(sourcesDir, sourceId);

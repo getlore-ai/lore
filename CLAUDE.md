@@ -50,6 +50,7 @@ WORKING CONTEXT (research packages, project summaries for agents)
 | `get_quotes` | Simple | Find citable quotes by theme |
 | `list_projects` | Simple | Project overview |
 | `retain` | Simple | Explicitly save insights (push-based) |
+| `ingest` | Simple | Add a document directly (meeting notes, interviews, etc.) |
 | `sync` | Simple | Refresh index (git pull + index new sources) |
 | `archive_project` | Simple | Archive a project (human-triggered curation) |
 | `research` | Agentic | Comprehensive research with conflict-aware synthesis |
@@ -61,7 +62,7 @@ src/
 ├── core/              # Shared infrastructure
 │   ├── types.ts       # Full data model with Citation type
 │   ├── embedder.ts    # OpenAI embeddings
-│   ├── vector-store.ts # LanceDB wrapper
+│   ├── vector-store.ts # Supabase + pgvector
 │   └── insight-extractor.ts # Summary generation (agent does deep analysis)
 ├── ingest/            # Source adapters
 │   ├── granola.ts     # Granola meeting exports
@@ -97,7 +98,9 @@ npm run mcp           # Start MCP server
 # Environment
 OPENAI_API_KEY=...              # Required for embeddings
 ANTHROPIC_API_KEY=...           # Required for research agent
-LORE_DATA_DIR=~/lore-data       # Data directory (SEPARATE from this repo!)
+SUPABASE_URL=...                # Supabase project URL
+SUPABASE_ANON_KEY=...           # Supabase anon/service key
+LORE_DATA_DIR=~/lore-data       # Data directory for raw documents (git-synced)
 LORE_AUTO_GIT_PULL=true         # Auto git pull every 5 min (default: true)
 LORE_AUTO_INDEX=true            # Auto-index new sources (default: true, costs API calls)
 ```
@@ -106,15 +109,19 @@ LORE_AUTO_INDEX=true            # Auto-index new sources (default: true, costs A
 
 **Lore (this repo)** = reusable tool, shareable
 **Data directory** = your personal knowledge, separate location
+**Supabase** = cloud vector index, shared across all machines
 
-The `LORE_DATA_DIR` should point to a separate directory (optionally its own git repo for cross-machine sync). This keeps personal project data out of the Lore codebase.
+The `LORE_DATA_DIR` should point to a separate directory (its own git repo for cross-machine sync of raw documents). Vector embeddings are stored in Supabase for multi-agent, multi-machine access.
 
 ```
 ~/lore-data/              # Your data repo (separate git repo)
 ├── sources/              # Ingested documents (git-tracked)
 ├── retained/             # Explicitly saved insights (git-tracked)
-├── lore.lance/           # Vector index (git-ignored, rebuild with `lore sync`)
 └── archived-projects.json
+
+Supabase (cloud):         # Vector index - shared across all machines
+├── sources table         # Document metadata + embeddings
+└── chunks table          # Quotes/chunks + embeddings
 ```
 
 ## Implementation Status
@@ -162,6 +169,38 @@ lore mcp
 - No mis-categorization
 - Extracts what's relevant to YOUR query, not generic categories
 - Adapts to new types of questions without code changes
+
+## Agentic Research (Claude Agent SDK)
+
+The `research` tool uses the **Claude Agent SDK** for truly iterative research:
+
+```
+research("What authentication approach should we use?")
+    │
+    ├─→ search("authentication user feedback")
+    │      └─→ Found 3 interviews mentioning auth
+    │
+    ├─→ get_source(interview_1)
+    │      └─→ "Sarah said OAuth was confusing"
+    │
+    ├─→ search("authentication decisions")
+    │      └─→ Found decision to use JWT
+    │
+    ├─→ get_quotes(theme: "requirements")
+    │      └─→ Found 5 specific requirements
+    │
+    └─→ Synthesize everything into ResearchPackage
+```
+
+**How it works:**
+1. Claude Agent gets access to Lore's own tools (search, get_source, get_quotes, list_sources)
+2. Agent iteratively explores, following leads
+3. Cross-references findings across sources
+4. Synthesizes with citations
+
+**Configuration:**
+- Default: Agentic mode (Claude Agent SDK) - agent self-terminates when it has enough evidence
+- Fallback: `LORE_RESEARCH_MODE=simple` for single-pass GPT-4o-mini synthesis
 
 ## Key Design Decisions
 
