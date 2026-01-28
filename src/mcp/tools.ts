@@ -189,26 +189,54 @@ export const toolDefinitions = [
   // Simple tools
   {
     name: 'search',
-    description:
-      'Semantic search across all sources in the knowledge repository. Returns summaries with relevant quotes and themes. Use this for quick lookups.',
+    description: `Semantic search across all sources in the knowledge repository. Returns summaries with relevant quotes and themes. Use this for quick lookups.
+
+USE THIS WHEN:
+- Looking up specific known information
+- Single-topic queries with expected direct answers
+- Quick context gathering before a conversation
+- You know roughly what you're looking for
+
+USE 'research' INSTEAD WHEN:
+- Question requires cross-referencing multiple sources
+- Need synthesis or pattern detection across sources
+- Looking for conflicts or evolution of thinking over time
+- Building a comprehensive research package
+- Query is open-ended like "what do we know about X"`,
     inputSchema: zodToJsonSchema(SearchSchema),
   },
   {
     name: 'get_source',
-    description:
-      'Get full details of a specific source document including all quotes, themes, and optionally the complete original content. Use for deep-diving into a specific source.',
+    description: `Get full details of a specific source document including all quotes, themes, and optionally the complete original content. Use for deep-diving into a specific source.
+
+USE THIS WHEN:
+- You have a source_id from search results and need full content
+- Deep-diving into a specific document
+- Need the complete original text for detailed analysis
+
+USE 'search' FIRST when you don't have a source_id yet.`,
     inputSchema: zodToJsonSchema(GetSourceSchema),
   },
   {
     name: 'list_sources',
-    description:
-      'List all sources in the repository, optionally filtered by project or type. Returns summaries sorted by date.',
+    description: `List all sources in the repository, optionally filtered by project or type. Returns summaries sorted by date.
+
+USE THIS WHEN:
+- Browsing what exists in a project
+- Need to see all sources chronologically
+- Understanding the scope of available knowledge
+
+USE 'search' INSTEAD when you have a specific query in mind.`,
     inputSchema: zodToJsonSchema(ListSourcesSchema),
   },
   {
     name: 'list_projects',
-    description:
-      'List all projects with their source counts and latest activity. Use to understand what knowledge exists.',
+    description: `List all projects with their source counts and latest activity.
+
+USE THIS WHEN:
+- Starting a conversation to understand what knowledge exists
+- User asks "what projects do you know about"
+- Need to validate a project name before searching`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -216,40 +244,77 @@ export const toolDefinitions = [
   },
   {
     name: 'retain',
-    description:
-      'Save an insight, decision, requirement, or note to the knowledge repository. Use this to explicitly capture important learnings from conversations.',
+    description: `Save an insight, decision, requirement, or note to the knowledge repository. Use this to explicitly capture important learnings from conversations.
+
+USE THIS WHEN:
+- User explicitly asks to save/remember something
+- A key decision is made that should be preserved
+- Capturing an insight that emerged from discussion
+- User says "remember this" or "save this for later"
+
+DO NOT USE for raw meeting notes or documents - use 'ingest' instead.`,
     inputSchema: zodToJsonSchema(RetainSchema),
   },
 
   // Agentic tool
   {
     name: 'research',
-    description:
-      'Comprehensive research across the knowledge repository. Uses an internal agent to search, cross-reference, and synthesize findings into a research package with citations. More thorough than simple search but takes longer. Use for complex questions that need multiple sources.',
+    description: `Comprehensive research across the knowledge repository. Uses an internal agent to search, cross-reference, and synthesize findings into a research package with citations. More thorough than simple search but takes longer. Use for complex questions that need multiple sources.
+
+USE THIS WHEN:
+- Question spans multiple sources or needs synthesis
+- Looking for patterns, conflicts, or evolution of thinking
+- Need a research package with citations for delegation
+- Open-ended queries like "what do we know about X"
+- User explicitly asks for "research" or "comprehensive analysis"
+- Need to detect contradictions between sources
+
+USE 'search' INSTEAD WHEN:
+- Simple lookup of specific known information
+- Quick context gathering
+- You expect a single source to answer the question
+
+COST: Slower and uses more API calls than simple search. Don't use for simple lookups.`,
     inputSchema: zodToJsonSchema(ResearchSchema),
   },
 
   // Ingest tool
   {
     name: 'ingest',
-    description:
-      'Ingest a document directly into the knowledge repository. Use this when you have document content (meeting notes, interview transcript, analysis, etc.) that should be added to Lore. The document will be saved, indexed, and immediately searchable.',
+    description: `Ingest a document directly into the knowledge repository. Use this when you have document content (meeting notes, interview transcript, analysis, etc.) that should be added to Lore. The document will be saved, indexed, and immediately searchable.
+
+USE THIS WHEN:
+- User shares meeting notes, interview transcripts, or documents
+- Adding analysis or summaries to the knowledge base
+- User says "add this to lore" or "save this document"
+
+USE 'retain' INSTEAD for saving discrete insights, decisions, or notes (not full documents).`,
     inputSchema: zodToJsonSchema(IngestSchema),
   },
 
   // Sync tool
   {
     name: 'sync',
-    description:
-      'Sync the knowledge repository with the latest sources. Optionally pulls from git remote and indexes any new sources found on disk. Use this to refresh the knowledge base when you know new content has been added.',
+    description: `Sync the knowledge repository with the latest sources. Optionally pulls from git remote and indexes any new sources found on disk. Use this to refresh the knowledge base when you know new content has been added.
+
+USE THIS WHEN:
+- User says content was added externally
+- Starting a session and want fresh data
+- After manual file changes to the data directory`,
     inputSchema: zodToJsonSchema(SyncSchema),
   },
 
   // Project management
   {
     name: 'archive_project',
-    description:
-      'Archive a project and all its sources. Archived projects are excluded from search by default but preserved for historical reference. Use when a project is completed, abandoned, or superseded by a new approach. This is a human-triggered curation action.',
+    description: `Archive a project and all its sources. Archived projects are excluded from search by default but preserved for historical reference. Use when a project is completed, abandoned, or superseded by a new approach. This is a human-triggered curation action.
+
+USE THIS WHEN:
+- User explicitly asks to archive a project
+- Project is completed or abandoned
+- Project was superseded by a new approach
+
+NEVER archive without explicit user request - this is a curation action.`,
     inputSchema: zodToJsonSchema(ArchiveProjectSchema),
   },
 ];
