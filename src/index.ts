@@ -420,6 +420,165 @@ program
   });
 
 // ============================================================================
+// Watch Command (Continuous file watching)
+// ============================================================================
+
+program
+  .command('watch')
+  .description('Watch configured directories and sync automatically when files change')
+  .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
+  .option('--interval <ms>', 'Debounce interval in ms', '2000')
+  .option('--no-initial', 'Skip initial sync on startup')
+  .action(async (options) => {
+    const chokidar = await import('chokidar');
+    const { loadSyncConfig, getEnabledSources, expandPath } = await import('./sync/config.js');
+    const { handleSync } = await import('./mcp/handlers/sync.js');
+
+    const dataDir = options.dataDir;
+    const dbPath = path.join(dataDir, 'lore.lance');
+    const debounceMs = parseInt(options.interval, 10);
+
+    console.log(`\n🔍 Lore Watch`);
+    console.log(`=============`);
+    console.log(`Data dir: ${dataDir}`);
+    console.log(`Debounce: ${debounceMs}ms`);
+    console.log('');
+
+    // Load sync sources
+    const config = await loadSyncConfig();
+    const sources = getEnabledSources(config);
+
+    if (sources.length === 0) {
+      console.log('No sync sources configured. Run "lore sources add" first.');
+      process.exit(1);
+    }
+
+    // Build watch paths with their globs
+    const watchPaths: string[] = [];
+    for (const source of sources) {
+      const expanded = expandPath(source.path);
+      console.log(`📁 ${source.name}`);
+      console.log(`   Path: ${expanded}`);
+      console.log(`   Glob: ${source.glob}`);
+      console.log(`   Project: ${source.project}`);
+      watchPaths.push(expanded);
+    }
+    console.log('');
+
+    // Run initial sync
+    if (options.initial !== false) {
+      console.log('Running initial sync...\n');
+      try {
+        const result = await handleSync(dbPath, dataDir, {
+          git_pull: true,
+          git_push: true,
+        });
+        if (result.discovery) {
+          console.log(`  Found ${result.discovery.total_files} files, ${result.discovery.new_files} new`);
+        }
+        if (result.processing && result.processing.processed > 0) {
+          console.log(`  Processed ${result.processing.processed} new files`);
+        }
+        console.log('  Initial sync complete\n');
+      } catch (error) {
+        console.error('  Initial sync failed:', error);
+      }
+    }
+
+    console.log('Watching for changes... (Ctrl+C to stop)\n');
+
+    // Track pending changes for debouncing
+    let pendingChanges = new Set<string>();
+    let syncTimeout: ReturnType<typeof setTimeout> | null = null;
+    let isSyncing = false;
+
+    async function runSync() {
+      if (isSyncing) return;
+      isSyncing = true;
+
+      const changes = Array.from(pendingChanges);
+      pendingChanges.clear();
+
+      const timestamp = new Date().toLocaleTimeString();
+      console.log(`[${timestamp}] Syncing ${changes.length} change(s)...`);
+
+      try {
+        const result = await handleSync(dbPath, dataDir, {
+          git_pull: false,  // Don't pull on file changes, only on startup
+          git_push: true,
+        });
+
+        if (result.processing && result.processing.processed > 0) {
+          console.log(`[${timestamp}] ✓ Processed ${result.processing.processed} file(s):`);
+          for (const title of result.processing.titles) {
+            console.log(`    • ${title}`);
+          }
+        } else if (result.discovery && result.discovery.new_files === 0) {
+          console.log(`[${timestamp}] ✓ No new files to process`);
+        }
+
+        if (result.processing && result.processing.errors > 0) {
+          console.log(`[${timestamp}] ⚠ ${result.processing.errors} error(s) during processing`);
+        }
+      } catch (error) {
+        console.error(`[${timestamp}] ✗ Sync error:`, error);
+      }
+
+      isSyncing = false;
+      console.log('');
+    }
+
+    function scheduleSync(filePath: string) {
+      pendingChanges.add(filePath);
+
+      if (syncTimeout) {
+        clearTimeout(syncTimeout);
+      }
+
+      syncTimeout = setTimeout(runSync, debounceMs);
+    }
+
+    // Set up file watcher
+    const watcher = chokidar.watch(watchPaths, {
+      ignored: [
+        /(^|[\/\\])\../,  // Ignore dotfiles
+        /node_modules/,
+        /__pycache__/,
+      ],
+      persistent: true,
+      ignoreInitial: true,  // Don't trigger on existing files
+      awaitWriteFinish: {
+        stabilityThreshold: 500,
+        pollInterval: 100,
+      },
+    });
+
+    watcher
+      .on('add', (filePath) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] + ${path.basename(filePath)}`);
+        scheduleSync(filePath);
+      })
+      .on('change', (filePath) => {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] ~ ${path.basename(filePath)}`);
+        scheduleSync(filePath);
+      })
+      .on('error', (error) => {
+        console.error('Watcher error:', error);
+      });
+
+    // Handle graceful shutdown
+    process.on('SIGINT', () => {
+      console.log('\n\nShutting down watcher...');
+      watcher.close().then(() => {
+        console.log('Goodbye!');
+        process.exit(0);
+      });
+    });
+  });
+
+// ============================================================================
 // Sources Command (Manage sync sources)
 // ============================================================================
 
