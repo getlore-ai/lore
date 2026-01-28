@@ -119,6 +119,9 @@ lore sync
 # Dry run - see what would be synced
 lore sync --dry-run
 
+# Watch directories and auto-sync on changes
+lore watch
+
 # Manage sync sources
 lore sources list
 lore sources add
@@ -129,8 +132,23 @@ lore sources remove <name>
 # Search from command line
 lore search "user pain points with onboarding"
 
+# View a specific source
+lore get <source-id>
+
+# List all sources
+lore list
+
+# Save an insight
+lore retain "Decision: Using JWT for auth because..."
+
+# Run research query
+lore research "What do users say about pricing?"
+
 # List projects
 lore projects
+
+# Archive a project
+lore archive <project-name>
 
 # Start MCP server
 lore mcp
@@ -138,6 +156,27 @@ lore mcp
 # Legacy: Direct ingest (still works)
 lore ingest /path/to/docs --type markdown -p myproject
 ```
+
+## Auto-Sync Options
+
+There are three ways to keep Lore in sync:
+
+| Method | When to use |
+|--------|-------------|
+| `lore watch` | Run in terminal, see real-time progress as files are added |
+| MCP server | Auto-syncs every 5 min while Claude Desktop/Code is running |
+| `lore sync` | Manual one-time sync |
+
+### Watch Mode
+
+```bash
+lore watch
+```
+
+Continuously monitors your configured directories and syncs when files change:
+- Shows real-time file additions and sync progress
+- Debounces rapid changes (default 2 seconds)
+- Run in background: `nohup lore watch > ~/lore-watch.log 2>&1 &`
 
 ## How Sync Works
 
@@ -189,10 +228,23 @@ Storage:
 
 The universal sync system handles:
 
+**Text formats:**
 - **Markdown** (`.md`) - Documents, notes, research
 - **JSONL** (`.jsonl`) - Claude Code conversations, chat logs
 - **JSON** (`.json`) - Granola exports, structured data
 - **Plain text** (`.txt`) - Any text content
+- **CSV** (`.csv`) - Spreadsheets, data exports
+- **HTML** (`.html`, `.htm`) - Web pages, saved articles
+- **XML** (`.xml`) - Structured data
+
+**Documents:**
+- **PDF** (`.pdf`) - Text extracted automatically
+
+**Images** (described by Claude Vision):
+- **JPEG** (`.jpg`, `.jpeg`)
+- **PNG** (`.png`)
+- **GIF** (`.gif`)
+- **WebP** (`.webp`)
 
 Claude automatically extracts metadata and classifies content type (interview, meeting, document, note, analysis, etc.).
 
