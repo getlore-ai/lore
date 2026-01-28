@@ -316,82 +316,217 @@ program
   });
 
 // ============================================================================
-// Sync Command
+// Sync Command (Universal Sync)
 // ============================================================================
 
 program
   .command('sync')
-  .description('Rebuild the vector index from all sources')
+  .description('Sync sources from configured directories')
   .option('-d, --data-dir <dir>', 'Data directory', DEFAULT_DATA_DIR)
-  .option('--full', 'Full reindex (ignore cache)')
+  .option('--dry-run', 'Show what would be synced without processing')
+  .option('--legacy', 'Use legacy disk-based sync only')
+  .option('--no-git', 'Skip git operations')
   .action(async (options) => {
+    const { handleSync } = await import('./mcp/handlers/sync.js');
+
     const dataDir = options.dataDir;
-    const sourcesDir = path.join(dataDir, 'sources');
+    const dbPath = path.join(dataDir, 'lore.lance');
 
     console.log(`\nLore Sync`);
     console.log(`=========`);
-    console.log(`Data dir: ${dataDir}\n`);
+    console.log(`Data dir: ${dataDir}`);
+    if (options.dryRun) console.log(`Mode: DRY RUN`);
+    console.log('');
 
-    if (!existsSync(sourcesDir)) {
-      console.log('No sources directory found. Run "lore ingest" first.');
-      process.exit(1);
+    const result = await handleSync(dbPath, dataDir, {
+      git_pull: options.git !== false,
+      git_push: options.git !== false,
+      dry_run: options.dryRun,
+      use_legacy: options.legacy,
+    });
+
+    // Show results
+    if (result.git_pulled) {
+      console.log('✓ Pulled latest changes from git');
+    }
+    if (result.git_error) {
+      console.log(`⚠ Git: ${result.git_error}`);
     }
 
-    // Load all sources from disk
-    console.log('Loading sources from disk...');
-    const { readdirSync } = await import('fs');
-    const sourceDirs = readdirSync(sourcesDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-
-    const sources: Array<{
-      source: SourceDocument;
-      insights: { summary: string; themes: Theme[]; quotes: Quote[] };
-    }> = [];
-
-    for (const sourceId of sourceDirs) {
-      const sourceDir = path.join(sourcesDir, sourceId);
-
-      try {
-        const metadata = JSON.parse(await readFile(path.join(sourceDir, 'metadata.json'), 'utf-8'));
-        const content = await readFile(path.join(sourceDir, 'content.md'), 'utf-8');
-
-        let insights = { summary: '', themes: [] as Theme[], quotes: [] as Quote[] };
-        try {
-          insights = JSON.parse(await readFile(path.join(sourceDir, 'insights.json'), 'utf-8'));
-        } catch {
-          // No insights file
-        }
-
-        sources.push({
-          source: {
-            ...metadata,
-            content,
-          },
-          insights,
-        });
-      } catch (error) {
-        console.error(`Error loading source ${sourceId}:`, error);
+    // Universal sync results
+    if (result.discovery) {
+      console.log(`\nUniversal Sync:`);
+      console.log(`  Sources scanned: ${result.discovery.sources_scanned}`);
+      console.log(`  Files found: ${result.discovery.total_files}`);
+      console.log(`  New files: ${result.discovery.new_files}`);
+      console.log(`  Already indexed: ${result.discovery.existing_files}`);
+      if (result.discovery.errors > 0) {
+        console.log(`  Errors: ${result.discovery.errors}`);
       }
     }
 
-    console.log(`Loaded ${sources.length} sources\n`);
+    if (result.processing) {
+      console.log(`\nProcessed ${result.processing.processed} new files:`);
+      for (const title of result.processing.titles.slice(0, 10)) {
+        console.log(`  • ${title}`);
+      }
+      if (result.processing.titles.length > 10) {
+        console.log(`  ... and ${result.processing.titles.length - 10} more`);
+      }
+      if (result.processing.errors > 0) {
+        console.log(`  Errors: ${result.processing.errors}`);
+      }
+    }
 
-    if (sources.length === 0) {
-      console.log('No sources to index.');
+    // Legacy sync results
+    if (result.sources_found > 0 || result.sources_indexed > 0) {
+      console.log(`\nLegacy Sync:`);
+      console.log(`  Sources on disk: ${result.sources_found}`);
+      console.log(`  Newly indexed: ${result.sources_indexed}`);
+      console.log(`  Already indexed: ${result.already_indexed}`);
+    }
+
+    if (result.git_pushed) {
+      console.log('\n✓ Pushed changes to git');
+    }
+
+    console.log('\nSync complete!');
+  });
+
+// ============================================================================
+// Sources Command (Manage sync sources)
+// ============================================================================
+
+const sourcesCmd = program
+  .command('sources')
+  .description('Manage sync source directories');
+
+sourcesCmd
+  .command('list')
+  .description('List configured sync sources')
+  .action(async () => {
+    const { loadSyncConfig, getConfigPath } = await import('./sync/config.js');
+
+    console.log(`\nSync Sources`);
+    console.log(`============`);
+    console.log(`Config: ${getConfigPath()}\n`);
+
+    const config = await loadSyncConfig();
+
+    if (config.sources.length === 0) {
+      console.log('No sources configured. Run "lore sources add" to add one.');
       return;
     }
 
-    // Build index
-    console.log('Building vector index...');
-    await buildIndex(dataDir, sources.map((s) => ({
-      source: s.source,
-      notes: '',
-      transcript: '',
-      insights: s.insights,
-    })));
+    for (const source of config.sources) {
+      const status = source.enabled ? '✓' : '○';
+      console.log(`${status} ${source.name}`);
+      console.log(`    Path: ${source.path}`);
+      console.log(`    Glob: ${source.glob}`);
+      console.log(`    Project: ${source.project}`);
+      console.log('');
+    }
+  });
 
-    console.log('\nSync complete!');
+sourcesCmd
+  .command('add')
+  .description('Add a new sync source')
+  .option('-n, --name <name>', 'Source name')
+  .option('-p, --path <path>', 'Directory path')
+  .option('-g, --glob <glob>', 'File glob pattern', '**/*.md')
+  .option('--project <project>', 'Default project')
+  .action(async (options) => {
+    const { addSyncSource } = await import('./sync/config.js');
+    const readline = await import('readline');
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    const ask = (question: string, defaultValue?: string): Promise<string> =>
+      new Promise((resolve) => {
+        const prompt = defaultValue ? `${question} [${defaultValue}]: ` : `${question}: `;
+        rl.question(prompt, (answer) => {
+          resolve(answer.trim() || defaultValue || '');
+        });
+      });
+
+    console.log(`\nAdd Sync Source`);
+    console.log(`===============\n`);
+
+    const name = options.name || await ask('Name (e.g., "Granola Meetings")');
+    const sourcePath = options.path || await ask('Path (e.g., ~/granola-extractor/output)');
+    const glob = options.glob || await ask('Glob pattern', '**/*.md');
+    const project = options.project || await ask('Default project');
+
+    rl.close();
+
+    if (!name || !sourcePath || !project) {
+      console.log('\nAll fields are required.');
+      process.exit(1);
+    }
+
+    try {
+      await addSyncSource({
+        name,
+        path: sourcePath,
+        glob,
+        project,
+        enabled: true,
+      });
+
+      console.log(`\n✓ Added source "${name}"`);
+      console.log(`\nRun "lore sync" to process files from this source.`);
+    } catch (error) {
+      console.error(`\nError: ${error}`);
+      process.exit(1);
+    }
+  });
+
+sourcesCmd
+  .command('enable <name>')
+  .description('Enable a sync source')
+  .action(async (name) => {
+    const { updateSyncSource } = await import('./sync/config.js');
+
+    try {
+      await updateSyncSource(name, { enabled: true });
+      console.log(`✓ Enabled "${name}"`);
+    } catch (error) {
+      console.error(`Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+sourcesCmd
+  .command('disable <name>')
+  .description('Disable a sync source')
+  .action(async (name) => {
+    const { updateSyncSource } = await import('./sync/config.js');
+
+    try {
+      await updateSyncSource(name, { enabled: false });
+      console.log(`✓ Disabled "${name}"`);
+    } catch (error) {
+      console.error(`Error: ${error}`);
+      process.exit(1);
+    }
+  });
+
+sourcesCmd
+  .command('remove <name>')
+  .description('Remove a sync source')
+  .action(async (name) => {
+    const { removeSyncSource } = await import('./sync/config.js');
+
+    try {
+      await removeSyncSource(name);
+      console.log(`✓ Removed "${name}"`);
+    } catch (error) {
+      console.error(`Error: ${error}`);
+      process.exit(1);
+    }
   });
 
 // ============================================================================

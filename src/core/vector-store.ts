@@ -71,11 +71,15 @@ export async function getDatabase(_dbPath: string): Promise<SupabaseClient> {
 export async function addSource(
   _dbPath: string,
   source: SourceRecord,
-  vector: number[]
+  vector: number[],
+  extras?: {
+    content_hash?: string;
+    source_path?: string;
+  }
 ): Promise<void> {
   const client = getSupabase();
 
-  const { error } = await client.from('sources').upsert({
+  const record: Record<string, unknown> = {
     id: source.id,
     title: source.title,
     source_type: source.source_type,
@@ -89,7 +93,17 @@ export async function addSource(
     has_full_content: source.has_full_content,
     embedding: vector,
     indexed_at: new Date().toISOString(),
-  });
+  };
+
+  // Add optional dedup and metadata fields
+  if (extras?.content_hash) {
+    record.content_hash = extras.content_hash;
+  }
+  if (extras?.source_path) {
+    record.source_path = extras.source_path;
+  }
+
+  const { error } = await client.from('sources').upsert(record);
 
   if (error) {
     console.error('[addSource] Error:', error);
@@ -102,25 +116,40 @@ export async function storeSources(
   sources: Array<{
     source: SourceRecord;
     vector: number[];
+    extras?: {
+      content_hash?: string;
+      source_path?: string;
+    };
   }>
 ): Promise<void> {
   const client = getSupabase();
 
-  const records = sources.map(({ source, vector }) => ({
-    id: source.id,
-    title: source.title,
-    source_type: source.source_type,
-    content_type: source.content_type,
-    projects: JSON.parse(source.projects),
-    tags: JSON.parse(source.tags),
-    created_at: source.created_at,
-    summary: source.summary,
-    themes_json: JSON.parse(source.themes_json),
-    quotes_json: JSON.parse(source.quotes_json),
-    has_full_content: source.has_full_content,
-    embedding: vector,
-    indexed_at: new Date().toISOString(),
-  }));
+  const records = sources.map(({ source, vector, extras }) => {
+    const record: Record<string, unknown> = {
+      id: source.id,
+      title: source.title,
+      source_type: source.source_type,
+      content_type: source.content_type,
+      projects: JSON.parse(source.projects),
+      tags: JSON.parse(source.tags),
+      created_at: source.created_at,
+      summary: source.summary,
+      themes_json: JSON.parse(source.themes_json),
+      quotes_json: JSON.parse(source.quotes_json),
+      has_full_content: source.has_full_content,
+      embedding: vector,
+      indexed_at: new Date().toISOString(),
+    };
+
+    if (extras?.content_hash) {
+      record.content_hash = extras.content_hash;
+    }
+    if (extras?.source_path) {
+      record.source_path = extras.source_path;
+    }
+
+    return record;
+  });
 
   const { error } = await client.from('sources').upsert(records);
 
@@ -128,6 +157,64 @@ export async function storeSources(
     console.error('[storeSources] Error:', error);
     throw error;
   }
+}
+
+// ============================================================================
+// Content Hash Operations (for deduplication)
+// ============================================================================
+
+export async function checkContentHashExists(
+  _dbPath: string,
+  contentHash: string
+): Promise<boolean> {
+  const client = getSupabase();
+
+  const { data, error } = await client
+    .from('sources')
+    .select('id')
+    .eq('content_hash', contentHash)
+    .limit(1);
+
+  if (error) {
+    console.error('Error checking content hash:', error);
+    return false;
+  }
+
+  return (data?.length || 0) > 0;
+}
+
+export async function getExistingContentHashes(
+  _dbPath: string,
+  hashes: string[]
+): Promise<Set<string>> {
+  if (hashes.length === 0) return new Set();
+
+  const client = getSupabase();
+  const existing = new Set<string>();
+
+  // Query in batches to avoid limits
+  const batchSize = 100;
+  for (let i = 0; i < hashes.length; i += batchSize) {
+    const batch = hashes.slice(i, i + batchSize);
+
+    const { data, error } = await client
+      .from('sources')
+      .select('content_hash')
+      .in('content_hash', batch);
+
+    if (error) {
+      console.error('Error checking content hashes:', error);
+      continue;
+    }
+
+    for (const row of data || []) {
+      if (row.content_hash) {
+        existing.add(row.content_hash);
+      }
+    }
+  }
+
+  return existing;
 }
 
 // ============================================================================

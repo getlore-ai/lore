@@ -61,17 +61,22 @@ src/
 ├── core/              # Shared infrastructure
 │   ├── types.ts       # Full data model with Citation type
 │   ├── embedder.ts    # OpenAI embeddings
-│   ├── vector-store.ts # Supabase + pgvector
-│   └── insight-extractor.ts # Summary generation (agent does deep analysis)
-├── ingest/            # Source adapters
+│   ├── vector-store.ts # Supabase + pgvector (with content_hash dedup)
+│   └── insight-extractor.ts # Summary generation
+├── sync/              # Universal sync system (NEW)
+│   ├── config.ts      # Sync source configuration (~/.config/lore/sync-sources.json)
+│   ├── discover.ts    # Phase 1: File discovery + hash deduplication
+│   ├── processors.ts  # Format preprocessors (JSONL, JSON, etc.)
+│   └── process.ts     # Phase 2: Claude metadata extraction
+├── ingest/            # Legacy source adapters (deprecated, use sync)
 │   ├── granola.ts     # Granola meeting exports
 │   ├── claude-code.ts # Claude Code conversations
 │   └── markdown.ts    # Any markdown documents
 ├── mcp/
 │   ├── server.ts      # MCP server entry
 │   ├── tools.ts       # Tool definitions (Zod schemas)
-│   └── handlers/      # 9 handler implementations
-└── index.ts           # CLI with ingest, sync, search commands
+│   └── handlers/      # Handler implementations
+└── index.ts           # CLI with sync, sources, search commands
 ```
 
 ## Relationship to granola-extractor
@@ -127,23 +132,27 @@ Supabase (cloud):         # Vector index - shared across all machines
 
 All core features are implemented:
 
-- **Ingestion Adapters**: Granola, Claude Code, Markdown
-- **CLI Commands**: `ingest`, `sync`, `search`, `projects`, `mcp`
-- **MCP Tools**: All 7 tools fully functional
-- **LLM-powered Research**: Uses GPT-4o-mini for synthesis
-- **Instant Indexing**: Retained items immediately searchable
+- **Universal Sync**: Two-phase sync with content hash deduplication
+- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`
+- **MCP Tools**: All 9 tools fully functional
+- **LLM-powered Research**: Uses Claude for extraction and research
+- **Multi-machine Support**: Content hash dedup works across machines
 
 ## Usage
 
 ```bash
-# Ingest Granola meeting exports
-lore ingest ~/exports/granola --type granola -p myproject
+# Configure sync sources (one-time setup)
+lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
+lore sources add --name "Research Notes" --path ~/research --glob "**/*.{md,pdf}" --project research
 
-# Ingest Claude Code conversations
-lore ingest ~/.claude/projects --type claude-code -p myproject
+# List configured sources
+lore sources list
 
-# Ingest any markdown documents (competitor analyses, ChatGPT dumps, specs, etc.)
-lore ingest ~/docs --type markdown -p myproject
+# Sync all sources (two-phase: discovery then processing)
+lore sync
+
+# Dry run - see what would be synced
+lore sync --dry-run
 
 # Search
 lore search "user pain points"
@@ -151,6 +160,35 @@ lore search "user pain points"
 # Start MCP server
 lore mcp
 ```
+
+## Universal Sync (Two-Phase)
+
+The sync system uses a two-phase approach for efficiency:
+
+**Phase 1: Discovery (NO LLM calls - essentially free)**
+```
+For each configured source:
+  1. Glob files matching pattern
+  2. Read raw file bytes, compute SHA256 hash
+  3. Check Supabase: does this hash exist?
+  4. If exists: skip (already ingested)
+  5. If new: add to processing queue
+
+Output: "Found 47 files, 2 new"
+```
+
+**Phase 2: Processing (only for NEW files)**
+```
+For each new file:
+  1. Pre-process content (JSONL → text, etc.) - IN MEMORY
+  2. Claude extracts: title, summary, date, participants, content_type
+  3. Generate embedding for summary
+  4. Store in Supabase (with content_hash for dedup)
+  5. Copy to lore-data/sources/{id}/
+  6. Git commit + push
+```
+
+**Config location:** `~/.config/lore/sync-sources.json` (machine-specific)
 
 ## Design Philosophy: Agentic Extraction
 
@@ -204,10 +242,12 @@ research("What authentication approach should we use?")
 ## Key Design Decisions
 
 1. **Hybrid MCP approach**: Simple tools for direct queries + agentic tool for complex research
-2. **Push-based for noisy sources**: Claude Code uses `retain` tool, Granola is fully ingested
-3. **Citations are first-class**: Every Quote has a Citation linking to source
-4. **Projects organize knowledge**: All sources associate with projects
-5. **Lineage tracks history**: Decisions, pivots, milestones logged per project
+2. **Universal sync**: Claude extracts metadata at ingest time, replacing bespoke adapters
+3. **Content hash deduplication**: Same file = same hash, works across machines
+4. **Two-phase sync**: Discovery is free (no LLM), processing only for new files
+5. **Citations are first-class**: Every Quote has a Citation linking to source
+6. **Projects organize knowledge**: All sources associate with projects
+7. **Config is machine-specific**: `~/.config/lore/sync-sources.json` not in data repo
 
 ## Knowledge Evolution & Conflicts
 

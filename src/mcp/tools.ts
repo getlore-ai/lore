@@ -163,6 +163,14 @@ const SyncSchema = z.object({
     .boolean()
     .optional()
     .describe('Index any new sources found on disk (default: true)'),
+  dry_run: z
+    .boolean()
+    .optional()
+    .describe('Show what would be synced without actually processing (default: false)'),
+  use_legacy: z
+    .boolean()
+    .optional()
+    .describe('Use only legacy disk-based sync, skip universal sync (default: false)'),
 });
 
 // ============================================================================
@@ -295,12 +303,25 @@ USE 'retain' INSTEAD for saving discrete insights, decisions, or notes (not full
   // Sync tool
   {
     name: 'sync',
-    description: `Sync the knowledge repository with the latest sources. Optionally pulls from git remote and indexes any new sources found on disk. Use this to refresh the knowledge base when you know new content has been added.
+    description: `Sync the knowledge repository using a two-phase approach:
+
+PHASE 1 - Discovery (free, no LLM calls):
+- Scans all configured source directories
+- Computes content hashes for deduplication
+- Checks which files already exist in Supabase
+
+PHASE 2 - Processing (only for NEW files):
+- Claude extracts metadata (title, summary, date, content_type)
+- Generates embeddings for semantic search
+- Stores in Supabase and local data directory
+
+Configure source directories with 'lore sources add' CLI command.
 
 USE THIS WHEN:
 - User says content was added externally
 - Starting a session and want fresh data
-- After manual file changes to the data directory`,
+- After adding new files to watched directories
+- User asks to "sync", "update", or "refresh" the knowledge base`,
     inputSchema: zodToJsonSchema(SyncSchema),
   },
 
