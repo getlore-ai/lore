@@ -682,9 +682,15 @@ program
       console.log('');
     }
 
-    const pullInterval = setInterval(periodicSync, PULL_INTERVAL_MS);
+    // Run first sync immediately, then every PULL_INTERVAL_MS
     console.log(`  ${c.dim(`Remote sync every ${PULL_INTERVAL_MS / 60000} minutes`)}`);
     console.log('');
+
+    // Immediate first sync
+    await periodicSync();
+
+    // Then periodic
+    const pullInterval = setInterval(periodicSync, PULL_INTERVAL_MS);
 
     // Handle graceful shutdown
     process.on('SIGINT', async () => {
