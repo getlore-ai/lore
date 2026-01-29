@@ -483,22 +483,23 @@ program
     const config = await loadSyncConfig();
     const sources = getEnabledSources(config);
 
-    if (sources.length === 0) {
-      console.log(c.error('No sync sources configured'));
-      console.log(c.dim('  Run "lore sources add" to add directories to watch'));
-      process.exit(1);
-    }
-
-    // Show watched directories
-    console.log(c.info('  📁 Watching:'));
+    // Show watched directories (or note if none)
     const watchPaths: string[] = [];
-    for (const source of sources) {
-      const expanded = expandPath(source.path);
-      console.log(`     ${c.file(source.name)}`);
-      console.log(`     ${c.path(expanded)}`);
-      console.log(`     ${c.dim(`glob: ${source.glob} → project: ${source.project}`)}`);
+    if (sources.length === 0) {
+      console.log(c.warning('  ⚠ No local sync sources configured'));
+      console.log(c.dim('    Will still pull from remote and process new files'));
+      console.log(c.dim('    Run "lore sources add" to watch local directories'));
       console.log('');
-      watchPaths.push(expanded);
+    } else {
+      console.log(c.info('  📁 Watching:'));
+      for (const source of sources) {
+        const expanded = expandPath(source.path);
+        console.log(`     ${c.file(source.name)}`);
+        console.log(`     ${c.path(expanded)}`);
+        console.log(`     ${c.dim(`glob: ${source.glob} → project: ${source.project}`)}`);
+        console.log('');
+        watchPaths.push(expanded);
+      }
     }
 
     // Run initial sync
@@ -606,34 +607,38 @@ program
     }
 
     // Set up file watcher
-    const watcher = chokidar.watch(watchPaths, {
-      ignored: [
-        /(^|[\/\\])\../,  // Ignore dotfiles
-        /node_modules/,
-        /__pycache__/,
-      ],
-      persistent: true,
-      ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 500,
-        pollInterval: 100,
-      },
-    });
-
-    watcher
-      .on('add', (filePath) => {
-        const ts = getTimestamp();
-        console.log(`  ${c.time(ts)} ${c.success('+')} ${c.file(path.basename(filePath))} ${c.dim('added')}`);
-        scheduleSync(filePath, 'add');
-      })
-      .on('change', (filePath) => {
-        const ts = getTimestamp();
-        console.log(`  ${c.time(ts)} ${c.warning('~')} ${c.file(path.basename(filePath))} ${c.dim('modified')}`);
-        scheduleSync(filePath, 'change');
-      })
-      .on('error', (error) => {
-        console.log(`  ${c.error('WATCHER ERROR')} ${error}`);
+    // Set up file watcher (only if there are local sources to watch)
+    let watcher: ReturnType<typeof chokidar.watch> | null = null;
+    if (watchPaths.length > 0) {
+      watcher = chokidar.watch(watchPaths, {
+        ignored: [
+          /(^|[\/\\])\../,  // Ignore dotfiles
+          /node_modules/,
+          /__pycache__/,
+        ],
+        persistent: true,
+        ignoreInitial: true,
+        awaitWriteFinish: {
+          stabilityThreshold: 500,
+          pollInterval: 100,
+        },
       });
+
+      watcher
+        .on('add', (filePath) => {
+          const ts = getTimestamp();
+          console.log(`  ${c.time(ts)} ${c.success('+')} ${c.file(path.basename(filePath))} ${c.dim('added')}`);
+          scheduleSync(filePath, 'add');
+        })
+        .on('change', (filePath) => {
+          const ts = getTimestamp();
+          console.log(`  ${c.time(ts)} ${c.warning('~')} ${c.file(path.basename(filePath))} ${c.dim('modified')}`);
+          scheduleSync(filePath, 'change');
+        })
+        .on('error', (error) => {
+          console.log(`  ${c.error('WATCHER ERROR')} ${error}`);
+        });
+    }
 
     // Periodic sync (pull from remote + check for new files)
     const PULL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -682,13 +687,14 @@ program
     console.log('');
 
     // Handle graceful shutdown
-    process.on('SIGINT', () => {
-      console.log('\n\nShutting down watcher...');
+    process.on('SIGINT', async () => {
+      console.log('\n\nShutting down...');
       clearInterval(pullInterval);
-      watcher.close().then(() => {
-        console.log('Goodbye!');
-        process.exit(0);
-      });
+      if (watcher) {
+        await watcher.close();
+      }
+      console.log('Goodbye!');
+      process.exit(0);
     });
   });
 
