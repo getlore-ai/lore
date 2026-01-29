@@ -39,9 +39,13 @@ const execAsync = promisify(exec);
 const LORE_DATA_DIR = expandPath(process.env.LORE_DATA_DIR || './data');
 const DB_PATH = path.join(LORE_DATA_DIR, 'lore.lance');
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Auto-sync is DISABLED by default - use `lore watch` for visible sync
+// Set LORE_AUTO_SYNC=true to enable background sync in MCP server
+const AUTO_SYNC = process.env.LORE_AUTO_SYNC === 'true';
 const AUTO_GIT_PULL = process.env.LORE_AUTO_GIT_PULL !== 'false';
 const AUTO_GIT_PUSH = process.env.LORE_AUTO_GIT_PUSH !== 'false';
-const AUTO_INDEX = process.env.LORE_AUTO_INDEX !== 'false'; // Auto-index new sources (costs API calls)
+const AUTO_INDEX = process.env.LORE_AUTO_INDEX !== 'false';
 
 /**
  * Try to git pull, handling conflicts gracefully
@@ -125,12 +129,17 @@ async function main() {
     console.error(`[lore] No index found at ${DB_PATH}. Run 'lore ingest' to add sources.`);
   }
 
-  // Initial sync check
-  await syncCheck();
+  // Auto-sync (disabled by default - use `lore watch` instead)
+  if (AUTO_SYNC) {
+    // Initial sync check
+    await syncCheck();
 
-  // Periodic sync check
-  setInterval(syncCheck, SYNC_INTERVAL_MS);
-  console.error(`[lore] Auto-sync enabled (every ${SYNC_INTERVAL_MS / 60000} minutes)`);
+    // Periodic sync check
+    setInterval(syncCheck, SYNC_INTERVAL_MS);
+    console.error(`[lore] Auto-sync enabled (every ${SYNC_INTERVAL_MS / 60000} minutes)`);
+  } else {
+    console.error(`[lore] Auto-sync disabled. Use 'lore watch' for visible sync, or set LORE_AUTO_SYNC=true`);
+  }
 
   const server = new Server(
     {

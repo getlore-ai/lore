@@ -172,26 +172,29 @@ lore mcp
 lore ingest /path/to/docs --type markdown -p myproject
 ```
 
-## Auto-Sync Options
+## Syncing
 
-There are three ways to keep Lore in sync:
-
-| Method | When to use |
-|--------|-------------|
-| `lore watch` | Run in terminal, see real-time progress as files are added |
-| MCP server | Auto-syncs every 5 min while Claude Desktop/Code is running |
-| `lore sync` | Manual one-time sync |
-
-### Watch Mode
+### `lore watch` (Recommended)
 
 ```bash
 lore watch
 ```
 
-Continuously monitors your configured directories and syncs when files change:
-- Shows real-time file additions and sync progress
-- Debounces rapid changes (default 2 seconds)
-- Run in background: `nohup lore watch > ~/lore-watch.log 2>&1 &`
+The primary way to keep Lore in sync. Run it in a terminal:
+- Watches configured directories for new/changed files
+- Pulls from git every 5 minutes (gets files from other machines)
+- Pushes to git after processing new files
+- Shows colorized real-time progress
+
+Run in background: `nohup lore watch > ~/lore-watch.log 2>&1 &`
+
+### Other Options
+
+| Method | When to use |
+|--------|-------------|
+| `lore watch` | **Primary** - run in terminal for full visibility |
+| `lore sync` | One-time manual sync |
+| MCP server | Disabled by default. Set `LORE_AUTO_SYNC=true` to enable |
 
 ## How Sync Works
 
