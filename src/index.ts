@@ -635,9 +635,56 @@ program
         console.log(`  ${c.error('WATCHER ERROR')} ${error}`);
       });
 
+    // Periodic sync (pull from remote + check for new files)
+    const PULL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+    async function periodicSync() {
+      if (isSyncing) return;
+
+      const ts = getTimestamp();
+      console.log(`  ${c.time(ts)} ${c.badge('PULL', colors.bgBlue)} Checking for remote changes...`);
+
+      try {
+        const result = await handleSync(dbPath, dataDir, {
+          git_pull: true,
+          git_push: false,  // Don't push on periodic check
+        });
+
+        if (result.git_pulled) {
+          console.log(`  ${c.time(ts)} ${c.success('✓')} Pulled latest changes`);
+        }
+
+        const newFiles = result.discovery?.new_files || 0;
+        if (newFiles > 0) {
+          console.log(`  ${c.time(ts)} ${c.info('→')} Found ${newFiles} new file(s) from remote`);
+          // Process them
+          const processResult = await handleSync(dbPath, dataDir, {
+            git_pull: false,
+            git_push: true,
+          });
+          if (processResult.processing && processResult.processing.processed > 0) {
+            console.log(`  ${c.time(ts)} ${c.badge('DONE', colors.bgGreen)} Indexed ${processResult.processing.processed} file(s):`);
+            for (const title of processResult.processing.titles) {
+              console.log(`             ${c.success('✓')} ${title}`);
+            }
+          }
+        } else {
+          console.log(`  ${c.time(ts)} ${c.dim('✓ Up to date')}`);
+        }
+      } catch (error) {
+        console.log(`  ${c.time(ts)} ${c.warning('⚠')} Pull failed: ${error}`);
+      }
+      console.log('');
+    }
+
+    const pullInterval = setInterval(periodicSync, PULL_INTERVAL_MS);
+    console.log(`  ${c.dim(`Remote sync every ${PULL_INTERVAL_MS / 60000} minutes`)}`);
+    console.log('');
+
     // Handle graceful shutdown
     process.on('SIGINT', () => {
       console.log('\n\nShutting down watcher...');
+      clearInterval(pullInterval);
       watcher.close().then(() => {
         console.log('Goodbye!');
         process.exit(0);
