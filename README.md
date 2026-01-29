@@ -14,24 +14,67 @@ When doing user research and rapid prototyping, you need:
 - **Multi-machine sync**: Content hash deduplication across all your machines
 - **Project organization**: Group knowledge by project with lineage tracking
 
-## Quick Start
+## Installation
+
+### 1. Clone and Build
 
 ```bash
-# Install dependencies
+git clone https://github.com/mishkinf/lore.git
+cd lore
 npm install
-
-# Build
 npm run build
-
-# Make 'lore' command available globally
-npm link
-
-# Set up environment
-cp .env.example .env.local
-# Edit .env.local with your API keys
 ```
 
-### Environment Variables
+### 2. Make `lore` Command Available Globally
+
+```bash
+npm link
+```
+
+This creates a symlink so you can run `lore` from anywhere. Verify it works:
+
+```bash
+lore --version
+# Should output: 0.1.0
+```
+
+### 3. Configure Environment
+
+```bash
+cp .env.example .env.local
+```
+
+Edit `.env.local` with your API keys (see below).
+
+### 4. Set Up Data Directory
+
+```bash
+# Create a data directory (can be its own git repo for multi-machine sync)
+mkdir ~/lore-data
+
+# Or initialize with git for cross-machine sync
+lore init ~/lore-data --remote git@github.com:you/lore-data-private.git
+```
+
+### 5. Configure Sync Sources
+
+```bash
+# Add directories to watch
+lore sources add --name "My Notes" --path ~/Documents/notes --glob "**/*.md" --project myproject
+
+# Verify
+lore sources list
+```
+
+### 6. Start Watching
+
+```bash
+lore watch
+```
+
+---
+
+## Environment Variables
 
 ```bash
 OPENAI_API_KEY=...              # Required for embeddings
@@ -40,37 +83,6 @@ SUPABASE_URL=...                # Supabase project URL
 SUPABASE_ANON_KEY=...           # Supabase anon/service key
 LORE_DATA_DIR=~/lore-data       # Data directory for raw documents
 ```
-
-### Data Repository Setup
-
-Lore separates code from data. Your knowledge is stored in a separate data directory (optionally its own git repo for syncing across machines).
-
-```bash
-# Initialize a new data repository
-lore init ~/lore-data
-
-# Or with a git remote for cross-machine sync
-lore init ~/lore-data --remote git@github.com:you/lore-data-private.git
-```
-
-### Configure Sync Sources
-
-Tell Lore where to find your documents:
-
-```bash
-# Add directories to watch
-lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
-lore sources add --name "Research Notes" --path ~/research --glob "**/*.{md,txt}" --project research
-
-# List configured sources
-lore sources list
-
-# Enable/disable sources
-lore sources disable "Granola Meetings"
-lore sources enable "Granola Meetings"
-```
-
-Config is stored at `~/.config/lore/sync-sources.json` (machine-specific, not in data repo).
 
 ### MCP Configuration
 
