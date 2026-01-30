@@ -84,7 +84,7 @@ const SearchSchema = z.object({
 
 const GetSourceSchema = z.object({
   source_id: z.string().describe('ID of the source document'),
-  include_content: z.boolean().optional().describe('Include full original content'),
+  include_content: z.boolean().optional().describe('Include full original content/transcript (default: false - set to true for raw text)'),
 });
 
 const ListSourcesSchema = z.object({
@@ -216,6 +216,8 @@ USE 'research' INSTEAD WHEN:
   {
     name: 'get_source',
     description: `Get full details of a specific source document including all quotes, themes, and optionally the complete original content. Use for deep-diving into a specific source.
+
+IMPORTANT: Set include_content=true to get the full raw transcript/document text. By default only metadata and summary are returned.
 
 USE THIS WHEN:
 - You have a source_id from search results and need full content
