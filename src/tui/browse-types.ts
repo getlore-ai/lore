@@ -4,6 +4,7 @@
 
 import type { SourceType, ContentType, Theme, Quote, SearchMode } from '../core/types.js';
 import type { ToolDefinition } from '../extensions/types.js';
+import type { PendingProposal } from '../extensions/proposals.js';
 
 // Source from database
 export interface SourceItem {
@@ -31,7 +32,16 @@ export interface BrowseOptions {
   dataDir: string;
 }
 
-export type Mode = 'list' | 'search' | 'regex-search' | 'fullview' | 'doc-search' | 'help' | 'project-picker' | 'tools';
+export type Mode =
+  | 'list'
+  | 'search'
+  | 'regex-search'
+  | 'fullview'
+  | 'doc-search'
+  | 'help'
+  | 'project-picker'
+  | 'tools'
+  | 'pending';
 
 export interface ToolResult {
   toolName: string;
@@ -83,6 +93,9 @@ export interface BrowserState {
   toolStartTime: number | null;
   toolFormFields: ToolFormField[];
   toolFormIndex: number;
+  pendingList: PendingProposal[];
+  selectedPendingIndex: number;
+  pendingConfirmAction: 'approve' | 'reject' | null;
 }
 
 // UI components from blessed

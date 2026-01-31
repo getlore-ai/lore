@@ -4,6 +4,7 @@
 
 import type { Command } from 'commander';
 import type { ResearchPackage } from '../core/types.js';
+import type { ProposedChange, PendingProposal } from './proposals.js';
 
 export interface ToolDefinition {
   name: string;
@@ -30,6 +31,14 @@ export interface ExtensionQueryResult {
   score?: number;
 }
 
+// Extension permission levels
+export interface ExtensionPermissions {
+  read?: boolean;           // Query sources (default: true)
+  proposeCreate?: boolean;  // Propose new documents (default: false)
+  proposeModify?: boolean;  // Propose edits to existing (default: false)
+  proposeDelete?: boolean;  // Propose deletion (default: false)
+}
+
 export interface ExtensionToolContext {
   mode: 'mcp' | 'cli';
   dataDir?: string;
@@ -37,6 +46,8 @@ export interface ExtensionToolContext {
   logger?: (message: string) => void;
   // Query lore's database (use this instead of direct DB access)
   query?: (options: ExtensionQueryOptions) => Promise<ExtensionQueryResult[]>;
+  // Propose a change that requires approval (respects extension permissions)
+  propose?: (change: ProposedChange) => Promise<PendingProposal>;
 }
 
 export interface ExtensionMiddleware {
@@ -127,6 +138,9 @@ export interface LoreExtension {
   name: string;
   version: string;
   compatibility?: ExtensionCompatibility;
+  
+  // Permission level for this extension (default: read-only)
+  permissions?: ExtensionPermissions;
 
   tools?: ExtensionTool[];
   commands?: ExtensionCommand[];

@@ -16,6 +16,8 @@ import {
   renderFullView,
   renderList,
   renderPreview,
+  renderPendingList,
+  renderPendingPreview,
   renderToolsList,
   renderToolForm,
   renderToolResult,
@@ -26,6 +28,7 @@ import { generateEmbedding } from '../core/embedder.js';
 import { searchLocalFiles } from '../core/local-search.js';
 import type { SearchMode, SourceType } from '../core/types.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
+import { listPendingProposals, approveProposal, rejectProposal } from '../extensions/proposals.js';
 
 /**
  * Load full content for the selected document
@@ -130,7 +133,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  e Editor  │  q Quit  │  ? Help');
+  ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  P Pending  │  e Editor  │  q Quit  │  ? Help');
   ui.screen.render();
 }
 
@@ -722,6 +725,12 @@ export function moveDown(state: BrowserState, ui: UIComponents): void {
     const maxScroll = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     state.scrollOffset = Math.min(state.scrollOffset + 1, maxScroll);
     renderFullView(ui, state);
+  } else if (state.mode === 'pending') {
+    if (state.selectedPendingIndex < state.pendingList.length - 1) {
+      state.selectedPendingIndex++;
+      renderPendingList(ui, state);
+      renderPendingPreview(ui, state);
+    }
   } else if (state.mode === 'list') {
     if (state.selectedIndex < state.filtered.length - 1) {
       state.selectedIndex++;
@@ -736,6 +745,12 @@ export function moveUp(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = Math.max(0, state.scrollOffset - 1);
     renderFullView(ui, state);
+  } else if (state.mode === 'pending') {
+    if (state.selectedPendingIndex > 0) {
+      state.selectedPendingIndex--;
+      renderPendingList(ui, state);
+      renderPendingPreview(ui, state);
+    }
   } else if (state.mode === 'list') {
     if (state.selectedIndex > 0) {
       state.selectedIndex--;
@@ -755,6 +770,13 @@ export function pageDown(state: BrowserState, ui: UIComponents): void {
     const maxScroll = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     state.scrollOffset = Math.min(state.scrollOffset + pageSize, maxScroll);
     renderFullView(ui, state);
+  } else if (state.mode === 'pending') {
+    state.selectedPendingIndex = Math.min(
+      state.selectedPendingIndex + Math.floor(pageSize),
+      state.pendingList.length - 1
+    );
+    renderPendingList(ui, state);
+    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = Math.min(state.selectedIndex + Math.floor(pageSize), state.filtered.length - 1);
     renderList(ui, state);
@@ -771,6 +793,10 @@ export function pageUp(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = Math.max(0, state.scrollOffset - pageSize);
     renderFullView(ui, state);
+  } else if (state.mode === 'pending') {
+    state.selectedPendingIndex = Math.max(state.selectedPendingIndex - Math.floor(pageSize), 0);
+    renderPendingList(ui, state);
+    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = Math.max(state.selectedIndex - Math.floor(pageSize), 0);
     renderList(ui, state);
@@ -783,6 +809,10 @@ export function jumpToEnd(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     renderFullView(ui, state);
+  } else if (state.mode === 'pending') {
+    state.selectedPendingIndex = Math.max(0, state.pendingList.length - 1);
+    renderPendingList(ui, state);
+    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = state.filtered.length - 1;
     renderList(ui, state);
@@ -795,6 +825,10 @@ export function jumpToStart(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = 0;
     renderFullView(ui, state);
+  } else if (state.mode === 'pending') {
+    state.selectedPendingIndex = 0;
+    renderPendingList(ui, state);
+    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = 0;
     renderList(ui, state);
@@ -1108,4 +1142,116 @@ export async function clearProjectFilter(
     ui.statusBar.setContent(` {red-fg}Failed: ${error}{/red-fg}`);
     ui.screen.render();
   }
+}
+
+// ============================================================================
+// Pending Proposals
+// ============================================================================
+
+export async function showPendingView(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string
+): Promise<void> {
+  ui.statusBar.setContent(' Loading pending proposals...');
+  ui.screen.render();
+
+  state.pendingList = await listPendingProposals();
+  state.selectedPendingIndex = 0;
+  state.mode = 'pending';
+  state.pendingConfirmAction = null;
+
+  ui.listTitle.setContent(' Pending');
+  ui.previewTitle.setContent(' Proposal');
+  ui.footer.setContent(' ↑↓ Navigate  │  a Approve  │  r Reject  │  Esc Back');
+
+  renderPendingList(ui, state);
+  renderPendingPreview(ui, state);
+  updateStatus(ui, state);
+  ui.screen.render();
+}
+
+export async function refreshPendingView(
+  state: BrowserState,
+  ui: UIComponents
+): Promise<void> {
+  state.pendingList = await listPendingProposals();
+  if (state.selectedPendingIndex >= state.pendingList.length) {
+    state.selectedPendingIndex = Math.max(0, state.pendingList.length - 1);
+  }
+  renderPendingList(ui, state);
+  renderPendingPreview(ui, state);
+  updateStatus(ui, state);
+  ui.screen.render();
+}
+
+function confirmPendingAction(
+  state: BrowserState,
+  ui: UIComponents,
+  prompt: string,
+  onConfirm: () => Promise<void>
+): void {
+  state.pendingConfirmAction = prompt.includes('Reject') ? 'reject' : 'approve';
+  ui.statusBar.setContent(` ${prompt} (y/n)`);
+  ui.screen.render();
+
+  const handler = async (_ch: string | undefined, key: { name?: string }) => {
+    if (!key?.name) return;
+    if (key.name === 'y') {
+      ui.screen.removeListener('keypress', handler);
+      state.pendingConfirmAction = null;
+      await onConfirm();
+      return;
+    }
+    if (key.name === 'n' || key.name === 'escape') {
+      ui.screen.removeListener('keypress', handler);
+      state.pendingConfirmAction = null;
+      updateStatus(ui, state);
+      renderPendingPreview(ui, state);
+      ui.screen.render();
+    }
+  };
+
+  ui.screen.on('keypress', handler);
+}
+
+export function approveSelectedProposal(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string
+): void {
+  const proposal = state.pendingList[state.selectedPendingIndex];
+  if (!proposal || proposal.status !== 'pending') return;
+
+  confirmPendingAction(state, ui, 'Approve proposal', async () => {
+    await approveProposal(proposal.id, dbPath, dataDir);
+    await refreshPendingView(state, ui);
+    ui.statusBar.setContent(` {green-fg}Approved ${proposal.id}{/green-fg}`);
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state);
+      ui.screen.render();
+    }, 1200);
+  });
+}
+
+export function rejectSelectedProposal(
+  state: BrowserState,
+  ui: UIComponents
+): void {
+  const proposal = state.pendingList[state.selectedPendingIndex];
+  if (!proposal || proposal.status !== 'pending') return;
+
+  confirmPendingAction(state, ui, 'Reject proposal', async () => {
+    await rejectProposal(proposal.id, 'Rejected in TUI');
+    await refreshPendingView(state, ui);
+    ui.statusBar.setContent(` {yellow-fg}Rejected ${proposal.id}{/yellow-fg}`);
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state);
+      ui.screen.render();
+    }, 1200);
+  });
 }

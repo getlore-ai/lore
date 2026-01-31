@@ -28,6 +28,7 @@ export interface ExtensionRoute {
   packageName: string;
   modulePath: string;
   cacheBust?: string;
+  permissions?: import('./types.js').ExtensionPermissions;
 }
 
 interface PendingCall {

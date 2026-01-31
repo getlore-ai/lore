@@ -226,8 +226,9 @@ export function createUIComponents(): UIComponents {
   /          Hybrid search (semantic+keyword)
   :          Regex search (grep files)
   p          Switch project filter
-  P          Clear project filter (show all)
+  C-p        Clear project filter (show all)
   t          Tools
+  P          Pending proposals
   e          Open in $EDITOR
   s          Sync now (git pull + index)
 
@@ -363,7 +364,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  e Editor  │  q Quit  │  ? Help',
+    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  P Pending  │  e Editor  │  q Quit  │  ? Help',
     tags: true,
     style: {
       fg: 'white',

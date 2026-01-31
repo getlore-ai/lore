@@ -14,6 +14,7 @@ import {
 } from './config.js';
 import { ExtensionSandbox, type ExtensionRoute } from './sandbox.js';
 import { getAllSources } from '../core/vector-store.js';
+import { createProposal } from './proposals.js';
 import type {
   LoreExtension,
   ToolDefinition,
@@ -23,6 +24,7 @@ import type {
   ExtensionQueryResult,
   ExtensionCommandContext,
   ExtensionMiddleware,
+  ExtensionPermissions,
   LoreEventType,
   EventHandler,
   LoreEvent,
@@ -68,6 +70,36 @@ function createQueryFunction(): (options: ExtensionQueryOptions) => Promise<Exte
       console.error('[extensions] Query failed:', error);
       return [];
     }
+  };
+}
+
+export function createProposeFunction(
+  extensionName: string,
+  permissions?: ExtensionPermissions
+): (change: import('./proposals.js').ProposedChange) => Promise<import('./proposals.js').PendingProposal> {
+  return async (change) => {
+    // Enforce permissions
+    const perms = permissions || {};
+    
+    if (change.type === 'create_source' || change.type === 'retain_insight') {
+      if (!perms.proposeCreate) {
+        throw new Error(`Extension "${extensionName}" does not have permission to propose creating documents. Add permissions.proposeCreate = true to the extension.`);
+      }
+    }
+    
+    if (change.type === 'update_source' || change.type === 'add_tags') {
+      if (!perms.proposeModify) {
+        throw new Error(`Extension "${extensionName}" does not have permission to propose modifications. Add permissions.proposeModify = true to the extension.`);
+      }
+    }
+    
+    if (change.type === 'delete_source') {
+      if (!perms.proposeDelete) {
+        throw new Error(`Extension "${extensionName}" does not have permission to propose deletions. Add permissions.proposeDelete = true to the extension.`);
+      }
+    }
+    
+    return createProposal(extensionName, change);
   };
 }
 
@@ -257,6 +289,7 @@ export class ExtensionRegistry {
       ...context,
       logger: context.logger || this.logger,
       query: createQueryFunction(),
+      propose: createProposeFunction(route.extensionName, route.permissions),
     };
 
     try {
@@ -437,6 +470,7 @@ export async function loadExtensionRegistry(
         packageName: loaded.packageName,
         modulePath: loaded.modulePath,
         cacheBust: options.cacheBust,
+        permissions: loaded.extension.permissions,
       });
       toolDefinitions.push(tool.definition);
     }
