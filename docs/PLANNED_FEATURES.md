@@ -1,12 +1,33 @@
 # Lore - Planned Features
 
-> Future features and enhancements for Lore. Organized by category with implementation notes.
+> Future features and enhancements for Lore. Organized into Core Platform (universal) and Extension Ecosystem (domain-specific).
 
 ## Overview
 
 Lore's core value proposition: **"One knowledge foundation for all your AI tools."**
 
 People use 3-5+ AI tools (Claude, ChatGPT, Cursor, Copilot, custom agents). Each starts from zero. Lore is the shared brain that gives them all access to the same knowledge with proper citations.
+
+---
+
+## Architecture Philosophy
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    EXTENSION ECOSYSTEM                       │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│  │  Research   │ │   Sales     │ │   Legal     │  ...       │
+│  │  Toolkit    │ │   Toolkit   │ │   Toolkit   │            │
+│  └─────────────┘ └─────────────┘ └─────────────┘            │
+├─────────────────────────────────────────────────────────────┤
+│                      CORE PLATFORM                           │
+│  Import │ Graph │ Summaries │ Handoff │ Verify │ API        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Core Platform**: Universal features that benefit anyone using Lore. Built-in, always available.
+
+**Extension Ecosystem**: Domain-specific features built on top of the core. Installed separately, enables specialized workflows without bloating the core.
 
 ---
 
@@ -19,7 +40,13 @@ People use 3-5+ AI tools (Claude, ChatGPT, Cursor, Copilot, custom agents). Each
 
 ---
 
-## Category 1: Import & Ingestion
+# Part 1: Core Platform
+
+> Universal features that provide value to any Lore user regardless of domain.
+
+---
+
+## 1. Import & Ingestion
 
 ### 1.1 Universal Import Sources 🔴
 
@@ -29,6 +56,7 @@ Reduce friction to zero. People won't adopt if adding knowledge is hard.
 |--------|--------|----------|
 | Web pages | Browser extension / URL paste | 🔴 |
 | PDFs | Drag & drop with OCR + vision | 🔴 |
+| Markdown/Text | Direct file sync | ✅ Done |
 | Notion | OAuth sync | 🟠 |
 | Google Docs | OAuth sync | 🟠 |
 | Email | Forward to lore@yourdomain.com | 🟠 |
@@ -38,9 +66,6 @@ Reduce friction to zero. People won't adopt if adding knowledge is hard.
 | YouTube | Transcript extraction | 🟡 |
 | Podcasts | Audio → text | 🟡 |
 | Obsidian/Roam | Direct import | 🟠 |
-| Readwise | API sync | 🟡 |
-| Twitter/X bookmarks | API sync | 🟢 |
-| Kindle highlights | Import file | 🟢 |
 
 **Implementation notes:**
 - Browser extension for web capture (manifest v3)
@@ -60,12 +85,10 @@ sync:
     schedule: "every 6 hours"
   - source: google-drive/Research
     schedule: "daily at 2am"
-  - source: email-label/Important
-    schedule: "every 30 minutes"
 
 actions:
-  - trigger: "new source matches 'urgent'"
-    action: "notify slack #research"
+  - trigger: "new source added"
+    action: "webhook https://..."
 ```
 
 **Implementation notes:**
@@ -80,9 +103,9 @@ Detect near-duplicates, not just exact hash matches.
 
 ```
 "These 3 sources appear to be variants of the same content:
-- interview-jan15-raw.md (transcript)
-- interview-jan15-notes.md (your notes)
-- interview-jan15-summary.md (AI summary)
+- doc-v1.md
+- doc-v2.md
+- doc-final.md
 
 → Link as variants? [y/n]"
 ```
@@ -95,25 +118,24 @@ Detect near-duplicates, not just exact hash matches.
 
 ---
 
-## Category 2: Knowledge Organization
+## 2. Knowledge Organization
 
 ### 2.1 Automatic Knowledge Graph 🔴
 
 Documents aren't isolated. Automatically extract entities and relationships.
 
 ```
-Source: "Meeting with Acme Corp"
+Source: "Meeting notes Jan 15"
   │
   ├─ Entities extracted:
-  │   ├─ Person: "John Smith" (CTO)
+  │   ├─ Person: "John Smith"
   │   ├─ Company: "Acme Corp"
   │   ├─ Product: "Widget Pro"
   │   └─ Concept: "enterprise pricing"
   │
   └─ Auto-linked to:
       ├─ 3 other sources mentioning "Acme Corp"
-      ├─ 2 sources about "enterprise pricing"
-      └─ Email thread with "John Smith"
+      └─ 2 sources about "enterprise pricing"
 ```
 
 **Queries enabled:**
@@ -124,7 +146,7 @@ Source: "Meeting with Acme Corp"
 **Implementation notes:**
 - Entity extraction via LLM at ingest time
 - Entity types: Person, Company, Product, Concept, Place, Event
-- Store in graph structure (could use Supabase relations or dedicated graph DB)
+- Store in graph structure (Supabase relations or dedicated graph DB)
 - Entity resolution (merge "John" and "John Smith")
 - Batch extraction for existing sources
 
@@ -133,11 +155,10 @@ Source: "Meeting with Acme Corp"
 Organize knowledge for different purposes without duplicating.
 
 ```
-Workspace: "Product Launch"
-├─ Collection: "Customer Feedback" (12 sources)
-├─ Collection: "Competitive Intel" (8 sources)
-├─ Collection: "Technical Specs" (5 sources)
-└─ Collection: "Marketing Assets" (3 sources)
+Workspace: "Project Alpha"
+├─ Collection: "Research" (12 sources)
+├─ Collection: "Specs" (5 sources)
+└─ Collection: "Decisions" (3 sources)
 
 Same source can appear in multiple collections.
 ```
@@ -148,35 +169,15 @@ Same source can appear in multiple collections.
 - Search can be scoped to collection/workspace
 - Collections can have custom metadata/description
 
-### 2.3 Speaker Profiles & Attribution 🟡
-
-Build up profiles of who said what across all sources.
-
-```
-Speaker: "Sarah (Product Manager at Acme)"
-  ├─ Appeared in: 3 sources
-  ├─ Key themes: pricing concerns, enterprise features
-  ├─ Notable quotes:
-  │   - "We need SSO for compliance"
-  │   - "Budget is $X per seat"
-  └─ Segment: Enterprise, decision-maker
-```
-
-**Implementation notes:**
-- Extract speaker names at ingest (already in schema)
-- Entity resolution for same person across sources
-- Aggregate quotes by speaker
-- MCP tool: `get_speaker_profile`
-
-### 2.4 Tagging System 🟡
+### 2.3 Tagging System 🟡
 
 User-defined and auto-suggested tags.
 
 ```
-Source: "Interview Jan 15"
-├─ User tags: #enterprise, #pricing
-├─ Auto-suggested: #authentication, #compliance
-└─ System tags: @interview, @2024-01
+Source: "Document X"
+├─ User tags: #important, #review-needed
+├─ Auto-suggested: #authentication, #api
+└─ System tags: @document, @2024-01
 ```
 
 **Implementation notes:**
@@ -187,7 +188,7 @@ Source: "Interview Jan 15"
 
 ---
 
-## Category 3: Retrieval & Context
+## 3. Retrieval & Context
 
 ### 3.1 Layered Summaries (Zoom In/Out) 🔴
 
@@ -232,9 +233,9 @@ AI: "Users prefer monthly billing over annual."
 
 [Verification]
 ├─ Based on: 3 sources
-├─ Strongest evidence: "Interview with User 7"
+├─ Strongest evidence: Source X
 │   └─ "I'd never commit to annual upfront"
-├─ Confidence: MEDIUM (3 sources, same user segment)
+├─ Confidence: MEDIUM (3 sources, similar context)
 └─ Counter-evidence: None found
 ```
 
@@ -244,21 +245,21 @@ AI: "Users prefer monthly billing over annual."
 - Surface contradicting evidence
 - Include source diversity metrics
 
-### 3.3 Confidence Scoring & Evidence Strength 🟠
+### 3.3 Confidence Scoring 🟠
 
 Not all claims are equally supported.
 
 ```
-"Users want faster exports"
+Claim: "Feature X is important"
   ├─ Confidence: HIGH (7 mentions across 4 sources)
   ├─ Recency: Last mentioned Jan 28
-  └─ Diversity: 3 paying customers, 1 churned user
+  └─ Diversity: Multiple contexts
 ```
 
 **Scoring factors:**
 - Number of supporting sources
 - Recency of sources
-- Diversity of sources (different people, contexts)
+- Diversity of sources (different contexts)
 - Explicitness (direct quote vs inference)
 
 **Implementation notes:**
@@ -271,8 +272,8 @@ Not all claims are equally supported.
 "What did we know on Jan 15?"
 
 ```bash
-lore search "user needs" --as-of 2024-01-15
-lore research "product strategy" --as-of 2024-01-01
+lore search "topic" --as-of 2024-01-15
+lore research "question" --as-of 2024-01-01
 ```
 
 **Use cases:**
@@ -287,22 +288,21 @@ lore research "product strategy" --as-of 2024-01-01
 
 ---
 
-## Category 4: Intelligence & Insights
+## 4. Intelligence & Insights
 
-### 4.1 Contradiction Detection & Evolution Timeline 🟠
+### 4.1 Contradiction Detection & Evolution 🟠
 
 Automatically detect when new information contradicts old.
 
 ```
-Topic: "Authentication preferences"
+Topic: "Authentication approach"
 
 Timeline:
-Jan 10: "Users want social login" (3 mentions)
-Jan 18: "Actually, email magic links preferred" (5 mentions)
-Jan 25: "Enterprise users need SSO" (new segment identified)
+Jan 10: "Approach A preferred" (3 mentions)
+Jan 18: "Actually, Approach B better" (5 mentions)
 
 ⚠️ Conflict detected: Jan 10 vs Jan 18
-Resolution: Later evidence (Jan 18) from larger sample preferred
+Resolution: Later evidence from larger sample preferred
 ```
 
 **Implementation notes:**
@@ -311,114 +311,16 @@ Resolution: Later evidence (Jan 18) from larger sample preferred
 - Store detected contradictions for future reference
 - Alert when new source contradicts established knowledge
 
-### 4.2 Evidence Gap Analysis 🟠
-
-Know what you *don't* know.
-
-```
-Coverage Report for "Project X":
-
-Well-evidenced:
-✓ Core use case (12 sources)
-✓ Pain points (8 sources)
-✓ Feature requests (15 sources)
-
-Gaps identified:
-✗ Pricing willingness (1 source, inconclusive)
-✗ Enterprise needs (0 sources)
-✗ Competitor comparison (2 sources, outdated)
-
-Suggested research:
-- Add pricing questions to next 3 interviews
-- Recruit 2 enterprise users for interviews
-```
-
-**Implementation notes:**
-- Define topic taxonomy or use dynamic topics
-- Count sources per topic
-- Compare against expected coverage
-- MCP tool: `analyze_coverage`
-
-### 4.3 Cross-Project Pattern Detection 🟡
-
-Find universal truths across your work.
-
-```
-Cross-Project Insight:
-"Users in 3 different projects mentioned frustration with onboarding"
-  ├─ Project A (note-taking app): "Too many steps to start"
-  ├─ Project B (analytics tool): "Couldn't figure out where to begin"
-  └─ Project C (this project): "The setup wizard was confusing"
-
-→ Meta-learning: Onboarding simplicity is a universal pain point
-```
-
-**Implementation notes:**
-- Run research across all projects
-- Cluster similar themes
-- Surface patterns that appear in 2+ projects
-- MCP tool: `find_patterns`
-
-### 4.4 Hypothesis Testing Mode 🟡
-
-Structured way to validate assumptions.
-
-```bash
-lore hypothesis "Users will pay more for AI features"
-```
-
-**Output:**
-```
-Hypothesis: "Users will pay more for AI features"
-
-SUPPORTING (4 sources):
-- "The AI suggestions are why I'd upgrade" - User 7
-- "That's the killer feature" - User 12
-
-CONTRADICTING (2 sources):
-- "I don't trust AI with my data" - User 3
-- "The manual mode is what I use" - User 9
-
-VERDICT: Mixed evidence. Segment identified: technical users
-skeptical, non-technical users enthusiastic.
-```
-
-**Implementation notes:**
-- Variant of research that explicitly seeks both sides
-- Structured output with SUPPORTING/CONTRADICTING
-- Suggests refined hypothesis or segments
-
-### 4.5 Research Agenda / Question Bank 🟡
-
-Track open questions. Alert when new sources might answer them.
-
-```
-Open Questions:
-├─ "How do power users differ from casual users?" [HIGH priority]
-│    └─ Last searched: Jan 20, no conclusive evidence
-├─ "What's the willingness to pay?" [CRITICAL]
-│    └─ Partially answered by 2 sources
-└─ "Why do users churn?" [MEDIUM]
-     └─ NEW MATCH: Source 'exit-interview-jan28' may answer this!
-```
-
-**Implementation notes:**
-- Store questions with priority
-- On new source ingestion, check against open questions
-- Notify when potential match found
-- Track answer status: unanswered / partial / answered
-
-### 4.6 Freshness & Decay Tracking 🟡
+### 4.2 Freshness & Staleness Tracking 🟡
 
 Knowledge gets stale. Surface this automatically.
 
 ```
-Source Health Dashboard:
+Source Health:
 ├─ Fresh (< 30 days): 45 sources
 ├─ Aging (30-90 days): 23 sources
 ├─ Stale (> 90 days): 67 sources
 └─ Potentially outdated: 12 sources
-    └─ "Pricing doc" - newer source may supersede
 
 ⚠️ Alert: "Competitor analysis" is 8 months old. Refresh?
 ```
@@ -431,7 +333,7 @@ Source Health Dashboard:
 
 ---
 
-## Category 5: Agent Collaboration
+## 5. Agent Collaboration
 
 ### 5.1 Cross-Session Agent Handoff 🔴
 
@@ -441,14 +343,14 @@ When one agent session ends and another begins, maintain continuity.
 // Agent A finishes work
 lore.retain({
   type: "session_context",
-  content: "Explored auth options. Key finding: users hate OAuth. Next: test magic links.",
+  content: "Explored options. Key finding: X. Next: try Y.",
   session_id: "claude-code-abc123",
   handoff_to: ["any"]
 });
 
 // Agent B picks up
 const context = lore.getSessionHandoff("claude-code");
-// → "Previous session found users hate OAuth. Magic links were suggested."
+// → "Previous session found X. Y was suggested as next step."
 ```
 
 **MCP tools:**
@@ -467,14 +369,13 @@ const context = lore.getSessionHandoff("claude-code");
 
 ```typescript
 lore.watch({
-  query: "pricing feedback",
+  query: "important topic",
   action: "notify",
   threshold: "high_relevance"
 });
 
 // After next sync...
-// → "New source 'user-interview-jan29' contains 3 mentions of pricing.
-//    Key quote: 'I'd pay up to $30/month for this'"
+// → "New source contains relevant content about 'important topic'"
 ```
 
 **Implementation notes:**
@@ -483,66 +384,9 @@ lore.watch({
 - Notify via webhook, Slack, email
 - Configurable relevance threshold
 
-### 5.3 Evidence Chains & Decision Lineage 🟠
-
-Track *why* decisions were made and *what evidence* supported them.
-
-```
-Decision: "Use magic link auth instead of OAuth"
-  ├─ Evidence: 3 user interviews mentioning OAuth confusion
-  ├─ Quote: "I gave up after the third redirect" - Sarah, Jan 15
-  └─ Outcome: [linked to future source showing if it worked]
-```
-
-**Implementation notes:**
-- Add `decision` type to retain with `evidence_ids[]`
-- Link decisions to supporting sources
-- Research agent can trace lineage
-- Useful for retrospectives and stakeholder communication
-
-### 5.4 Stakeholder Views / Synthesis Templates 🟡
-
-Same evidence, different audiences.
-
-```bash
-lore research "What have we learned about pricing?" --format investor-pitch
-lore research "What have we learned about pricing?" --format product-spec
-lore research "What have we learned about pricing?" --format raw-evidence
-```
-
-**Investor pitch output:**
-> "Market research with 15 users revealed price sensitivity peaks at $X/mo..."
-
-**Product spec output:**
-> "Pricing constraints: must support monthly/annual, users expect free tier..."
-
-**Implementation notes:**
-- Template system for research output
-- Pre-defined templates: investor, product, technical, executive
-- Custom templates via config
-- Same underlying evidence, different framing
-
-### 5.5 Quote Collections / Evidence Boards 🟡
-
-Curate quotes around a theme for presentations.
-
-```bash
-lore collection create "Why users love us"
-lore collection add quote_123 quote_456 quote_789
-
-lore collection export "Why users love us" --format slides
-# → Generates presentation-ready quote slides with citations
-```
-
-**Implementation notes:**
-- Collections of quotes (not just sources)
-- Export formats: markdown, slides, PDF
-- Include citations automatically
-- Shareable links
-
 ---
 
-## Category 6: Collaboration & Sharing
+## 6. Collaboration & Sharing
 
 ### 6.1 Team Knowledge Bases 🟠
 
@@ -571,14 +415,14 @@ Share knowledge packages with collaborators.
 
 ```bash
 # Share temporarily
-lore share "research-package-jan" --with bob@team.com --expires 7d
+lore share "package-name" --with user@email.com --expires 7d
 
 # Export portable package
 lore export --project "Project X" --format portable
-# → project-x-knowledge.lore
+# → project-x.lore
 
 # Import
-lore import project-x-knowledge.lore --merge-strategy newest-wins
+lore import project-x.lore --merge-strategy newest-wins
 ```
 
 **Implementation notes:**
@@ -592,10 +436,10 @@ lore import project-x-knowledge.lore --merge-strategy newest-wins
 Add notes to sources without modifying them.
 
 ```
-Source: "Interview Jan 15"
-├─ [Comment by Alice] "Key insight here about pricing"
-├─ [Highlight] "Users mentioned..."
-└─ [Question by Bob] "Should we follow up on this?"
+Source: "Document X"
+├─ [Comment by Alice] "Key insight here"
+├─ [Highlight] "Important quote..."
+└─ [Question by Bob] "Should we follow up?"
 ```
 
 **Implementation notes:**
@@ -606,7 +450,7 @@ Source: "Interview Jan 15"
 
 ---
 
-## Category 7: Privacy & Security
+## 7. Privacy & Security
 
 ### 7.1 Local-First Option 🟠
 
@@ -646,9 +490,9 @@ Track all access for compliance.
 
 ```
 Audit Log:
-├─ 2024-01-28 14:32 - alice searched "customer data"
-├─ 2024-01-28 14:33 - alice accessed source "interview-jan15"
-├─ 2024-01-28 15:01 - bob ran research "pricing strategy"
+├─ 2024-01-28 14:32 - alice searched "topic"
+├─ 2024-01-28 14:33 - alice accessed source "doc-x"
+├─ 2024-01-28 15:01 - bob ran research "question"
 └─ 2024-01-28 15:02 - system synced 3 new sources
 ```
 
@@ -660,7 +504,7 @@ Audit Log:
 
 ---
 
-## Category 8: Developer Experience
+## 8. Developer Experience & Extensibility
 
 ### 8.1 REST/GraphQL API 🟠
 
@@ -670,7 +514,7 @@ Access beyond MCP for custom integrations.
 # REST API
 curl https://api.lore.dev/v1/search \
   -H "Authorization: Bearer $LORE_API_KEY" \
-  -d '{"query": "customer feedback on pricing"}'
+  -d '{"query": "search term"}'
 
 # Response includes source_ids, quotes, confidence
 ```
@@ -695,7 +539,7 @@ lore webhook add https://your-app.com/lore-events \
 {
   "event": "source.created",
   "source_id": "abc123",
-  "title": "New interview transcript",
+  "title": "New document",
   "project": "my-project"
 }
 ```
@@ -706,7 +550,45 @@ lore webhook add https://your-app.com/lore-events \
 - Retry logic for failed deliveries
 - Signature verification
 
-### 8.3 SDKs 🟡
+### 8.3 Extension System 🔴
+
+Enable domain-specific features without bloating core.
+
+```typescript
+// Extension interface
+interface LoreExtension {
+  name: string;
+  version: string;
+
+  // New MCP tools
+  tools?: ToolDefinition[];
+
+  // New CLI commands
+  commands?: CommandDefinition[];
+
+  // Hooks into core events
+  hooks?: {
+    onSourceCreated?: (source: Source) => void;
+    onResearchCompleted?: (result: ResearchResult) => void;
+  };
+
+  // Custom UI components (for web UI)
+  components?: ComponentDefinition[];
+}
+
+// Install extension
+lore extension install @lore/research-toolkit
+lore extension install @lore/sales-toolkit
+```
+
+**Implementation notes:**
+- npm packages with standard interface
+- Extensions can add MCP tools, CLI commands, hooks
+- Sandboxed execution
+- Extension registry/marketplace
+- Version compatibility checking
+
+### 8.4 SDKs 🟡
 
 Language-specific clients.
 
@@ -715,7 +597,7 @@ Language-specific clients.
 from lore import LoreClient
 
 client = LoreClient(api_key="...")
-results = client.search("user feedback", project="my-project")
+results = client.search("query", project="my-project")
 for source in results:
     print(f"{source.title}: {source.summary}")
 ```
@@ -726,29 +608,83 @@ for source in results:
 - Async support
 - Published to PyPI, npm
 
-### 8.4 Plugin System 🟢
+---
 
-Custom source adapters and processors.
+## 9. Interfaces
 
-```typescript
-// Custom adapter
-lore.registerAdapter("jira", {
-  sync: async (config) => { /* fetch from Jira API */ },
-  transform: (issue) => ({ title: issue.summary, ... })
-});
+### 9.1 Web UI 🟠
+
+Browse and manage knowledge visually.
+
+**Features:**
+- Search with filters
+- Source viewer with highlights
+- Knowledge graph visualization
+- Collection management
+- Settings and configuration
+- Analytics dashboard
+
+**Implementation notes:**
+- React/Next.js or similar
+- Connect via API
+- Optional (Lore works without it)
+- Self-hostable
+
+### 9.2 TUI (Terminal UI) 🟡
+
+Enhanced terminal interface for power users.
+
+```bash
+lore tui
+# → Opens interactive terminal UI with:
+#   - Search bar
+#   - Source list with preview
+#   - Quick actions
+#   - Keyboard navigation
 ```
 
 **Implementation notes:**
-- Adapter interface definition
-- Plugin discovery (npm packages?)
-- Configuration schema per plugin
-- Marketplace/registry
+- Ink (React for CLI) or Blessed
+- Vim-style keybindings
+- Fast navigation
+- Inline previews
+
+### 9.3 Browser Extension 🟠
+
+Capture web content easily.
+
+**Features:**
+- Save current page to Lore
+- Highlight and save selections
+- Quick search Lore from any page
+- Auto-detect relevant content
+
+**Implementation notes:**
+- Chrome/Firefox extension
+- Manifest v3
+- Connect to local Lore or cloud API
+- Context menu integration
+
+### 9.4 Mobile App 🟢
+
+Access knowledge on the go.
+
+**Features:**
+- Search
+- Voice memo capture
+- Photo/document scanning
+- Push notifications for alerts
+
+**Implementation notes:**
+- React Native or Flutter
+- Offline-capable
+- Sync when connected
 
 ---
 
-## Category 9: Analytics & Insights
+## 10. Analytics
 
-### 9.1 Usage Analytics 🟠
+### 10.1 Usage Analytics 🟠
 
 Know if Lore is providing value.
 
@@ -772,7 +708,7 @@ Top queries:
 - Export for analysis
 - Privacy-preserving (aggregate, not individual)
 
-### 9.2 Knowledge Health Score 🟡
+### 10.2 Knowledge Health Score 🟡
 
 Overall assessment of knowledge base quality.
 
@@ -782,8 +718,8 @@ Knowledge Health: 72/100
 ✓ Good coverage: 156 sources across 5 projects
 ✓ Recent activity: 12 sources added this week
 ⚠ Staleness: 23% of sources over 90 days old
-⚠ Gaps: No sources about "enterprise requirements"
-✗ Low diversity: 80% of sources from same 2 people
+⚠ Gaps: Low coverage in some areas
+✗ Low diversity: 80% of sources from same 2 origins
 ```
 
 **Implementation notes:**
@@ -793,118 +729,362 @@ Knowledge Health: 72/100
 
 ---
 
-## Category 10: Interfaces
+# Part 2: Extension Ecosystem
 
-### 10.1 Web UI 🟠
-
-Browse and manage knowledge visually.
-
-**Features:**
-- Search with filters
-- Source viewer with highlights
-- Knowledge graph visualization
-- Collection management
-- Settings and configuration
-- Analytics dashboard
-
-**Implementation notes:**
-- React/Next.js or similar
-- Connect via API
-- Optional (Lore works without it)
-- Self-hostable
-
-### 10.2 TUI (Terminal UI) 🟡
-
-Enhanced terminal interface for power users.
-
-```bash
-lore tui
-# → Opens interactive terminal UI with:
-#   - Search bar
-#   - Source list with preview
-#   - Quick actions
-#   - Keyboard navigation
-```
-
-**Implementation notes:**
-- Ink (React for CLI) or Blessed
-- Vim-style keybindings
-- Fast navigation
-- Inline previews
-
-### 10.3 Browser Extension 🟠
-
-Capture web content easily.
-
-**Features:**
-- Save current page to Lore
-- Highlight and save selections
-- Quick search Lore from any page
-- Auto-detect relevant content
-
-**Implementation notes:**
-- Chrome/Firefox extension
-- Manifest v3
-- Connect to local Lore or cloud API
-- Context menu integration
-
-### 10.4 Mobile App 🟢
-
-Access knowledge on the go.
-
-**Features:**
-- Search
-- Voice memo capture
-- Photo/document scanning
-- Push notifications for alerts
-
-**Implementation notes:**
-- React Native or Flutter
-- Offline-capable
-- Sync when connected
+> Domain-specific features built on top of the Core Platform. Installed separately as extensions.
 
 ---
 
-## Pricing Model (For Commercial Offering)
+## Extension: Research Toolkit
 
-| Tier | Price | Features |
-|------|-------|----------|
-| **Free** | $0 | 50 sources, 1 project, basic search, MCP access |
-| **Pro** | $15/mo | Unlimited sources, 5 projects, agentic research, imports |
-| **Team** | $12/user/mo | Collaboration, shared workspaces, admin controls |
-| **Enterprise** | Custom | Local deployment, SSO, audit logs, SLA, support |
+For user research, interviews, and qualitative analysis.
+
+### Speaker Profiles & Attribution
+
+Build up profiles of who said what across all sources.
+
+```
+Speaker: "Sarah (Product Manager at Acme)"
+  ├─ Appeared in: 3 sources
+  ├─ Key themes: pricing, enterprise features
+  ├─ Notable quotes:
+  │   - "We need SSO for compliance"
+  │   - "Budget is $X per seat"
+  └─ Segment: Enterprise, decision-maker
+```
+
+**MCP tool:** `get_speaker_profile`
+
+### Research Agenda / Question Bank
+
+Track open questions. Alert when new sources might answer them.
+
+```
+Open Questions:
+├─ "How do power users differ?" [HIGH priority]
+│    └─ Last searched: Jan 20, no conclusive evidence
+├─ "What's the willingness to pay?" [CRITICAL]
+│    └─ Partially answered by 2 sources
+└─ "Why do users churn?" [MEDIUM]
+     └─ NEW MATCH: Source 'exit-interview' may answer this!
+```
+
+**MCP tools:** `add_question`, `list_questions`, `check_question_matches`
+
+### Evidence Gap Analysis
+
+Know what you *don't* know.
+
+```
+Coverage Report:
+
+Well-evidenced:
+✓ Core use case (12 sources)
+✓ Pain points (8 sources)
+
+Gaps identified:
+✗ Pricing willingness (1 source, inconclusive)
+✗ Enterprise needs (0 sources)
+
+Suggested research:
+- Add pricing questions to next 3 interviews
+- Recruit enterprise users
+```
+
+**MCP tool:** `analyze_coverage`
+
+### Hypothesis Testing
+
+Structured way to validate assumptions.
+
+```bash
+lore hypothesis "Users will pay more for feature X"
+```
+
+**Output:**
+```
+Hypothesis: "Users will pay more for feature X"
+
+SUPPORTING (4 sources):
+- "That's the killer feature" - Source A
+- "I'd upgrade for that" - Source B
+
+CONTRADICTING (2 sources):
+- "I don't need that" - Source C
+- "The basic version is fine" - Source D
+
+VERDICT: Mixed evidence. Segment difference identified.
+```
+
+**MCP tool:** `test_hypothesis`
+
+---
+
+## Extension: Decision Toolkit
+
+For tracking decisions, their rationale, and outcomes.
+
+### Evidence Chains & Decision Lineage
+
+Track *why* decisions were made and *what evidence* supported them.
+
+```
+Decision: "Use approach A instead of B"
+  ├─ Evidence: 3 sources supporting this
+  ├─ Key quote: "B was too complex" - Source X
+  ├─ Date: Jan 15, 2024
+  └─ Outcome: [linked to future source showing result]
+```
+
+**MCP tools:** `record_decision`, `get_decision_lineage`, `link_outcome`
+
+### Decision Templates
+
+Structured decision records.
+
+```yaml
+decision:
+  title: "Authentication approach"
+  status: decided
+  date: 2024-01-15
+  options_considered:
+    - OAuth (rejected: too complex)
+    - Magic links (selected)
+    - Passwords (rejected: security concerns)
+  evidence:
+    - source_id: abc123
+      quote: "OAuth was confusing"
+  outcome: pending
+```
+
+---
+
+## Extension: Stakeholder Toolkit
+
+For presenting knowledge to different audiences.
+
+### Synthesis Templates
+
+Same evidence, different audiences.
+
+```bash
+lore research "topic" --template investor-pitch
+lore research "topic" --template product-spec
+lore research "topic" --template executive-summary
+```
+
+**Templates:**
+- `investor-pitch`: Market validation focus, metrics, quotes
+- `product-spec`: Requirements, constraints, technical considerations
+- `executive-summary`: High-level findings, recommendations
+- `technical-deep-dive`: Implementation details, trade-offs
+
+### Quote Collections / Evidence Boards
+
+Curate quotes around a theme for presentations.
+
+```bash
+lore collection create "Key findings"
+lore collection add quote_123 quote_456 quote_789
+
+lore collection export "Key findings" --format slides
+# → Generates presentation-ready slides with citations
+```
+
+**Export formats:** markdown, slides (reveal.js), PDF
+
+---
+
+## Extension: Sales Toolkit
+
+For sales teams managing competitive intel and objection handling.
+
+### Competitive Intelligence
+
+Track and organize competitor information.
+
+```
+Competitor: "Acme Inc"
+├─ Strengths: [from 5 sources]
+├─ Weaknesses: [from 3 sources]
+├─ Recent changes: [from 2 sources, last 30 days]
+└─ Head-to-head mentions: 8 sources
+```
+
+### Objection Library
+
+Common objections with evidence-based responses.
+
+```
+Objection: "Too expensive"
+├─ Frequency: Mentioned in 12 sources
+├─ Successful responses:
+│   ├─ ROI calculation (worked 4 times)
+│   └─ Comparison to alternatives (worked 3 times)
+└─ Related sources: [links]
+```
+
+---
+
+## Extension: Legal Toolkit
+
+For legal teams tracking precedents and compliance.
+
+### Precedent Tracking
+
+Link current matters to historical precedents.
+
+```
+Matter: "Contract dispute X"
+├─ Similar precedents: 3 found
+├─ Key differences: [analysis]
+└─ Relevant clauses: [extracted]
+```
+
+### Compliance Monitoring
+
+Track regulatory requirements against evidence.
+
+```
+Requirement: "GDPR Article 17"
+├─ Evidence of compliance: 4 sources
+├─ Gaps: 1 area needs documentation
+└─ Last reviewed: 30 days ago
+```
+
+---
+
+## Extension: Content Toolkit
+
+For content creators and writers.
+
+### Source Bibliography
+
+Auto-generate citations for content.
+
+```bash
+lore bibliography --project "Blog Post X" --format apa
+lore bibliography --project "Blog Post X" --format chicago
+```
+
+### Fact Checking
+
+Verify claims against knowledge base.
+
+```bash
+lore factcheck "Claim to verify"
+# → Returns supporting/contradicting sources
+```
+
+---
+
+## Creating Custom Extensions
+
+### Extension Structure
+
+```
+my-extension/
+├── package.json
+├── src/
+│   ├── index.ts        # Extension entry point
+│   ├── tools/          # MCP tool definitions
+│   ├── commands/       # CLI commands
+│   └── hooks/          # Event hooks
+└── README.md
+```
+
+### Example Extension
+
+```typescript
+// src/index.ts
+import { LoreExtension } from '@lore/sdk';
+
+export default {
+  name: 'my-extension',
+  version: '1.0.0',
+
+  tools: [
+    {
+      name: 'my_custom_tool',
+      description: 'Does something useful',
+      parameters: { /* Zod schema */ },
+      handler: async (params, lore) => {
+        // Access core Lore functionality
+        const results = await lore.search(params.query);
+        // Custom processing
+        return { /* result */ };
+      }
+    }
+  ],
+
+  hooks: {
+    onSourceCreated: async (source, lore) => {
+      // React to new sources
+    }
+  }
+} satisfies LoreExtension;
+```
+
+### Publishing Extensions
+
+```bash
+# Build and publish
+npm run build
+npm publish --access public
+
+# Users install
+lore extension install my-extension
+```
+
+---
+
+# Part 3: Implementation & Business
 
 ---
 
 ## Implementation Phases
 
-### Phase A: Core Product (Months 1-2)
+### Phase A: Core Foundation
 - 🔴 Layered summaries
 - 🔴 Verification mode
 - 🔴 Knowledge graph (basic)
 - 🔴 Agent handoff
 - 🔴 PDF/Web import
+- 🔴 Extension system architecture
 
-### Phase B: Growth Features (Months 3-4)
+### Phase B: Growth Features
 - 🟠 Confidence scoring
 - 🟠 Contradiction detection
-- 🟠 Evidence gap analysis
 - 🟠 REST API
 - 🟠 Notion/Google Docs sync
 - 🟠 Team workspaces
+- 🟠 First-party extensions (Research, Decision toolkits)
 
-### Phase C: Polish & Scale (Months 5-6)
+### Phase C: Polish & Scale
 - 🟡 Web UI
 - 🟡 Temporal queries
-- 🟡 Speaker profiles
-- 🟡 Hypothesis testing
-- 🟡 Research templates
+- 🟡 Browser extension
+- 🟡 Additional extensions
 
-### Phase D: Expansion (Months 7+)
+### Phase D: Expansion
 - 🟢 Mobile app
-- 🟢 Plugin system
+- 🟢 Extension marketplace
 - 🟢 Advanced analytics
-- 🟢 Browser extension
+
+---
+
+## Pricing Model
+
+| Tier | Price | Core Platform | Extensions |
+|------|-------|---------------|------------|
+| **Free** | $0 | 50 sources, 1 project, basic search | None |
+| **Pro** | $15/mo | Unlimited sources, 5 projects, full features | 2 included |
+| **Team** | $12/user/mo | Collaboration, shared workspaces | 5 included |
+| **Enterprise** | Custom | Local deployment, SSO, audit logs | All included |
+
+**Extension pricing:**
+- First-party extensions: Included with paid tiers
+- Third-party extensions: Set by developer (Lore takes 30%)
 
 ---
 
@@ -917,7 +1097,7 @@ Access knowledge on the go.
 
 **Value:**
 - Research sessions completed
-- Time saved (self-reported)
+- Extensions installed
 - Net Promoter Score
 
 **Engagement:**
@@ -925,20 +1105,26 @@ Access knowledge on the go.
 - Feature adoption rates
 - Upgrade conversion (free → paid)
 
+**Extension Ecosystem:**
+- Number of published extensions
+- Extension installs
+- Developer satisfaction
+
 ---
 
 ## Competitive Landscape
 
 | Competitor | Strength | Lore Differentiation |
 |------------|----------|---------------------|
-| Notion AI | Integrated workspace | Citation-native, multi-tool |
-| Mem.ai | AI-first notes | Source preservation, not just memory |
+| Notion AI | Integrated workspace | Citation-native, multi-tool, extensible |
+| Mem.ai | AI-first notes | Source preservation, extensions |
 | Obsidian + plugins | Local, customizable | Agentic research, cross-tool sync |
 | Rewind.ai | Automatic capture | Structured knowledge, not recordings |
 | Custom RAG | Flexible | Turnkey, citations, collaboration |
 
 **Lore's moat:**
-1. MCP-first: Native support for AI tool ecosystem
-2. Citation-native: Every insight traces to source
-3. Agentic research: Not just retrieval, but synthesis
-4. Multi-tool sync: Works across Claude, ChatGPT, Cursor, etc.
+1. **MCP-first**: Native support for AI tool ecosystem
+2. **Citation-native**: Every insight traces to source
+3. **Agentic research**: Not just retrieval, but synthesis
+4. **Multi-tool sync**: Works across Claude, ChatGPT, Cursor, etc.
+5. **Extension ecosystem**: Domain-specific without bloating core
