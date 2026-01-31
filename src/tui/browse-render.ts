@@ -237,32 +237,34 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
     const contentType = source.content_type || 'document';
     const project = source.projects[0] || '';
 
-    // Clean title truncation
-    const titleWidth = width - 4;
-    const title = truncate(source.title, titleWidth);
+    // Build metadata string
+    const meta = `${date}  ·  ${contentType}${project ? `  ·  ${project}` : ''}`;
 
     if (isSelected) {
-      // Selected item: highlighted with cyan background
-      lines.push(`{cyan-bg}{black-fg} ${title.padEnd(titleWidth)} {/black-fg}{/cyan-bg}`);
-      // Metadata on same styling
-      const metaLine = `  ${date}  │  ${contentType}${project ? `  │  ${project}` : ''}`;
-      lines.push(`{cyan-bg}{black-fg}${truncate(metaLine, width).padEnd(width)}{/black-fg}{/cyan-bg}`);
-    } else {
-      // Regular item: clean layout
-      lines.push(` {bold}${title}{/bold}`);
-      // Dimmed metadata
-      lines.push(`   {#666666-fg}${date}  ·  ${contentType}${project ? `  ·  ${project}` : ''}{/#666666-fg}`);
-    }
+      // Selected item: inverse video (swap fg/bg)
+      const title = truncate(source.title, width - 2);
+      lines.push(`{inverse} ${title} {/inverse}`);
+      lines.push(`{inverse}   ${truncate(meta, width - 4)} {/inverse}`);
 
-    // Show relevance score if from semantic search
-    if (source.score !== undefined) {
-      const pct = Math.round(source.score * 100);
-      const filled = Math.round(pct / 10);
-      const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
-      if (isSelected) {
-        lines.push(`{cyan-bg}{black-fg}   ${bar} ${pct}% relevance{/black-fg}{/cyan-bg}`);
-      } else {
-        lines.push(`   {#888888-fg}${bar} ${pct}%{/#888888-fg}`);
+      // Show relevance score if from semantic search
+      if (source.score !== undefined) {
+        const pct = Math.round(source.score * 100);
+        const filled = Math.round(pct / 10);
+        const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
+        lines.push(`{inverse}   ${bar} ${pct}% {/inverse}`);
+      }
+    } else {
+      // Regular item
+      const title = truncate(source.title, width - 2);
+      lines.push(` {bold}${title}{/bold}`);
+      lines.push(`   {cyan-fg}${truncate(meta, width - 4)}{/cyan-fg}`);
+
+      // Show relevance score if from semantic search
+      if (source.score !== undefined) {
+        const pct = Math.round(source.score * 100);
+        const filled = Math.round(pct / 10);
+        const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
+        lines.push(`   {cyan-fg}${bar} ${pct}%{/cyan-fg}`);
       }
     }
 
@@ -288,27 +290,27 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
   const lines: string[] = [];
   const previewWidth = (ui.previewContent.width as number) - 2;
 
-  // Title - bold white
+  // Title
   lines.push(`{bold}${truncate(source.title, previewWidth)}{/bold}`);
   lines.push('');
 
-  // Metadata in a clean format
+  // Metadata
   const date = formatDate(source.created_at);
   const type = source.content_type || source.source_type;
   const project = source.projects[0] || '';
 
-  lines.push(`{#888888-fg}${date}  ·  ${type}${project ? `  ·  ${project}` : ''}{/#888888-fg}`);
+  lines.push(`{cyan-fg}${date}  ·  ${type}${project ? `  ·  ${project}` : ''}{/cyan-fg}`);
 
   // Show similarity score if from search
   if (source.score !== undefined) {
     const pct = Math.round(source.score * 100);
     const filled = Math.round(pct / 10);
     const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
-    lines.push(`{#888888-fg}${bar} ${pct}% match{/#888888-fg}`);
+    lines.push(`{cyan-fg}${bar} ${pct}% match{/cyan-fg}`);
   }
 
   lines.push('');
-  lines.push('{#666666-fg}─────────────────────────────────{/#666666-fg}');
+  lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
   lines.push('');
 
   // Summary with word wrap
@@ -326,7 +328,7 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
   if (currentLine) lines.push(currentLine);
 
   lines.push('');
-  lines.push('{#666666-fg}Press Enter to view full document{/#666666-fg}');
+  lines.push('{cyan-fg}Press Enter to view full document{/cyan-fg}');
 
   ui.previewContent.setContent(lines.join('\n'));
 }
