@@ -230,6 +230,10 @@ async function runSourceCreatedHook(
     imported_at: string;
     projects: string[];
     tags: string[];
+    source_path?: string;
+    content_hash?: string;
+    sync_source?: string;
+    original_file?: string;
   },
   context: { mode: 'mcp' | 'cli'; dataDir: string; dbPath: string }
 ): Promise<void> {
