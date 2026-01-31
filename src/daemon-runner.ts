@@ -46,7 +46,10 @@ function updateStatus(updates: Partial<DaemonStatus>): void {
     };
 
     if (existsSync(STATUS_FILE)) {
-      status = JSON.parse(readFileSync(STATUS_FILE, 'utf-8'));
+      const existing = JSON.parse(readFileSync(STATUS_FILE, 'utf-8'));
+      // Only preserve last_sync info, always use current pid/started_at
+      if (existing.last_sync) status.last_sync = existing.last_sync;
+      if (existing.last_sync_result) status.last_sync_result = existing.last_sync_result;
     }
 
     Object.assign(status, updates);
@@ -82,6 +85,9 @@ async function main(): Promise<void> {
 
   // Write PID file immediately so parent knows we started
   writeFileSync(PID_FILE, String(process.pid));
+
+  // Also initialize status file with correct PID
+  updateStatus({});
 
   log('START', `Daemon starting (PID: ${process.pid})`);
   log('INFO', `Data directory: ${dataDir}`);
