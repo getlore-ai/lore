@@ -79,10 +79,11 @@ export function createUIComponents(): UIComponents {
     left: 1,
     width: '100%-4',
     height: 1,
-    content: '{bold}DOCUMENTS{/bold}',
+    content: ' Documents',
     tags: true,
     style: {
-      fg: 'cyan',
+      fg: 'white',
+      bold: true,
     },
   });
 
@@ -122,10 +123,11 @@ export function createUIComponents(): UIComponents {
     left: 1,
     width: '100%-4',
     height: 1,
-    content: '{bold}PREVIEW{/bold}',
+    content: ' Preview',
     tags: true,
     style: {
-      fg: 'cyan',
+      fg: 'white',
+      bold: true,
     },
   });
 
@@ -314,10 +316,11 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' j/k: nav  Enter: view  /: search  :: regex  p: projects  s: sync  e: edit  q: quit  ?: help',
+    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  e Editor  │  q Quit  │  ? Help',
+    tags: true,
     style: {
-      fg: 'black',
-      bg: 'white',
+      fg: 'white',
+      bg: 'black',
     },
   });
 

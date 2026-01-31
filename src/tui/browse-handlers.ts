@@ -119,7 +119,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' j/k: navigate  Enter: view  e: editor  /: search  :: regex  q: quit  ?: help');
+  ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  e Editor  │  q Quit  │  ? Help');
   ui.screen.render();
 }
 

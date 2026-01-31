@@ -233,25 +233,40 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
   for (let i = visibleStart; i < visibleEnd; i++) {
     const source = state.filtered[i];
     const isSelected = i === state.selectedIndex;
-
-    const prefix = isSelected ? '{inverse} ▸ ' : '   ';
-    const suffix = isSelected ? ' {/inverse}' : '';
-
-    const title = truncate(source.title, width - 6);
     const date = formatDate(source.created_at);
+    const contentType = source.content_type || 'document';
+    const project = source.projects[0] || '';
 
-    // Show score if from semantic search
-    let meta: string;
-    if (source.score !== undefined) {
-      const pct = Math.round(source.score * 100);
-      const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
-      meta = `{green-fg}${bar} ${pct}%{/green-fg} · ${source.content_type} · ${source.projects[0] || 'no project'}`;
+    // Clean title truncation
+    const titleWidth = width - 4;
+    const title = truncate(source.title, titleWidth);
+
+    if (isSelected) {
+      // Selected item: highlighted with cyan background
+      lines.push(`{cyan-bg}{black-fg} ${title.padEnd(titleWidth)} {/black-fg}{/cyan-bg}`);
+      // Metadata on same styling
+      const metaLine = `  ${date}  │  ${contentType}${project ? `  │  ${project}` : ''}`;
+      lines.push(`{cyan-bg}{black-fg}${truncate(metaLine, width).padEnd(width)}{/black-fg}{/cyan-bg}`);
     } else {
-      meta = `${date} · ${source.content_type} · ${source.projects[0] || 'no project'}`;
+      // Regular item: clean layout
+      lines.push(` {bold}${title}{/bold}`);
+      // Dimmed metadata
+      lines.push(`   {#666666-fg}${date}  ·  ${contentType}${project ? `  ·  ${project}` : ''}{/#666666-fg}`);
     }
 
-    lines.push(`${prefix}{bold}${title}{/bold}${suffix}`);
-    lines.push(`   ${source.score !== undefined ? meta : `{blue-fg}${truncate(meta, width - 4)}{/blue-fg}`}`);
+    // Show relevance score if from semantic search
+    if (source.score !== undefined) {
+      const pct = Math.round(source.score * 100);
+      const filled = Math.round(pct / 10);
+      const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
+      if (isSelected) {
+        lines.push(`{cyan-bg}{black-fg}   ${bar} ${pct}% relevance{/black-fg}{/cyan-bg}`);
+      } else {
+        lines.push(`   {#888888-fg}${bar} ${pct}%{/#888888-fg}`);
+      }
+    }
+
+    // Separator between items
     lines.push('');
   }
 
@@ -271,36 +286,37 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
   if (!source) return;
 
   const lines: string[] = [];
+  const previewWidth = (ui.previewContent.width as number) - 2;
 
-  // Title
-  lines.push(`{bold}{cyan-fg}${source.title}{/cyan-fg}{/bold}`);
+  // Title - bold white
+  lines.push(`{bold}${truncate(source.title, previewWidth)}{/bold}`);
   lines.push('');
+
+  // Metadata in a clean format
+  const date = formatDate(source.created_at);
+  const type = source.content_type || source.source_type;
+  const project = source.projects[0] || '';
+
+  lines.push(`{#888888-fg}${date}  ·  ${type}${project ? `  ·  ${project}` : ''}{/#888888-fg}`);
 
   // Show similarity score if from search
   if (source.score !== undefined) {
     const pct = Math.round(source.score * 100);
-    const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
-    lines.push(`{green-fg}Match: ${bar} ${pct}%{/green-fg}`);
-    lines.push('');
+    const filled = Math.round(pct / 10);
+    const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
+    lines.push(`{#888888-fg}${bar} ${pct}% match{/#888888-fg}`);
   }
 
-  // Metadata
-  lines.push(`{blue-fg}Date:{/blue-fg} ${formatDate(source.created_at)}`);
-  lines.push(`{blue-fg}Type:{/blue-fg} ${source.source_type} · ${source.content_type}`);
-  lines.push(`{blue-fg}Project:{/blue-fg} ${source.projects.join(', ') || '(none)'}`);
+  lines.push('');
+  lines.push('{#666666-fg}─────────────────────────────────{/#666666-fg}');
   lines.push('');
 
-  // Summary
-  lines.push('{bold}Summary{/bold}');
-  lines.push('{blue-fg}' + '─'.repeat(30) + '{/blue-fg}');
-
-  // Word wrap summary
-  const summaryWidth = (ui.previewContent.width as number) - 2;
+  // Summary with word wrap
   const words = source.summary.split(' ');
   let currentLine = '';
 
   for (const word of words) {
-    if (currentLine.length + word.length + 1 > summaryWidth) {
+    if (currentLine.length + word.length + 1 > previewWidth) {
       lines.push(currentLine);
       currentLine = word;
     } else {
@@ -310,7 +326,7 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
   if (currentLine) lines.push(currentLine);
 
   lines.push('');
-  lines.push(`{blue-fg}Press Enter for full document{/blue-fg}`);
+  lines.push('{#666666-fg}Press Enter to view full document{/#666666-fg}');
 
   ui.previewContent.setContent(lines.join('\n'));
 }
