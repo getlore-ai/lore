@@ -15,6 +15,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import chokidar from 'chokidar';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { readdir } from 'fs/promises';
@@ -33,6 +34,7 @@ import { handleArchiveProject } from './handlers/archive-project.js';
 import { indexExists, getAllSources } from '../core/vector-store.js';
 import { expandPath } from '../sync/config.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
+import { getExtensionsDir } from '../extensions/config.js';
 
 const execAsync = promisify(exec);
 
@@ -47,6 +49,8 @@ const AUTO_SYNC = process.env.LORE_AUTO_SYNC === 'true';
 const AUTO_GIT_PULL = process.env.LORE_AUTO_GIT_PULL !== 'false';
 const AUTO_GIT_PUSH = process.env.LORE_AUTO_GIT_PUSH !== 'false';
 const AUTO_INDEX = process.env.LORE_AUTO_INDEX !== 'false';
+const WATCH_EXTENSIONS =
+  process.env.LORE_EXTENSION_WATCH === 'true' || process.argv.includes('--watch');
 
 /**
  * Try to git pull, handling conflicts gracefully
@@ -163,6 +167,45 @@ async function main() {
     logger: (message) => console.error(message),
   });
   const coreToolNames = new Set(toolDefinitions.map((tool) => tool.name));
+
+  if (WATCH_EXTENSIONS) {
+    const extensionsDir = getExtensionsDir();
+    const watchPatterns = [
+      path.join(extensionsDir, '**/package.json'),
+      path.join(extensionsDir, '**/dist/**'),
+    ];
+
+    let reloadTimer: NodeJS.Timeout | null = null;
+    const scheduleReload = (event: string, filePath: string) => {
+      if (reloadTimer) {
+        clearTimeout(reloadTimer);
+      }
+
+      reloadTimer = setTimeout(async () => {
+        reloadTimer = null;
+        try {
+          const relativePath = path.relative(extensionsDir, filePath);
+          console.error(`[extensions] Change detected (${event}: ${relativePath})`);
+          await extensionRegistry.reload();
+        } catch (error) {
+          console.error('[extensions] Reload failed:', error);
+        }
+      }, 500);
+    };
+
+    const watcher = chokidar.watch(watchPatterns, {
+      ignoreInitial: true,
+    });
+
+    watcher.on('all', (event, filePath) => {
+      if (!filePath) {
+        return;
+      }
+      scheduleReload(event, filePath);
+    });
+
+    console.error('[extensions] Watching for changes in installed extensions');
+  }
 
   // List available tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {

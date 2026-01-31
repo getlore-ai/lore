@@ -216,7 +216,11 @@ Done! To use this data repository:
   program
     .command('serve')
     .description('Start the MCP server')
-    .action(async () => {
+    .option('-w, --watch', 'Watch extensions and auto-reload')
+    .action(async (options) => {
+      if (options.watch) {
+        process.env.LORE_EXTENSION_WATCH = 'true';
+      }
       // Dynamic import to start MCP server
       await import('../../mcp/server.js');
     });

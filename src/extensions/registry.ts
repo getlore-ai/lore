@@ -31,6 +31,7 @@ interface ExtensionRegistryOptions {
   extensionsDir?: string;
   logger?: (message: string) => void;
   loreVersion?: string;
+  cacheBust?: string;
 }
 
 function getLogger(logger?: (message: string) => void): (message: string) => void {
@@ -97,21 +98,24 @@ async function getLoreVersion(): Promise<string | undefined> {
 }
 
 export class ExtensionRegistry {
-  private readonly extensions: LoadedExtension[];
-  private readonly toolDefinitions: ToolDefinition[];
-  private readonly toolHandlers: Map<string, ExtensionTool>;
+  private extensions: LoadedExtension[];
+  private toolDefinitions: ToolDefinition[];
+  private toolHandlers: Map<string, ExtensionTool>;
   private readonly logger: (message: string) => void;
+  private readonly options: ExtensionRegistryOptions;
 
   constructor(
     extensions: LoadedExtension[],
     toolDefinitions: ToolDefinition[],
     toolHandlers: Map<string, ExtensionTool>,
-    logger: (message: string) => void
+    logger: (message: string) => void,
+    options: ExtensionRegistryOptions
   ) {
     this.extensions = extensions;
     this.toolDefinitions = toolDefinitions;
     this.toolHandlers = toolHandlers;
     this.logger = logger;
+    this.options = options;
   }
 
   listExtensions(): LoadedExtension[] {
@@ -191,6 +195,21 @@ export class ExtensionRegistry {
       }
     }
   }
+
+  async reload(): Promise<void> {
+    this.logger('[extensions] Reloading extensions');
+    const cacheBust = `${Date.now()}`;
+    const updated = await loadExtensionRegistry({
+      ...this.options,
+      logger: this.logger,
+      cacheBust,
+    });
+
+    this.extensions = updated.extensions;
+    this.toolDefinitions = updated.toolDefinitions;
+    this.toolHandlers = updated.toolHandlers;
+    this.logger('[extensions] Extensions reloaded');
+  }
 }
 
 export async function loadExtensionRegistry(
@@ -199,6 +218,12 @@ export async function loadExtensionRegistry(
   const logger = getLogger(options.logger);
   const loreVersion = options.loreVersion ?? (await getLoreVersion());
   const extensionsDir = options.extensionsDir || getExtensionsDir();
+  const resolvedOptions: ExtensionRegistryOptions = {
+    ...options,
+    logger,
+    loreVersion,
+    extensionsDir,
+  };
 
   const config = await loadExtensionConfig();
   const enabledExtensions = config.extensions.filter((ext) => ext.enabled !== false);
@@ -210,7 +235,14 @@ export async function loadExtensionRegistry(
   const require = createRequire(import.meta.url);
 
   for (const entry of enabledExtensions) {
-    const loaded = await loadSingleExtension(entry, extensionsDir, require, loreVersion, logger);
+    const loaded = await loadSingleExtension(
+      entry,
+      extensionsDir,
+      require,
+      loreVersion,
+      logger,
+      options.cacheBust
+    );
     if (!loaded) {
       continue;
     }
@@ -236,7 +268,7 @@ export async function loadExtensionRegistry(
     }
   }
 
-  return new ExtensionRegistry(loadedExtensions, toolDefinitions, toolHandlers, logger);
+  return new ExtensionRegistry(loadedExtensions, toolDefinitions, toolHandlers, logger, resolvedOptions);
 }
 
 async function loadSingleExtension(
@@ -244,12 +276,14 @@ async function loadSingleExtension(
   extensionsDir: string,
   require: NodeRequire,
   loreVersion: string | undefined,
-  logger: (message: string) => void
+  logger: (message: string) => void,
+  cacheBust?: string
 ): Promise<LoadedExtension | null> {
   try {
     const resolved = require.resolve(entry.name, { paths: [extensionsDir] });
     const moduleUrl = pathToFileURL(resolved).href;
-    const mod = await import(moduleUrl);
+    const importUrl = cacheBust ? `${moduleUrl}?t=${cacheBust}` : moduleUrl;
+    const mod = await import(importUrl);
     const extension = await resolveLoreExtension(mod as Record<string, unknown>);
 
     if (!extension) {
@@ -285,6 +319,10 @@ export async function getExtensionRegistry(
     registryPromise = loadExtensionRegistry(options);
   }
   return registryPromise;
+}
+
+export function clearExtensionRegistry(): void {
+  registryPromise = null;
 }
 
 export async function getLoreVersionString(): Promise<string | undefined> {
