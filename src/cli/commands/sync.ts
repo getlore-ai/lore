@@ -5,13 +5,18 @@
  */
 
 import type { Command } from 'commander';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
+import { fileURLToPath } from 'url';
 import { colors, c } from '../colors.js';
+
+// Get the directory of this module (for finding daemon-runner.js)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Config directory for daemon files
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'lore');
@@ -174,24 +179,42 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
         return;
       }
 
-      const scriptPath = path.join(path.dirname(process.argv[1]), 'daemon-runner.js');
+      // Use import.meta.url to find daemon-runner.js correctly even via npm link
+      // From dist/cli/commands/sync.js -> dist/daemon-runner.js
+      const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
+      const nodePath = process.execPath;
 
-      const child = spawn('node', [scriptPath, options.dataDir], {
-        detached: true,
+      // Write a temporary shell script to start the daemon
+      // This avoids issues with Node.js spawn and process detachment on macOS
+      const tmpScript = path.join(os.tmpdir(), `lore-daemon-start-${Date.now()}.sh`);
+      const scriptContent = `#!/bin/bash
+nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
+`;
+      writeFileSync(tmpScript, scriptContent, { mode: 0o755 });
+
+      // Execute the script synchronously
+      spawnSync('/bin/bash', [tmpScript], {
         stdio: 'ignore',
-        env: { ...process.env, LORE_DAEMON_MODE: 'true' },
       });
 
-      child.unref();
-      writeFileSync(PID_FILE, String(child.pid));
+      // Clean up temp script
+      try { unlinkSync(tmpScript); } catch {}
 
-      const status: DaemonStatus = {
-        pid: child.pid!,
-        started_at: new Date().toISOString(),
-      };
-      writeFileSync(STATUS_FILE, JSON.stringify(status, null, 2));
+      // Wait for daemon to start and write PID file
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      console.log(`Daemon started (PID: ${child.pid})`);
+      // Read the PID that daemon wrote
+      let daemonPid: number | null = null;
+      try {
+        daemonPid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+        // Verify process is running
+        process.kill(daemonPid, 0);
+      } catch {
+        console.error('Failed to start daemon - check logs with: lore sync logs');
+        return;
+      }
+
+      console.log(`Daemon started (PID: ${daemonPid})`);
       console.log(`Log file: ${LOG_FILE}`);
       console.log(`Use "lore sync logs" to view activity`);
     });
@@ -236,23 +259,39 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
 
       await ensureConfigDir();
 
-      const scriptPath = path.join(path.dirname(process.argv[1]), 'daemon-runner.js');
-      const child = spawn('node', [scriptPath, options.dataDir], {
-        detached: true,
+      // Use import.meta.url to find daemon-runner.js correctly even via npm link
+      const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
+      const nodePath = process.execPath;
+
+      // Write a temporary shell script to start the daemon
+      const tmpScript = path.join(os.tmpdir(), `lore-daemon-start-${Date.now()}.sh`);
+      const scriptContent = `#!/bin/bash
+nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
+`;
+      writeFileSync(tmpScript, scriptContent, { mode: 0o755 });
+
+      // Execute the script synchronously
+      spawnSync('/bin/bash', [tmpScript], {
         stdio: 'ignore',
-        env: { ...process.env, LORE_DAEMON_MODE: 'true' },
       });
 
-      child.unref();
-      writeFileSync(PID_FILE, String(child.pid));
+      // Clean up temp script
+      try { unlinkSync(tmpScript); } catch {}
 
-      const status: DaemonStatus = {
-        pid: child.pid!,
-        started_at: new Date().toISOString(),
-      };
-      writeFileSync(STATUS_FILE, JSON.stringify(status, null, 2));
+      // Wait for daemon to start and write PID file
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      console.log(`Daemon restarted (PID: ${child.pid})`);
+      // Read the PID that daemon wrote
+      let daemonPid: number | null = null;
+      try {
+        daemonPid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+        process.kill(daemonPid, 0);
+      } catch {
+        console.error('Failed to restart daemon - check logs with: lore sync logs');
+        return;
+      }
+
+      console.log(`Daemon restarted (PID: ${daemonPid})`);
     });
 
   // Daemon status

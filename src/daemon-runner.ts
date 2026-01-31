@@ -13,6 +13,7 @@ import { mkdir } from 'fs/promises';
 
 // Config paths
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'lore');
+const PID_FILE = path.join(CONFIG_DIR, 'daemon.pid');
 const STATUS_FILE = path.join(CONFIG_DIR, 'daemon.status.json');
 const LOG_FILE = path.join(CONFIG_DIR, 'daemon.log');
 
@@ -78,6 +79,9 @@ async function runSync(gitPull: boolean = true): Promise<{
 
 async function main(): Promise<void> {
   await mkdir(CONFIG_DIR, { recursive: true });
+
+  // Write PID file immediately so parent knows we started
+  writeFileSync(PID_FILE, String(process.pid));
 
   log('START', `Daemon starting (PID: ${process.pid})`);
   log('INFO', `Data directory: ${dataDir}`);
