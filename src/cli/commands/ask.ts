@@ -115,8 +115,8 @@ export function registerAskCommand(program: Command, dataDir: string): void {
           return parts.join('\n');
         }).join('\n\n---\n\n');
 
-        // Call AI
-        console.error('Thinking...');
+        // Call AI with streaming
+        console.error('Thinking...\n');
         const anthropic = new Anthropic();
         
         const systemPrompt = options.save ? EDIT_SYSTEM_PROMPT : SYSTEM_PROMPT;
@@ -124,17 +124,32 @@ export function registerAskCommand(program: Command, dataDir: string): void {
           ? `Based on these sources, create the following:\n\n${question}\n\n---\nSources:\n${sourceContext}`
           : `Question: ${question}\n\n---\nSources:\n${sourceContext}`;
 
-        const response = await anthropic.messages.create({
+        let answer = '';
+        
+        // Stream the response
+        const stream = anthropic.messages.stream({
           model: options.model || 'claude-sonnet-4-20250514',
           max_tokens: 4096,
           system: systemPrompt,
           messages: [{ role: 'user', content: userMessage }],
         });
 
-        const answer = response.content
-          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-          .map(block => block.text)
-          .join('\n');
+        // Print tokens as they arrive (only in query mode, not save mode)
+        if (!options.save) {
+          stream.on('text', (text) => {
+            process.stdout.write(text);
+            answer += text;
+          });
+          
+          await stream.finalMessage();
+          console.log(''); // Final newline
+        } else {
+          // For save mode, collect silently then show at end
+          stream.on('text', (text) => {
+            answer += text;
+          });
+          await stream.finalMessage();
+        }
 
         if (options.save) {
           // Create proposal for new document
