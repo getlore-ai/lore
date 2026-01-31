@@ -101,6 +101,26 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   const ui = createUIComponents();
   const { screen, helpPane, searchInput, regexInput, docSearchInput, listContent, toolForm } = ui;
 
+  // Spinner animation for long-running tools
+  const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let spinnerIdx = 0;
+  const spinnerInterval = setInterval(() => {
+    if (state.toolRunning && state.toolStartTime) {
+      const elapsed = Math.floor((Date.now() - state.toolStartTime) / 1000);
+      const spinner = spinnerFrames[spinnerIdx % spinnerFrames.length];
+      spinnerIdx++;
+      const tool = state.toolsList[state.selectedToolIndex];
+      const toolName = tool?.name || 'tool';
+      ui.statusBar.setContent(` ${spinner} Running ${toolName}... (${elapsed}s)`);
+      screen.render();
+    }
+  }, 100);
+
+  // Cleanup on exit
+  screen.on('destroy', () => {
+    clearInterval(spinnerInterval);
+  });
+
   // Key bindings
   screen.key(['q'], () => {
     if (state.mode === 'help') {
