@@ -617,7 +617,16 @@ export async function callTool(
 
   state.toolRunning = true;
   state.toolStartTime = Date.now();
-  ui.statusBar.setContent(` ⏳ Running ${tool.name}...`);
+  
+  // Hide form and show running state clearly
+  ui.toolForm.hide();
+  ui.statusBar.setContent(` ⏳ Running ${tool.name}... (this may take a moment)`);
+  state.toolResult = {
+    toolName: tool.name,
+    ok: true,
+    result: { status: 'running', message: 'Please wait...' },
+  };
+  renderToolResult(ui, state);
   ui.screen.render();
 
   try {
@@ -646,7 +655,14 @@ export async function callTool(
         ok: true,
         result: result.result,
       };
-      ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg}`);
+      
+      // Check if result contains a proposal - notify user
+      const resultObj = result.result as Record<string, unknown> | null;
+      if (resultObj && typeof resultObj === 'object' && 'proposal_id' in resultObj) {
+        ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg} — {yellow-fg}Press 'P' to review pending proposal{/yellow-fg}`);
+      } else {
+        ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg}`);
+      }
     }
   } catch (error) {
     state.toolRunning = false;

@@ -510,13 +510,51 @@ function formatToolResultNicely(result: unknown, maxWidth: number): string[] {
   
   const obj = result as Record<string, unknown>;
   
+  // Handle running state
+  if ('status' in obj && obj.status === 'running') {
+    lines.push('{yellow-fg}⏳ Running...{/yellow-fg}');
+    if ('message' in obj) {
+      lines.push(`{cyan-fg}${escapeForBlessed(String(obj.message))}{/cyan-fg}`);
+    }
+    return lines;
+  }
+  
   // Handle common patterns
   if ('status' in obj && obj.status === 'ok') {
     lines.push(`{green-fg}Status:{/green-fg} ${escapeForBlessed(String(obj.status))}`);
   }
   
-  if ('message' in obj) {
+  if ('status' in obj && obj.status === 'error') {
+    lines.push(`{red-fg}Status:{/red-fg} error`);
+  }
+  
+  if ('message' in obj && obj.status !== 'running') {
     lines.push(`{cyan-fg}Message:{/cyan-fg} ${escapeForBlessed(String(obj.message))}`);
+  }
+  
+  // Handle proposal notification
+  if ('proposal_id' in obj) {
+    lines.push('');
+    lines.push(`{yellow-fg}📋 Proposal created:{/yellow-fg} ${escapeForBlessed(String(obj.proposal_id))}`);
+    if ('proposal_note' in obj) {
+      lines.push(`{yellow-fg}${escapeForBlessed(String(obj.proposal_note))}{/yellow-fg}`);
+    }
+    lines.push(`{yellow-fg}Press 'P' to review and approve{/yellow-fg}`);
+  }
+  
+  // Handle analysis output
+  if ('analysis' in obj) {
+    lines.push('');
+    lines.push('{cyan-fg}Analysis:{/cyan-fg}');
+    const analysisText = String(obj.analysis);
+    // Wrap long analysis text
+    const analysisLines = analysisText.split('\n');
+    for (const line of analysisLines.slice(0, 30)) {  // Limit to 30 lines
+      lines.push(escapeForBlessed(truncate(line, maxWidth)));
+    }
+    if (analysisLines.length > 30) {
+      lines.push('{blue-fg}... (truncated){/blue-fg}');
+    }
   }
   
   if ('total_sources_analyzed' in obj) {
