@@ -43,6 +43,9 @@ import {
   selectProject,
   cancelProjectPicker,
   clearProjectFilter,
+  showTools,
+  selectTool,
+  callTool,
 } from './browse-handlers.js';
 import { getAllSources } from '../core/vector-store.js';
 
@@ -73,11 +76,14 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     projects: [],
     projectPickerIndex: 0,
     currentProject: project, // Start with CLI-provided project filter
+    toolsList: [],
+    selectedToolIndex: 0,
+    toolResult: null,
   };
 
   // Create UI components
   const ui = createUIComponents();
-  const { screen, helpPane, searchInput, regexInput, docSearchInput, listContent } = ui;
+  const { screen, helpPane, searchInput, regexInput, docSearchInput, listContent, toolArgsInput } = ui;
 
   // Key bindings
   screen.key(['q'], () => {
@@ -98,6 +104,12 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['escape'], () => {
+    if (!toolArgsInput.hidden) {
+      toolArgsInput.hide();
+      listContent.focus();
+      screen.render();
+      return;
+    }
     if (state.mode === 'fullview') {
       if (state.docSearchPattern) {
         // Clear document search first
@@ -113,6 +125,15 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       hideHelp(state, ui);
     } else if (state.mode === 'project-picker') {
       cancelProjectPicker(state, ui);
+    } else if (state.mode === 'tools') {
+      state.mode = 'list';
+      ui.listTitle.setContent(' Documents');
+      ui.previewTitle.setContent(' Preview');
+      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  e Editor  │  q Quit  │  ? Help');
+      updateStatus(ui, state, state.currentProject, sourceType);
+      renderList(ui, state);
+      renderPreview(ui, state);
+      screen.render();
     } else if (state.mode === 'list' && state.searchQuery) {
       // Clear search filter
       applyFilter(state, ui, '', 'hybrid', dbPath, dataDir, state.currentProject, sourceType);
@@ -121,8 +142,14 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['j', 'down'], () => {
+    if (!toolArgsInput.hidden) return;
     if (state.mode === 'project-picker') {
       projectPickerDown(state, ui);
+    } else if (state.mode === 'tools') {
+      if (state.selectedToolIndex < state.toolsList.length - 1) {
+        state.selectedToolIndex++;
+        selectTool(state, ui);
+      }
     } else if (state.mode !== 'search' && state.mode !== 'help') {
       state.gPressed = false;
       moveDown(state, ui);
@@ -130,8 +157,14 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['k', 'up'], () => {
+    if (!toolArgsInput.hidden) return;
     if (state.mode === 'project-picker') {
       projectPickerUp(state, ui);
+    } else if (state.mode === 'tools') {
+      if (state.selectedToolIndex > 0) {
+        state.selectedToolIndex--;
+        selectTool(state, ui);
+      }
     } else if (state.mode !== 'search' && state.mode !== 'help') {
       state.gPressed = false;
       moveUp(state, ui);
@@ -139,42 +172,48 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['C-d'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       pageDown(state, ui);
     }
   });
 
   screen.key(['C-u', 'pageup'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       pageUp(state, ui);
     }
   });
 
   screen.key(['pagedown'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       pageDown(state, ui);
     }
   });
 
   screen.key(['home'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       jumpToStart(state, ui);
     }
   });
 
   screen.key(['end', 'S-g'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       jumpToEnd(state, ui);
     }
   });
 
   screen.key(['g'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       if (state.gPressed) {
         jumpToStart(state, ui);
         state.gPressed = false;
@@ -187,10 +226,14 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['enter'], async () => {
+    if (!toolArgsInput.hidden) return;
     if (state.mode === 'list') {
       await enterFullView(state, ui, dbPath, sourcesDir);
     } else if (state.mode === 'project-picker') {
       await selectProject(state, ui, dbPath, dataDir, sourceType);
+    } else if (state.mode === 'tools') {
+      selectTool(state, ui);
+      await callTool(state, ui, dbPath, dataDir);
     }
   });
 
@@ -221,6 +264,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['e'], () => {
+    if (!toolArgsInput.hidden && state.mode !== 'tools') return;
     if (state.mode === 'list' || state.mode === 'fullview') {
       openInEditor(state, ui, sourcesDir);
     }
@@ -234,6 +278,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
 
   // Project picker keybindings
   screen.key(['p'], () => {
+    if (!toolArgsInput.hidden) return;
     if (state.mode === 'list') {
       showProjectPicker(state, ui, dbPath);
     } else if (state.mode === 'project-picker') {
@@ -243,8 +288,16 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['S-p'], () => {
+    if (!toolArgsInput.hidden) return;
     if (state.mode === 'list') {
       clearProjectFilter(state, ui, dbPath, dataDir, sourceType);
+    }
+  });
+
+  screen.key(['t'], () => {
+    if (!toolArgsInput.hidden) return;
+    if (state.mode === 'list') {
+      showTools(state, ui);
     }
   });
 

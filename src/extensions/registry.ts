@@ -136,6 +136,10 @@ export class ExtensionRegistry {
     return [...this.toolDefinitions];
   }
 
+  getToolRoute(name: string): ExtensionRoute | undefined {
+    return this.toolRoutes.get(name);
+  }
+
   registerCommands(program: Command, context: ExtensionCommandContext): void {
     for (const loaded of this.extensions) {
       const commands = loaded.extension.commands || [];

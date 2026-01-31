@@ -10,11 +10,21 @@ import { tmpdir } from 'os';
 import path from 'path';
 
 import type { BrowserState, UIComponents, SourceDetails, ProjectInfo } from './browse-types.js';
-import { formatDate, markdownToBlessed, renderFullView, renderList, renderPreview, updateStatus } from './browse-render.js';
+import {
+  formatDate,
+  markdownToBlessed,
+  renderFullView,
+  renderList,
+  renderPreview,
+  renderToolsList,
+  renderToolResult,
+  updateStatus,
+} from './browse-render.js';
 import { getSourceById, searchSources, getProjectStats, getAllSources } from '../core/vector-store.js';
 import { generateEmbedding } from '../core/embedder.js';
 import { searchLocalFiles } from '../core/local-search.js';
 import type { SearchMode, SourceType } from '../core/types.js';
+import { getExtensionRegistry } from '../extensions/registry.js';
 
 /**
  * Load full content for the selected document
@@ -119,7 +129,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  e Editor  │  q Quit  │  ? Help');
+  ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  e Editor  │  q Quit  │  ? Help');
   ui.screen.render();
 }
 
@@ -382,6 +392,129 @@ export function hideHelp(state: BrowserState, ui: UIComponents): void {
   state.mode = 'list';
   ui.helpPane.hide();
   ui.screen.render();
+}
+
+// ============================================================================
+// Tools View
+// ============================================================================
+
+export async function showTools(state: BrowserState, ui: UIComponents): Promise<void> {
+  state.mode = 'tools';
+  state.toolResult = null;
+  ui.fullViewPane.hide();
+  ui.listPane.show();
+  ui.previewPane.show();
+  ui.listTitle.setContent(' Tools');
+  ui.previewTitle.setContent(' Tool Details');
+  ui.footer.setContent(' j/k: navigate  Enter: run  Esc: back  q: quit');
+  ui.statusBar.setContent(' Loading tools...');
+  ui.screen.render();
+
+  try {
+    const registry = await getExtensionRegistry();
+    state.toolsList = registry.getToolDefinitions();
+    state.selectedToolIndex = 0;
+    ui.statusBar.setContent(` ${state.toolsList.length} tool${state.toolsList.length !== 1 ? 's' : ''}`);
+  } catch (error) {
+    state.toolsList = [];
+    state.selectedToolIndex = 0;
+    ui.statusBar.setContent(` {red-fg}Failed to load tools: ${error}{/red-fg}`);
+  }
+
+  renderToolsList(ui, state);
+  renderToolResult(ui, state);
+  ui.listContent.focus();
+  ui.screen.render();
+}
+
+export function selectTool(state: BrowserState, ui: UIComponents): void {
+  renderToolsList(ui, state);
+  renderToolResult(ui, state);
+  ui.screen.render();
+}
+
+export async function callTool(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string
+): Promise<void> {
+  const tool = state.toolsList[state.selectedToolIndex];
+  if (!tool) return;
+
+  if (!ui.toolArgsInput.hidden) {
+    return;
+  }
+
+  ui.toolArgsInput.setLabel(` Tool args (JSON) - ${tool.name} `);
+  ui.toolArgsInput.setValue('{}');
+  ui.toolArgsInput.show();
+  ui.toolArgsInput.focus();
+  ui.screen.render();
+
+  ui.toolArgsInput.once('cancel', () => {
+    ui.toolArgsInput.hide();
+    ui.listContent.focus();
+    ui.screen.render();
+  });
+
+  ui.toolArgsInput.once('submit', async (value: string) => {
+    ui.toolArgsInput.hide();
+    ui.listContent.focus();
+
+    let args: Record<string, unknown> = {};
+    if (value.trim()) {
+      try {
+        args = JSON.parse(value);
+      } catch (error) {
+        state.toolResult = {
+          toolName: tool.name,
+          ok: false,
+          result: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        };
+        renderToolResult(ui, state);
+        ui.screen.render();
+        return;
+      }
+    }
+
+    ui.statusBar.setContent(` Running ${tool.name}...`);
+    ui.screen.render();
+
+    try {
+      const registry = await getExtensionRegistry();
+      const result = await registry.handleToolCall(tool.name, args, {
+        mode: 'cli',
+        dataDir,
+        dbPath,
+      });
+
+      if (!result.handled) {
+        state.toolResult = {
+          toolName: tool.name,
+          ok: false,
+          result: 'Tool not found',
+        };
+      } else {
+        state.toolResult = {
+          toolName: tool.name,
+          ok: true,
+          result: result.result,
+        };
+      }
+      ui.statusBar.setContent(` ${tool.name} complete`);
+    } catch (error) {
+      state.toolResult = {
+        toolName: tool.name,
+        ok: false,
+        result: error instanceof Error ? error.message : String(error),
+      };
+      ui.statusBar.setContent(` {red-fg}${tool.name} failed{/red-fg}`);
+    }
+
+    renderToolResult(ui, state);
+    ui.screen.render();
+  });
 }
 
 /**

@@ -321,6 +321,106 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
   ui.previewContent.setContent(lines.join('\n'));
 }
 
+function formatJsonForPreview(value: unknown): string {
+  try {
+    if (typeof value === 'string') {
+      return value;
+    }
+    return JSON.stringify(value ?? null, null, 2) || '';
+  } catch (error) {
+    return `JSON error: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/**
+ * Render the tools list
+ */
+export function renderToolsList(ui: UIComponents, state: BrowserState): void {
+  const width = (ui.listContent.width as number) - 2;
+  const height = (ui.listContent.height as number) - 1;
+  const lines: string[] = [];
+
+  if (state.toolsList.length === 0) {
+    lines.push('');
+    lines.push('{blue-fg}  No tools available{/blue-fg}');
+    lines.push('');
+    lines.push('{blue-fg}  Install extensions with tools{/blue-fg}');
+    ui.listContent.setContent(lines.join('\n'));
+    return;
+  }
+
+  const visibleStart = Math.max(0, state.selectedToolIndex - Math.floor(height / 3));
+  const visibleEnd = Math.min(state.toolsList.length, visibleStart + height);
+
+  for (let i = visibleStart; i < visibleEnd; i++) {
+    const tool = state.toolsList[i];
+    const isSelected = i === state.selectedToolIndex;
+    const accent = isSelected ? '{cyan-fg}▌{/cyan-fg}' : ' ';
+
+    const name = truncate(tool.name, width - 4);
+    const description = truncate(tool.description || '', width - 6);
+
+    lines.push(`${accent} {bold}${escapeForBlessed(name)}{/bold}`);
+    if (description) {
+      lines.push(`${accent}   {cyan-fg}${escapeForBlessed(description)}{/cyan-fg}`);
+    }
+    lines.push('');
+  }
+
+  ui.listContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Render the tool preview (schema + result)
+ */
+export function renderToolResult(ui: UIComponents, state: BrowserState): void {
+  if (state.toolsList.length === 0) {
+    ui.previewContent.setContent('{blue-fg}No tools{/blue-fg}');
+    return;
+  }
+
+  const tool = state.toolsList[state.selectedToolIndex];
+  if (!tool) {
+    ui.previewContent.setContent('{blue-fg}Select a tool{/blue-fg}');
+    return;
+  }
+
+  const lines: string[] = [];
+  const previewWidth = (ui.previewContent.width as number) - 2;
+
+  lines.push(`{bold}${truncate(escapeForBlessed(tool.name), previewWidth)}{/bold}`);
+  if (tool.description) {
+    lines.push(escapeForBlessed(tool.description));
+  }
+
+  lines.push('');
+  lines.push('{cyan-fg}Input Schema{/cyan-fg}');
+  lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
+  const schemaText = formatJsonForPreview(tool.inputSchema);
+  for (const line of schemaText.split('\n')) {
+    lines.push(truncate(escapeForBlessed(line), previewWidth));
+  }
+
+  const matchingResult = state.toolResult && state.toolResult.toolName === tool.name
+    ? state.toolResult
+    : null;
+
+  if (matchingResult) {
+    lines.push('');
+    lines.push(matchingResult.ok ? '{green-fg}Result{/green-fg}' : '{red-fg}Error{/red-fg}');
+    lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
+    const resultText = formatJsonForPreview(matchingResult.result);
+    for (const line of resultText.split('\n')) {
+      lines.push(truncate(escapeForBlessed(line), previewWidth));
+    }
+  } else {
+    lines.push('');
+    lines.push('{cyan-fg}Press Enter to run tool{/cyan-fg}');
+  }
+
+  ui.previewContent.setContent(lines.join('\n'));
+}
+
 /**
  * Highlight matches within a line by wrapping them with blessed tags
  * Works on the raw line first, then applies markdown formatting

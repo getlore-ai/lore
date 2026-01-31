@@ -227,6 +227,7 @@ export function createUIComponents(): UIComponents {
   :          Regex search (grep files)
   p          Switch project filter
   P          Clear project filter (show all)
+  t          Tools
   e          Open in $EDITOR
   s          Sync now (git pull + index)
 
@@ -321,6 +322,27 @@ export function createUIComponents(): UIComponents {
     inputOnFocus: true,
   });
 
+  const toolArgsInput = blessed.textbox({
+    parent: screen,
+    top: 'center',
+    left: 'center',
+    width: '80%',
+    height: 5,
+    border: {
+      type: 'line',
+    },
+    label: ' Tool args (JSON) ',
+    style: {
+      fg: 'white',
+      bg: 'black',
+      border: {
+        fg: 'cyan',
+      },
+    },
+    hidden: true,
+    inputOnFocus: true,
+  });
+
   // Footer
   const footer = blessed.box({
     parent: screen,
@@ -328,7 +350,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  e Editor  │  q Quit  │  ? Help',
+    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  e Editor  │  q Quit  │  ? Help',
     tags: true,
     style: {
       fg: 'white',
@@ -353,6 +375,7 @@ export function createUIComponents(): UIComponents {
     searchInput,
     regexInput,
     docSearchInput,
+    toolArgsInput,
     footer,
     projectPicker,
     projectPickerContent,

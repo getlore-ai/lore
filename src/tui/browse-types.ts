@@ -3,6 +3,7 @@
  */
 
 import type { SourceType, ContentType, Theme, Quote, SearchMode } from '../core/types.js';
+import type { ToolDefinition } from '../extensions/types.js';
 
 // Source from database
 export interface SourceItem {
@@ -30,7 +31,13 @@ export interface BrowseOptions {
   dataDir: string;
 }
 
-export type Mode = 'list' | 'search' | 'regex-search' | 'fullview' | 'doc-search' | 'help' | 'project-picker';
+export type Mode = 'list' | 'search' | 'regex-search' | 'fullview' | 'doc-search' | 'help' | 'project-picker' | 'tools';
+
+export interface ToolResult {
+  toolName: string;
+  ok: boolean;
+  result: unknown;
+}
 
 // Project info for picker
 export interface ProjectInfo {
@@ -60,6 +67,9 @@ export interface BrowserState {
   projects: ProjectInfo[];
   projectPickerIndex: number;
   currentProject?: string; // Active project filter (can change at runtime)
+  toolsList: ToolDefinition[];
+  selectedToolIndex: number;
+  toolResult: ToolResult | null;
 }
 
 // UI components from blessed
@@ -80,6 +90,7 @@ export interface UIComponents {
   searchInput: any;
   regexInput: any;
   docSearchInput: any;
+  toolArgsInput: any;
   footer: any;
   projectPicker: any;
   projectPickerContent: any;
