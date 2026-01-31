@@ -12,6 +12,7 @@ import {
   loadExtensionConfig,
   type ExtensionConfigEntry,
 } from './config.js';
+import { ExtensionSandbox, type ExtensionRoute } from './sandbox.js';
 import type {
   LoreExtension,
   ToolDefinition,
@@ -32,6 +33,8 @@ interface ExtensionRegistryOptions {
   logger?: (message: string) => void;
   loreVersion?: string;
   cacheBust?: string;
+  sandboxed?: boolean;
+  sandboxTimeoutMs?: number;
 }
 
 function getLogger(logger?: (message: string) => void): (message: string) => void {
@@ -101,6 +104,8 @@ export class ExtensionRegistry {
   private extensions: LoadedExtension[];
   private toolDefinitions: ToolDefinition[];
   private toolHandlers: Map<string, ExtensionTool>;
+  private toolRoutes: Map<string, ExtensionRoute>;
+  private sandbox: ExtensionSandbox | null;
   private readonly logger: (message: string) => void;
   private readonly options: ExtensionRegistryOptions;
 
@@ -108,14 +113,19 @@ export class ExtensionRegistry {
     extensions: LoadedExtension[],
     toolDefinitions: ToolDefinition[],
     toolHandlers: Map<string, ExtensionTool>,
+    toolRoutes: Map<string, ExtensionRoute>,
     logger: (message: string) => void,
     options: ExtensionRegistryOptions
   ) {
     this.extensions = extensions;
     this.toolDefinitions = toolDefinitions;
     this.toolHandlers = toolHandlers;
+    this.toolRoutes = toolRoutes;
     this.logger = logger;
     this.options = options;
+    this.sandbox = options.sandboxed
+      ? new ExtensionSandbox({ logger: this.logger, timeoutMs: options.sandboxTimeoutMs })
+      : null;
   }
 
   listExtensions(): LoadedExtension[] {
@@ -149,8 +159,8 @@ export class ExtensionRegistry {
     args: Record<string, unknown>,
     context: ExtensionToolContext
   ): Promise<{ handled: boolean; result?: unknown }> {
-    const tool = this.toolHandlers.get(name);
-    if (!tool) {
+    const route = this.toolRoutes.get(name);
+    if (!route) {
       return { handled: false };
     }
 
@@ -160,6 +170,15 @@ export class ExtensionRegistry {
     };
 
     try {
+      if (this.sandbox) {
+        const result = await this.sandbox.callTool(route, name, args, extensionContext);
+        return { handled: true, result };
+      }
+
+      const tool = this.toolHandlers.get(name);
+      if (!tool) {
+        return { handled: false };
+      }
       const result = await tool.handler(args, extensionContext);
       return { handled: true, result };
     } catch (error) {
@@ -205,9 +224,12 @@ export class ExtensionRegistry {
       cacheBust,
     });
 
+    this.sandbox?.dispose();
     this.extensions = updated.extensions;
     this.toolDefinitions = updated.toolDefinitions;
     this.toolHandlers = updated.toolHandlers;
+    this.toolRoutes = updated.toolRoutes;
+    this.sandbox = updated.sandbox;
     this.logger('[extensions] Extensions reloaded');
   }
 }
@@ -230,6 +252,7 @@ export async function loadExtensionRegistry(
 
   const toolDefinitions: ToolDefinition[] = [];
   const toolHandlers = new Map<string, ExtensionTool>();
+  const toolRoutes = new Map<string, ExtensionRoute>();
   const loadedExtensions: LoadedExtension[] = [];
 
   const require = createRequire(import.meta.url);
@@ -264,11 +287,24 @@ export async function loadExtensionRegistry(
       }
 
       toolHandlers.set(tool.definition.name, tool);
+      toolRoutes.set(tool.definition.name, {
+        extensionName: loaded.extension.name,
+        packageName: loaded.packageName,
+        modulePath: loaded.modulePath,
+        cacheBust: options.cacheBust,
+      });
       toolDefinitions.push(tool.definition);
     }
   }
 
-  return new ExtensionRegistry(loadedExtensions, toolDefinitions, toolHandlers, logger, resolvedOptions);
+  return new ExtensionRegistry(
+    loadedExtensions,
+    toolDefinitions,
+    toolHandlers,
+    toolRoutes,
+    logger,
+    resolvedOptions
+  );
 }
 
 async function loadSingleExtension(

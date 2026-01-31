@@ -217,9 +217,13 @@ Done! To use this data repository:
     .command('serve')
     .description('Start the MCP server')
     .option('-w, --watch', 'Watch extensions and auto-reload')
+    .option('--sandbox', 'Run extension tools in worker thread sandbox')
     .action(async (options) => {
       if (options.watch) {
         process.env.LORE_EXTENSION_WATCH = 'true';
+      }
+      if (options.sandbox) {
+        process.env.LORE_EXTENSION_SANDBOX = 'true';
       }
       // Dynamic import to start MCP server
       await import('../../mcp/server.js');

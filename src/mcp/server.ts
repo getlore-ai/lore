@@ -51,6 +51,16 @@ const AUTO_GIT_PUSH = process.env.LORE_AUTO_GIT_PUSH !== 'false';
 const AUTO_INDEX = process.env.LORE_AUTO_INDEX !== 'false';
 const WATCH_EXTENSIONS =
   process.env.LORE_EXTENSION_WATCH === 'true' || process.argv.includes('--watch');
+const EXTENSION_SANDBOX =
+  process.env.LORE_EXTENSION_SANDBOX === 'true' || process.argv.includes('--sandbox');
+const EXTENSION_TIMEOUT_RAW = process.env.LORE_EXTENSION_TIMEOUT_MS;
+const EXTENSION_TIMEOUT_MS = EXTENSION_TIMEOUT_RAW
+  ? Number.parseInt(EXTENSION_TIMEOUT_RAW, 10)
+  : undefined;
+const SANDBOX_TIMEOUT_MS =
+  typeof EXTENSION_TIMEOUT_MS === 'number' && Number.isFinite(EXTENSION_TIMEOUT_MS)
+    ? EXTENSION_TIMEOUT_MS
+    : undefined;
 
 /**
  * Try to git pull, handling conflicts gracefully
@@ -165,6 +175,8 @@ async function main() {
 
   const extensionRegistry = await getExtensionRegistry({
     logger: (message) => console.error(message),
+    sandboxed: EXTENSION_SANDBOX,
+    sandboxTimeoutMs: SANDBOX_TIMEOUT_MS,
   });
   const coreToolNames = new Set(toolDefinitions.map((tool) => tool.name));
 
