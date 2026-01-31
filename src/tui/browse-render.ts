@@ -1,0 +1,376 @@
+/**
+ * Rendering functions for the Lore Document Browser TUI
+ *
+ * Functions for formatting and rendering content to the UI.
+ */
+
+import { existsSync, readFileSync } from 'fs';
+import path from 'path';
+import os from 'os';
+
+import type { SourceItem, BrowserState, UIComponents } from './browse-types.js';
+import { emojiReplacements } from './browse-types.js';
+import type { SourceType } from '../core/types.js';
+
+// Daemon status file path
+const STATUS_FILE = path.join(os.homedir(), '.config', 'lore', 'daemon.status.json');
+
+interface DaemonStatus {
+  pid: number;
+  started_at: string;
+  last_sync?: string;
+  last_sync_result?: {
+    files_scanned: number;
+    files_processed: number;
+    errors: number;
+  };
+}
+
+/**
+ * Check if daemon is running and get its status
+ */
+function getDaemonStatus(): { running: boolean; lastSync?: string } {
+  if (!existsSync(STATUS_FILE)) {
+    return { running: false };
+  }
+
+  try {
+    const status: DaemonStatus = JSON.parse(readFileSync(STATUS_FILE, 'utf-8'));
+
+    // Check if the process is still running
+    try {
+      process.kill(status.pid, 0);
+      // Process exists
+      return {
+        running: true,
+        lastSync: status.last_sync,
+      };
+    } catch {
+      // Process not running
+      return { running: false };
+    }
+  } catch {
+    return { running: false };
+  }
+}
+
+/**
+ * Format relative time for daemon status
+ */
+function formatSyncTime(isoTime: string): string {
+  const ms = Date.now() - new Date(isoTime).getTime();
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/**
+ * Format a date for display
+ */
+export function formatDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Truncate a string to a maximum length
+ */
+export function truncate(str: string, len: number): string {
+  if (str.length <= len) return str;
+  return str.slice(0, len - 1) + '…';
+}
+
+/**
+ * Escape text for blessed tags - must escape curly braces and handle special chars
+ */
+export function escapeForBlessed(text: string): string {
+  let result = text;
+
+  // Replace known emojis with ASCII equivalents
+  for (const [emoji, replacement] of Object.entries(emojiReplacements)) {
+    result = result.split(emoji).join(replacement);
+  }
+
+  return result
+    .replace(/\{/g, '\\{')
+    .replace(/\}/g, '\\}')
+    .replace(/\t/g, '    ')  // Replace tabs with spaces
+    // Remove any remaining emojis (fallback)
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')  // Misc symbols, emoticons, etc.
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')    // Misc symbols
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')    // Dingbats
+    .replace(/[\u{FE00}-\u{FE0F}]/gu, '')    // Variation selectors
+    .replace(/[\u{1F000}-\u{1F02F}]/gu, '')  // Mahjong, dominos
+    .replace(/[\u{1F0A0}-\u{1F0FF}]/gu, ''); // Playing cards
+}
+
+/**
+ * Simple markdown to blessed tags converter (no ANSI codes)
+ */
+export function markdownToBlessed(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+
+  for (const line of lines) {
+    let processed = line;
+
+    // Escape first to protect content
+    processed = escapeForBlessed(processed);
+
+    // Headers (must check longer patterns first)
+    if (processed.startsWith('### ')) {
+      result.push(`{bold}{cyan-fg}${processed.slice(4)}{/cyan-fg}{/bold}`);
+      continue;
+    }
+    if (processed.startsWith('## ')) {
+      result.push('');
+      result.push(`{bold}{blue-fg}${processed.slice(3)}{/blue-fg}{/bold}`);
+      continue;
+    }
+    if (processed.startsWith('# ')) {
+      result.push('');
+      result.push(`{bold}{cyan-fg}${processed.slice(2)}{/cyan-fg}{/bold}`);
+      continue;
+    }
+
+    // Blockquotes
+    if (processed.startsWith('> ')) {
+      result.push(`{blue-fg}│{/blue-fg} {italic}${processed.slice(2)}{/italic}`);
+      continue;
+    }
+
+    // List items
+    if (processed.match(/^\s*[-*]\s/)) {
+      processed = processed.replace(/^(\s*)[-*]\s/, '$1{yellow-fg}•{/yellow-fg} ');
+    }
+
+    // Bold **text**
+    processed = processed.replace(/\*\*([^*]+)\*\*/g, '{bold}$1{/bold}');
+
+    // Italic *text*
+    processed = processed.replace(/\*([^*]+)\*/g, '{italic}$1{/italic}');
+
+    // Inline code `text`
+    processed = processed.replace(/`([^`]+)`/g, '{magenta-fg}$1{/magenta-fg}');
+
+    result.push(processed);
+  }
+
+  return result.join('\n');
+}
+
+/**
+ * Update the status bar
+ */
+export function updateStatus(
+  ui: UIComponents,
+  state: BrowserState,
+  project?: string,
+  sourceType?: SourceType
+): void {
+  const count = state.filtered.length;
+  const projectInfo = project ? ` · ${project}` : '';
+  const typeInfo = sourceType ? ` · ${sourceType}` : '';
+  const searchInfo = state.searchQuery ? ` · ${state.searchMode}: "${state.searchQuery}"` : '';
+
+  // Check daemon status
+  const daemon = getDaemonStatus();
+  let daemonInfo = '';
+  if (daemon.running) {
+    const syncTime = daemon.lastSync ? formatSyncTime(daemon.lastSync) : 'starting';
+    daemonInfo = ` · {green-fg}sync: ${syncTime}{/green-fg}`;
+  } else {
+    daemonInfo = ' · {yellow-fg}daemon off{/yellow-fg}';
+  }
+
+  ui.statusBar.setContent(` ${count} document${count !== 1 ? 's' : ''}${projectInfo}${typeInfo}${searchInfo}${daemonInfo}`);
+}
+
+/**
+ * Render the document list
+ */
+export function renderList(ui: UIComponents, state: BrowserState): void {
+  const width = (ui.listContent.width as number) - 2;
+  const height = (ui.listContent.height as number) - 1;
+  const lines: string[] = [];
+
+  if (state.filtered.length === 0) {
+    lines.push('');
+    lines.push('{blue-fg}  No documents found{/blue-fg}');
+    lines.push('');
+    if (state.searchQuery) {
+      lines.push('{blue-fg}  Try a different search{/blue-fg}');
+      lines.push('{blue-fg}  Press Esc to clear filter{/blue-fg}');
+    } else {
+      lines.push('{blue-fg}  Run "lore sync" to import documents{/blue-fg}');
+    }
+    ui.listContent.setContent(lines.join('\n'));
+    return;
+  }
+
+  const visibleStart = Math.max(0, state.selectedIndex - Math.floor(height / 2));
+  const visibleEnd = Math.min(state.filtered.length, visibleStart + height);
+
+  for (let i = visibleStart; i < visibleEnd; i++) {
+    const source = state.filtered[i];
+    const isSelected = i === state.selectedIndex;
+
+    const prefix = isSelected ? '{inverse} ▸ ' : '   ';
+    const suffix = isSelected ? ' {/inverse}' : '';
+
+    const title = truncate(source.title, width - 6);
+    const date = formatDate(source.created_at);
+
+    // Show score if from semantic search
+    let meta: string;
+    if (source.score !== undefined) {
+      const pct = Math.round(source.score * 100);
+      const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
+      meta = `{green-fg}${bar} ${pct}%{/green-fg} · ${source.content_type} · ${source.projects[0] || 'no project'}`;
+    } else {
+      meta = `${date} · ${source.content_type} · ${source.projects[0] || 'no project'}`;
+    }
+
+    lines.push(`${prefix}{bold}${title}{/bold}${suffix}`);
+    lines.push(`   ${source.score !== undefined ? meta : `{blue-fg}${truncate(meta, width - 4)}{/blue-fg}`}`);
+    lines.push('');
+  }
+
+  ui.listContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Render the preview pane
+ */
+export function renderPreview(ui: UIComponents, state: BrowserState): void {
+  if (state.filtered.length === 0) {
+    ui.previewContent.setContent('{blue-fg}No documents{/blue-fg}');
+    return;
+  }
+
+  const source = state.filtered[state.selectedIndex];
+  if (!source) return;
+
+  const lines: string[] = [];
+
+  // Title
+  lines.push(`{bold}{cyan-fg}${source.title}{/cyan-fg}{/bold}`);
+  lines.push('');
+
+  // Show similarity score if from search
+  if (source.score !== undefined) {
+    const pct = Math.round(source.score * 100);
+    const bar = '█'.repeat(Math.round(pct / 10)) + '░'.repeat(10 - Math.round(pct / 10));
+    lines.push(`{green-fg}Match: ${bar} ${pct}%{/green-fg}`);
+    lines.push('');
+  }
+
+  // Metadata
+  lines.push(`{blue-fg}Date:{/blue-fg} ${formatDate(source.created_at)}`);
+  lines.push(`{blue-fg}Type:{/blue-fg} ${source.source_type} · ${source.content_type}`);
+  lines.push(`{blue-fg}Project:{/blue-fg} ${source.projects.join(', ') || '(none)'}`);
+  lines.push('');
+
+  // Summary
+  lines.push('{bold}Summary{/bold}');
+  lines.push('{blue-fg}' + '─'.repeat(30) + '{/blue-fg}');
+
+  // Word wrap summary
+  const summaryWidth = (ui.previewContent.width as number) - 2;
+  const words = source.summary.split(' ');
+  let currentLine = '';
+
+  for (const word of words) {
+    if (currentLine.length + word.length + 1 > summaryWidth) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = currentLine ? `${currentLine} ${word}` : word;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+
+  lines.push('');
+  lines.push(`{blue-fg}Press Enter for full document{/blue-fg}`);
+
+  ui.previewContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Highlight matches within a line by wrapping them with blessed tags
+ * Works on the raw line first, then applies markdown formatting
+ */
+function highlightMatchesInLine(rawLine: string, pattern: string, isCurrentMatch: boolean): string {
+  try {
+    const regex = new RegExp(`(${pattern})`, 'gi');
+    const highlightTag = isCurrentMatch
+      ? '{yellow-bg}{black-fg}'
+      : '{cyan-bg}{black-fg}';
+    const closeTag = isCurrentMatch
+      ? '{/black-fg}{/yellow-bg}'
+      : '{/black-fg}{/cyan-bg}';
+
+    // Escape the line for blessed first
+    let escaped = escapeForBlessed(rawLine);
+
+    // Then apply highlights to the escaped content
+    // We need to match on the original escaped text
+    escaped = escaped.replace(regex, `${highlightTag}$1${closeTag}`);
+
+    return escaped;
+  } catch {
+    return escapeForBlessed(rawLine);
+  }
+}
+
+/**
+ * Render the full view pane
+ */
+export function renderFullView(ui: UIComponents, state: BrowserState): void {
+  const height = (ui.fullViewContent.height as number) - 1;
+
+  // Get visible line range
+  const startLine = state.scrollOffset;
+  const endLine = Math.min(startLine + height, state.fullContentLines.length);
+
+  const visible: string[] = [];
+
+  for (let lineNum = startLine; lineNum < endLine; lineNum++) {
+    const isMatchLine = state.docSearchMatches.includes(lineNum);
+    const isCurrentMatch = state.docSearchMatches[state.docSearchCurrentIdx] === lineNum;
+
+    if (state.docSearchPattern && isMatchLine) {
+      // Get raw line and highlight matches within it
+      const rawLine = state.fullContentLinesRaw[lineNum] || '';
+      const highlighted = highlightMatchesInLine(rawLine, state.docSearchPattern, isCurrentMatch);
+      visible.push(highlighted);
+    } else {
+      // No search or non-matching line - render normally
+      visible.push(state.fullContentLines[lineNum]);
+    }
+  }
+
+  ui.fullViewContent.setContent(visible.join('\n'));
+
+  // Update footer for full view mode
+  let footerText = ' j/k: scroll  /: search  e: editor  Esc: back  q: quit';
+  if (state.docSearchPattern && state.docSearchMatches.length > 0) {
+    footerText = ` [${state.docSearchCurrentIdx + 1}/${state.docSearchMatches.length}] n/N: next/prev  /: new search  Esc: clear`;
+  } else if (state.docSearchPattern && state.docSearchMatches.length === 0) {
+    footerText = ` No matches for "${state.docSearchPattern}"  /: new search  Esc: clear`;
+  }
+  ui.footer.setContent(footerText);
+  ui.screen.render();
+}

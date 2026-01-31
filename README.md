@@ -60,16 +60,16 @@ lore init ~/lore-data --remote git@github.com:you/lore-data-private.git
 
 ```bash
 # Add directories to watch
-lore sources add --name "My Notes" --path ~/Documents/notes --glob "**/*.md" --project myproject
+lore sync add --name "My Notes" --path ~/Documents/notes --glob "**/*.md" --project myproject
 
 # Verify
-lore sources list
+lore sync list
 ```
 
-### 6. Start Watching
+### 6. Start the Daemon
 
 ```bash
-lore watch
+lore sync start
 ```
 
 ---
@@ -104,13 +104,177 @@ LORE_DATA_DIR=~/lore-data       # Data directory for raw documents
 }
 ```
 
+## CLI Overview
+
+```
+lore
+├── sync                    # Sync (daemon, sources, import)
+├── search <query>          # Search documents
+├── research <query>        # Deep AI research
+├── browse                  # Interactive TUI
+├── docs                    # Document CRUD
+│   ├── list
+│   ├── get <id>
+│   ├── create <content>
+│   └── delete <id>
+├── projects                # Project management
+│   ├── list (default)
+│   ├── archive <name>
+│   └── delete <name>
+├── init [path]             # Initialize data repo
+└── serve                   # Start MCP server
+```
+
+## CLI Commands
+
+### Sync
+
+```bash
+# One-time sync
+lore sync                   # Sync all sources
+lore sync --dry-run         # Preview what would sync
+
+# Background daemon
+lore sync start             # Start daemon
+lore sync stop              # Stop daemon
+lore sync restart           # Restart daemon
+lore sync status            # Check if running
+lore sync logs              # View last 50 log entries
+lore sync logs -f           # Follow logs in real-time
+
+# Foreground watch
+lore sync watch             # Watch with live output
+
+# Source management
+lore sync list              # List configured sources
+lore sync add               # Add a new source
+lore sync enable <name>     # Enable a source
+lore sync disable <name>    # Disable a source
+lore sync remove <name>     # Remove a source
+
+# Bulk import (legacy)
+lore sync import <path> -t markdown -p myproject
+```
+
+The daemon:
+- Watches configured directories for new/changed files
+- Pulls from git every 5 minutes (gets files from other machines)
+- Pushes to git after processing new files
+- Logs all activity to `~/.config/lore/daemon.log`
+
+### Search
+
+```bash
+# Quick search (hybrid semantic + keyword)
+lore search "user pain points"
+
+# Semantic only (conceptual matching)
+lore search "user frustration" --mode semantic
+
+# Keyword only (exact terms)
+lore search "OAuth config" --mode keyword
+
+# Regex (grep local files)
+lore search "OAuth.*error" --mode regex
+
+# Filter by project
+lore search "onboarding issues" -p myproject
+```
+
+### Research
+
+```bash
+# Deep AI-powered research with citations
+lore research "What authentication approach should we use?"
+
+# Focus on specific project
+lore research "user feedback on exports" -p myproject
+
+# Simple mode (faster, single-pass)
+lore research "pricing concerns" --simple
+```
+
+### Documents
+
+```bash
+# List all documents
+lore docs list
+lore docs list -p myproject    # Filter by project
+
+# Get document details
+lore docs get <id>
+lore docs get <id> --content   # Include full content
+
+# Create a note/insight
+lore docs create "Decision: Using JWT for auth" -p myproject -t decision
+
+# Delete a document
+lore docs delete <id>
+lore docs delete <id> --force  # Skip confirmation
+```
+
+### Projects
+
+```bash
+# List all projects
+lore projects
+
+# Archive a project (hide from search)
+lore projects archive old-project
+lore projects archive old-project --successor new-project
+
+# Delete a project and all its documents
+lore projects delete old-project
+```
+
+### Browse (Interactive TUI)
+
+```bash
+lore browse                    # Browse all documents
+lore browse -p myproject       # Filter by project
+lore browse -t meeting         # Filter by type
+```
+
+**Keyboard shortcuts:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` or `↑/↓` | Navigate documents |
+| `Enter` | View full document |
+| `/` | Hybrid search (semantic + keyword) |
+| `:` | Regex search (grep files) |
+| `s` | Sync now |
+| `e` | Open in $EDITOR |
+| `?` | Help |
+| `q` | Quit |
+
+**In document view:**
+
+| Key | Action |
+|-----|--------|
+| `j/k` | Scroll up/down |
+| `/` | Search in document (regex) |
+| `n/N` | Next/previous match |
+| `Esc` | Clear search / back to list |
+
+### Infrastructure
+
+```bash
+# Initialize data repository
+lore init ~/lore-data
+lore init ~/lore-data --remote git@github.com:you/lore-data.git
+
+# Start MCP server
+lore serve
+```
+
 ## MCP Tools
 
 ### Simple Query Tools
 
 | Tool | Description |
 |------|-------------|
-| `search` | Semantic search across all sources |
+| `search` | Hybrid search (semantic + keyword) with mode selection |
 | `get_source` | Full source document with content |
 | `list_sources` | Browse by project or type |
 | `list_projects` | Project overview with stats |
@@ -124,77 +288,6 @@ LORE_DATA_DIR=~/lore-data       # Data directory for raw documents
 | Tool | Description |
 |------|-------------|
 | `research` | Comprehensive research with synthesis and citations |
-
-## CLI Commands
-
-```bash
-# Sync sources (two-phase: discovery then processing)
-lore sync
-
-# Dry run - see what would be synced
-lore sync --dry-run
-
-# Watch directories and auto-sync on changes
-lore watch
-
-# Manage sync sources
-lore sources list
-lore sources add
-lore sources enable <name>
-lore sources disable <name>
-lore sources remove <name>
-
-# Search from command line
-lore search "user pain points with onboarding"
-
-# View a specific source
-lore get <source-id>
-
-# List all sources
-lore list
-
-# Save an insight
-lore retain "Decision: Using JWT for auth because..."
-
-# Run research query
-lore research "What do users say about pricing?"
-
-# List projects
-lore projects
-
-# Archive a project
-lore archive <project-name>
-
-# Start MCP server
-lore mcp
-
-# Legacy: Direct ingest (still works)
-lore ingest /path/to/docs --type markdown -p myproject
-```
-
-## Syncing
-
-### `lore watch` (Recommended)
-
-```bash
-lore watch
-```
-
-The primary way to keep Lore in sync. Run it in a terminal:
-- Watches configured directories for new/changed files
-- Pulls from git every 5 minutes (gets files from other machines)
-- Pushes to git after processing new files
-- Shows colorized real-time progress
-
-Run in background: `nohup lore watch > ~/lore-watch.log 2>&1 &`
-
-### Other Options
-
-| Method | When to use |
-|--------|-------------|
-| `lore watch` | **Primary** - run in terminal for full visibility |
-| `lore sync` | One-time manual sync |
-| MCP server | Disabled by default. Set `LORE_AUTO_SYNC=true` to enable |
 
 ## How Sync Works
 
@@ -222,6 +315,36 @@ For each new file:
 
 **Multi-machine deduplication**: Same file content = same hash, regardless of path or machine. If you sync the same file on two machines, only the first one is processed.
 
+## How Search Works
+
+Lore uses **Reciprocal Rank Fusion (RRF)** to combine semantic and keyword search:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     HYBRID SEARCH                            │
+│                                                              │
+│   Query: "OAuth authentication issues"                       │
+│              │                                               │
+│    ┌─────────┴─────────┐                                    │
+│    ▼                   ▼                                    │
+│  Semantic            Keyword                                │
+│  (pgvector)          (tsvector)                            │
+│    │                   │                                    │
+│    └─────────┬─────────┘                                    │
+│              ▼                                               │
+│     Reciprocal Rank Fusion                                  │
+│     score = 1/(rank_sem + 60) + 1/(rank_kw + 60)           │
+│              │                                               │
+│              ▼                                               │
+│       Merged Results                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+This gives you the best of both worlds:
+- Semantic finds conceptually similar content
+- Keyword finds exact term matches
+- RRF boosts documents that rank highly in both
+
 ## Architecture
 
 ```
@@ -239,7 +362,7 @@ For each new file:
 Storage:
 ├── Supabase (cloud)     - Vector embeddings + metadata (shared across machines)
 ├── lore-data/ (git)     - Raw documents (synced via git)
-└── ~/.config/lore/      - Machine-specific sync config
+└── ~/.config/lore/      - Machine-specific config & daemon state
 ```
 
 ## Supported File Formats

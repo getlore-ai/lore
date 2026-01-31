@@ -65,7 +65,7 @@ function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 // ============================================================================
 
 const SearchSchema = z.object({
-  query: z.string().describe('Semantic search query'),
+  query: z.string().describe('Search query'),
   project: z.string().optional().describe('Filter to specific project'),
   source_type: z
     .enum(['granola', 'claude-code', 'claude-desktop', 'chatgpt', 'markdown', 'document'])
@@ -80,6 +80,10 @@ const SearchSchema = z.object({
     .boolean()
     .optional()
     .describe('Include sources from archived projects (default: false)'),
+  mode: z
+    .enum(['semantic', 'keyword', 'hybrid', 'regex'])
+    .optional()
+    .describe('Search mode: semantic (vector), keyword (full-text), hybrid (RRF fusion, default), regex (local grep)'),
 });
 
 const GetSourceSchema = z.object({
@@ -197,7 +201,13 @@ export const toolDefinitions = [
   // Simple tools
   {
     name: 'search',
-    description: `Semantic search across all sources in the knowledge repository. Returns summaries with relevant quotes and themes. Use this for quick lookups.
+    description: `Search across all sources in the knowledge repository. Returns summaries with relevant quotes and themes. Use this for quick lookups.
+
+SEARCH MODES:
+- semantic: Vector similarity for conceptual queries ("pain points", "user frustrations")
+- keyword: Full-text search for exact terms ("TS-01", "OAuth", specific names)
+- hybrid: Combines semantic + keyword using RRF fusion (default, best of both)
+- regex: Pattern matching in local files ("OAuth.*config", "function\\s+\\w+")
 
 USE THIS WHEN:
 - Looking up specific known information

@@ -57,7 +57,7 @@ export async function computeFileHash(filePath: string): Promise<string> {
  * - "*.md" - .md files in root only
  * - "**\/*.{md,pdf}" - multiple extensions
  */
-function matchesGlob(relativePath: string, glob: string): boolean {
+export function matchesGlob(relativePath: string, glob: string): boolean {
   // Handle {ext1,ext2} extension lists
   const extensionMatch = glob.match(/\.\{([^}]+)\}$/);
   if (extensionMatch) {

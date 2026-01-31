@@ -34,6 +34,7 @@
     "@modelcontextprotocol/sdk": "^1.25.3",
     "@supabase/supabase-js": "^2.93.2",
     "apache-arrow": "^18.1.0",
+    "blessed": "^0.1.81",
     "chokidar": "^5.0.0",
     "commander": "^12.1.0",
     "dotenv": "^17.2.3",
@@ -42,6 +43,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/blessed": "^0.1.27",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"

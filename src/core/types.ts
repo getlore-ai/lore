@@ -20,6 +20,16 @@ export type SourceType =
   | 'document'       // Other documents (PDFs, etc.)
   | 'retained';      // Explicitly retained via MCP
 
+// ============================================================================
+// Search Modes - How to search the knowledge base
+// ============================================================================
+
+export type SearchMode =
+  | 'semantic'       // Vector similarity only (conceptual queries)
+  | 'keyword'        // Full-text search only (exact terms)
+  | 'hybrid'         // RRF fusion of semantic + keyword (default)
+  | 'regex';         // Local file grep (pattern matching)
+
 export type ContentType =
   | 'interview'      // User interview/research call
   | 'meeting'        // General meeting
@@ -202,6 +212,16 @@ export interface SearchResult {
   matching_themes: string[];
 }
 
+/**
+ * Extended search result with ranking information from hybrid search
+ */
+export interface SearchResultWithRanks extends SearchResult {
+  /** Rank in semantic (vector) search results, null if not in semantic results */
+  semantic_rank?: number;
+  /** Rank in keyword (full-text) search results, null if not in keyword results */
+  keyword_rank?: number;
+}
+
 export interface ResearchPackage {
   query: string;
   project?: string;
@@ -241,6 +261,7 @@ export interface SearchArgs {
   source_type?: SourceType;
   content_type?: ContentType;
   limit?: number;
+  mode?: SearchMode;
 }
 
 export interface RetainArgs {
