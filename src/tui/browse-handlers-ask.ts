@@ -8,8 +8,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { BrowserState, UIComponents } from './browse-types.js';
 import { searchSources } from '../core/vector-store.js';
 import { generateEmbedding } from '../core/embedder.js';
-import { createProposal } from '../extensions/proposals.js';
-import { updateStatus } from './browse-render.js';
 
 const SYSTEM_PROMPT = `You are a research assistant with access to a knowledge base. 
 Your job is to answer questions based on the provided sources.
@@ -39,7 +37,7 @@ export function enterAskMode(state: BrowserState, ui: UIComponents): void {
   ui.askPane.show();
   ui.askPane.setContent('{cyan-fg}Enter your question and press Enter{/cyan-fg}');
   
-  ui.footer.setContent(' Enter: Ask  │  Esc: Cancel  │  s: Save as document');
+  ui.footer.setContent(' Enter: Ask  │  Esc: Cancel');
   
   ui.askInput.focus();
   ui.askInput.readInput();
@@ -164,7 +162,7 @@ export async function executeAsk(
     state.askStreaming = false;
     state.askResponse = response;
     
-    ui.footer.setContent(' Esc: Back  │  a: New question  │  s: Save as document');
+    ui.footer.setContent(' Esc: Back  │  a: New question');
     ui.screen.render();
 
   } catch (error) {
@@ -172,43 +170,6 @@ export async function executeAsk(
     const errorMsg = error instanceof Error ? error.message : String(error);
     ui.askPane.setContent(`{red-fg}Error: ${errorMsg}{/red-fg}`);
     ui.footer.setContent(' Esc: Back  │  a: New question');
-    ui.screen.render();
-  }
-}
-
-/**
- * Save current response as a document proposal
- */
-export async function saveAskResponse(
-  state: BrowserState,
-  ui: UIComponents
-): Promise<void> {
-  if (!state.askResponse || state.askStreaming) {
-    return;
-  }
-
-  const title = `Analysis: ${state.askQuery.slice(0, 50)}${state.askQuery.length > 50 ? '...' : ''}`;
-  
-  try {
-    const proposal = await createProposal('lore-ask', {
-      type: 'create_source',
-      title,
-      content: state.askResponse,
-      project: state.currentProject || 'default',
-      reason: `Created via TUI ask: "${state.askQuery}"`,
-    });
-
-    ui.statusBar.setContent(` {green-fg}✓ Proposal created: ${proposal.id}{/green-fg}`);
-    ui.footer.setContent(' Esc: Back  │  r: Review proposals  │  a: New question');
-    ui.screen.render();
-    
-    setTimeout(() => {
-      updateStatus(ui, state, state.currentProject);
-      ui.screen.render();
-    }, 2000);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    ui.statusBar.setContent(` {red-fg}Error saving: ${errorMsg}{/red-fg}`);
     ui.screen.render();
   }
 }

@@ -64,7 +64,6 @@ import {
   enterAskMode,
   exitAskMode,
   executeAsk,
-  saveAskResponse,
 } from './browse-handlers-ask.js';
 import { getAllSources } from '../core/vector-store.js';
 
@@ -358,8 +357,6 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     if (state.pendingConfirmAction) return;
     if (state.mode === 'list') {
       triggerSync(state, ui, dbPath, dataDir, state.currentProject, sourceType);
-    } else if (state.mode === 'ask' && state.askResponse && !state.askStreaming) {
-      saveAskResponse(state, ui);
     }
   });
 
