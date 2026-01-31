@@ -74,6 +74,7 @@ export interface UIComponents {
   previewTitle: any;
   previewContent: any;
   fullViewPane: any;
+  fullViewTitle: any;
   fullViewContent: any;
   helpPane: any;
   searchInput: any;

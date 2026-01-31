@@ -352,6 +352,21 @@ function highlightMatchesInLine(rawLine: string, pattern: string, isCurrentMatch
  * Render the full view pane
  */
 export function renderFullView(ui: UIComponents, state: BrowserState): void {
+  // Update title header with document info
+  const source = state.filtered[state.selectedIndex];
+  if (source) {
+    const date = formatDate(source.created_at);
+    const type = source.content_type || source.source_type;
+    const project = source.projects[0] || '';
+    const titleWidth = (ui.fullViewTitle.width as number) - 2;
+
+    const titleLines: string[] = [];
+    titleLines.push(`{bold}${truncate(source.title, titleWidth)}{/bold}`);
+    titleLines.push(`{cyan-fg}${date}  ·  ${type}${project ? `  ·  ${project}` : ''}{/cyan-fg}`);
+    titleLines.push('{blue-fg}' + '─'.repeat(Math.min(50, titleWidth)) + '{/blue-fg}');
+    ui.fullViewTitle.setContent(titleLines.join('\n'));
+  }
+
   const height = (ui.fullViewContent.height as number) - 1;
 
   // Get visible line range

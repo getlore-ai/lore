@@ -160,7 +160,7 @@ export function createUIComponents(): UIComponents {
     },
     style: {
       border: {
-        fg: 'cyan',
+        fg: 'blue',
       },
     },
     hidden: true,
@@ -169,17 +169,29 @@ export function createUIComponents(): UIComponents {
     scrollbar: {
       ch: '│',
       style: {
-        bg: 'cyan',
+        fg: 'blue',
       },
+    },
+  });
+
+  const fullViewTitle = blessed.box({
+    parent: fullViewPane,
+    top: 0,
+    left: 1,
+    width: '100%-4',
+    height: 3,
+    tags: true,
+    style: {
+      fg: 'white',
     },
   });
 
   const fullViewContent = blessed.box({
     parent: fullViewPane,
-    top: 0,
+    top: 4,
     left: 1,
     width: '100%-4',
-    height: '100%-2',
+    height: '100%-6',
     tags: true,
     scrollable: true,
     alwaysScroll: true,
@@ -335,6 +347,7 @@ export function createUIComponents(): UIComponents {
     previewTitle,
     previewContent,
     fullViewPane,
+    fullViewTitle,
     fullViewContent,
     helpPane,
     searchInput,
