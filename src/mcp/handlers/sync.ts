@@ -57,6 +57,7 @@ interface SyncResult {
     sources_scanned: number;
     total_files: number;
     new_files: number;
+    edited_files: number;
     existing_files: number;
     errors: number;
   };
@@ -221,6 +222,7 @@ async function universalSync(
         sources_scanned: 0,
         total_files: 0,
         new_files: 0,
+        edited_files: 0,
         existing_files: 0,
         errors: 0,
       },
@@ -236,18 +238,23 @@ async function universalSync(
     sources_scanned: summary.totalSources,
     total_files: summary.totalFiles,
     new_files: summary.newFiles,
+    edited_files: summary.editedFiles,
     existing_files: summary.existingFiles,
     errors: summary.errors,
   };
 
-  // If dry run or no new files, stop here
-  if (dryRun || summary.newFiles === 0) {
+  // If dry run or no new/edited files, stop here
+  const totalToProcess = summary.newFiles + summary.editedFiles;
+  if (dryRun || totalToProcess === 0) {
     return { discovery, processing: undefined };
   }
 
-  // Phase 2: Process new files
+  // Phase 2: Process new and edited files
   const allNewFiles = discoveryResults.flatMap(r => r.newFiles);
-  const processResult = await processFiles(allNewFiles, dataDir, {
+  const allEditedFiles = discoveryResults.flatMap(r => r.editedFiles);
+  const allFilesToProcess = [...allNewFiles, ...allEditedFiles];
+
+  const processResult = await processFiles(allFilesToProcess, dataDir, {
     gitPush: false, // We'll handle git at the end
   });
 

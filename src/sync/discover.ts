@@ -15,6 +15,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 import type { SyncSource } from './config.js';
 import { expandPath } from './config.js';
+import { getSourcePathMappings } from '../core/vector-store.js';
 
 // ============================================================================
 // Types
@@ -28,12 +29,14 @@ export interface DiscoveredFile {
   modifiedAt: Date;       // Last modified time
   sourceName: string;     // Name of the SyncSource
   project: string;        // Project from SyncSource
+  existingId?: string;    // If this is an edit, the existing source ID
 }
 
 export interface DiscoveryResult {
   source: SyncSource;
   totalFiles: number;
   newFiles: DiscoveredFile[];
+  editedFiles: DiscoveredFile[];  // Files with same path but different hash
   existingFiles: number;
   errors: string[];
 }
@@ -186,6 +189,7 @@ export async function discoverSource(
     source,
     totalFiles: 0,
     newFiles: [],
+    editedFiles: [],
     existingFiles: 0,
     errors: [],
   };
@@ -237,16 +241,30 @@ export async function discoverSource(
     }
   }
 
-  // Check which hashes already exist in Supabase
+  // Check which hashes already exist in Supabase (unchanged files)
   const allHashes = filesWithHashes.map(f => f.contentHash);
   const existingHashes = await checkExistingHashes(allHashes);
 
-  // Separate new vs existing
+  // Check which paths already exist in Supabase (for edit detection)
+  const allPaths = filesWithHashes.map(f => f.absolutePath);
+  const pathMappings = await getSourcePathMappings('', allPaths);
+
+  // Categorize files: existing (unchanged), edited, or new
   for (const file of filesWithHashes) {
     if (existingHashes.has(file.contentHash)) {
+      // Content hash matches - file is unchanged
       result.existingFiles++;
     } else {
-      result.newFiles.push(file);
+      // Content is different - check if path exists (edit) or not (new)
+      const existingSource = pathMappings.get(file.absolutePath);
+      if (existingSource) {
+        // Same path, different hash = edit
+        file.existingId = existingSource.id;
+        result.editedFiles.push(file);
+      } else {
+        // New path = new file
+        result.newFiles.push(file);
+      }
     }
   }
 
@@ -283,6 +301,7 @@ export function summarizeDiscovery(results: DiscoveryResult[]): {
   totalSources: number;
   totalFiles: number;
   newFiles: number;
+  editedFiles: number;
   existingFiles: number;
   errors: number;
 } {
@@ -290,6 +309,7 @@ export function summarizeDiscovery(results: DiscoveryResult[]): {
     totalSources: results.length,
     totalFiles: results.reduce((sum, r) => sum + r.totalFiles, 0),
     newFiles: results.reduce((sum, r) => sum + r.newFiles.length, 0),
+    editedFiles: results.reduce((sum, r) => sum + r.editedFiles.length, 0),
     existingFiles: results.reduce((sum, r) => sum + r.existingFiles, 0),
     errors: results.reduce((sum, r) => sum + r.errors.length, 0),
   };

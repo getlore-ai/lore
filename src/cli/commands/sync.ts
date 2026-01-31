@@ -122,6 +122,9 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
         console.log(`  Sources scanned: ${result.discovery.sources_scanned}`);
         console.log(`  Files found: ${result.discovery.total_files}`);
         console.log(`  New files: ${result.discovery.new_files}`);
+        if (result.discovery.edited_files && result.discovery.edited_files > 0) {
+          console.log(`  Edited files: ${result.discovery.edited_files}`);
+        }
         console.log(`  Already indexed: ${result.discovery.existing_files}`);
         if (result.discovery.errors > 0) {
           console.log(`  Errors: ${result.discovery.errors}`);

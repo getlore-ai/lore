@@ -330,8 +330,8 @@ export async function processFiles(
           ? `# ${metadata.title}\n\n${metadata.summary}`
           : processed.text;
 
-        // 3. Generate source ID
-        const sourceId = generateSourceId();
+        // 3. Use existing ID for edits, generate new ID for new files
+        const sourceId = file.existingId || generateSourceId();
 
         // 4. Index in Supabase FIRST (may fail on duplicate content_hash)
         await indexSource(sourceId, file, metadata, dbPath);
