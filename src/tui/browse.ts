@@ -169,7 +169,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  P Pending  │  e Editor  │  q Quit  │  ? Help');
+      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  r Review  │  e Editor  │  q Quit  │  ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -178,7 +178,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  P Pending  │  e Editor  │  q Quit  │  ? Help');
+      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  r Review  │  e Editor  │  q Quit  │  ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -376,10 +376,10 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
-  screen.key(['P'], () => {
+  screen.key(['r'], () => {
     if (state.pendingConfirmAction) return;
     if (!toolForm.hidden) return;
-    // Allow switching to pending from list or tools view
+    // r = review pending proposals
     if (state.mode === 'list' || state.mode === 'tools') {
       showPendingView(state, ui, dbPath, dataDir);
     }
@@ -392,7 +392,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
-  screen.key(['r'], () => {
+  screen.key(['x'], () => {
     if (state.pendingConfirmAction) return;
     if (state.mode === 'pending') {
       rejectSelectedProposal(state, ui);

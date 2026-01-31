@@ -136,7 +136,7 @@ function formatToolResultNicely(result: unknown, maxWidth: number): string[] {
     if ('proposal_note' in obj) {
       lines.push(`{yellow-fg}${escapeForBlessed(String(obj.proposal_note))}{/yellow-fg}`);
     }
-    lines.push(`{yellow-fg}Press 'P' to review and approve{/yellow-fg}`);
+    lines.push(`{yellow-fg}Press 'r' to review and approve{/yellow-fg}`);
   }
   
   // Handle analysis output

@@ -27,7 +27,7 @@ export async function showPendingView(
 
   ui.listTitle.setContent(' Pending');
   ui.previewTitle.setContent(' Proposal');
-  ui.footer.setContent(' ↑↓ Navigate  │  a Approve  │  r Reject  │  Esc Back');
+  ui.footer.setContent(' ↑↓ Navigate  │  a Approve  │  x Reject  │  Esc Back');
 
   renderPendingList(ui, state);
   renderPendingPreview(ui, state);

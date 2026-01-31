@@ -292,7 +292,7 @@ export async function callTool(
       // Check if result contains a proposal - notify user
       const resultObj = result.result as Record<string, unknown> | null;
       if (resultObj && typeof resultObj === 'object' && 'proposal_id' in resultObj) {
-        ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg} — {yellow-fg}Press 'P' to review pending proposal{/yellow-fg}`);
+        ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg} — {yellow-fg}Press 'r' to review pending proposal{/yellow-fg}`);
       } else {
         ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg}`);
       }
