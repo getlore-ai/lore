@@ -199,7 +199,7 @@ export function updateStatus(
     const syncTime = daemon.lastSync ? formatSyncTime(daemon.lastSync) : 'starting';
     daemonInfo = ` · {green-fg}sync: ${syncTime}{/green-fg}`;
   } else {
-    daemonInfo = ' · {yellow-fg}daemon off{/yellow-fg}';
+    daemonInfo = ' · {red-fg}daemon off{/red-fg}';
   }
 
   ui.statusBar.setContent(` ${count} document${count !== 1 ? 's' : ''}${projectInfo}${typeInfo}${searchInfo}${daemonInfo}`);
