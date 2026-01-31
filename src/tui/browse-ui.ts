@@ -41,6 +41,7 @@ export function createUIComponents(): UIComponents {
     width: '100%',
     height: 1,
     content: ' Loading...',
+    tags: true,
     style: {
       fg: 'black',
       bg: 'white',
