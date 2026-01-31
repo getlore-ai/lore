@@ -43,6 +43,8 @@ import {
   selectProject,
   cancelProjectPicker,
   clearProjectFilter,
+} from './browse-handlers.js';
+import {
   showTools,
   selectTool,
   showToolForm,
@@ -51,11 +53,13 @@ import {
   formFieldNext,
   formFieldPrev,
   formFieldUpdate,
+} from './browse-handlers-tools.js';
+import {
   showPendingView,
   approveSelectedProposal,
   rejectSelectedProposal,
   refreshPendingView,
-} from './browse-handlers.js';
+} from './browse-handlers-pending.js';
 import { getAllSources } from '../core/vector-store.js';
 
 /**
