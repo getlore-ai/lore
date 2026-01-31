@@ -322,16 +322,16 @@ export function createUIComponents(): UIComponents {
     inputOnFocus: true,
   });
 
-  const toolArgsInput = blessed.textbox({
+  const toolForm = blessed.box({
     parent: screen,
     top: 'center',
     left: 'center',
     width: '80%',
-    height: 5,
+    height: '60%',
     border: {
       type: 'line',
     },
-    label: ' Tool args (JSON) ',
+    label: ' Tool Form ',
     style: {
       fg: 'white',
       bg: 'black',
@@ -340,7 +340,20 @@ export function createUIComponents(): UIComponents {
       },
     },
     hidden: true,
-    inputOnFocus: true,
+    tags: true,
+  });
+
+  const toolFormContent = blessed.box({
+    parent: toolForm,
+    top: 0,
+    left: 1,
+    width: '100%-3',
+    height: '100%-2',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: false,
+    mouse: false,
   });
 
   // Footer
@@ -375,7 +388,8 @@ export function createUIComponents(): UIComponents {
     searchInput,
     regexInput,
     docSearchInput,
-    toolArgsInput,
+    toolForm,
+    toolFormContent,
     footer,
     projectPicker,
     projectPickerContent,

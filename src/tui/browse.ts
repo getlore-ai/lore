@@ -45,7 +45,12 @@ import {
   clearProjectFilter,
   showTools,
   selectTool,
+  showToolForm,
+  hideToolForm,
   callTool,
+  formFieldNext,
+  formFieldPrev,
+  formFieldUpdate,
 } from './browse-handlers.js';
 import { getAllSources } from '../core/vector-store.js';
 
@@ -79,11 +84,13 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     toolsList: [],
     selectedToolIndex: 0,
     toolResult: null,
+    toolFormFields: [],
+    toolFormIndex: 0,
   };
 
   // Create UI components
   const ui = createUIComponents();
-  const { screen, helpPane, searchInput, regexInput, docSearchInput, listContent, toolArgsInput } = ui;
+  const { screen, helpPane, searchInput, regexInput, docSearchInput, listContent, toolForm } = ui;
 
   // Key bindings
   screen.key(['q'], () => {
@@ -104,8 +111,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['escape'], () => {
-    if (!toolArgsInput.hidden) {
-      toolArgsInput.hide();
+    if (!toolForm.hidden) {
+      hideToolForm(state, ui);
       listContent.focus();
       screen.render();
       return;
@@ -142,7 +149,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['j', 'down'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode === 'project-picker') {
       projectPickerDown(state, ui);
     } else if (state.mode === 'tools') {
@@ -157,7 +164,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['k', 'up'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode === 'project-picker') {
       projectPickerUp(state, ui);
     } else if (state.mode === 'tools') {
@@ -172,7 +179,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['C-d'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       pageDown(state, ui);
@@ -180,7 +187,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['C-u', 'pageup'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       pageUp(state, ui);
@@ -188,7 +195,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['pagedown'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       pageDown(state, ui);
@@ -196,7 +203,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['home'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       jumpToStart(state, ui);
@@ -204,7 +211,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['end', 'S-g'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       state.gPressed = false;
       jumpToEnd(state, ui);
@@ -212,7 +219,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['g'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'tools') {
       if (state.gPressed) {
         jumpToStart(state, ui);
@@ -226,14 +233,20 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['enter'], async () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) {
+      const ran = await callTool(state, ui, dbPath, dataDir);
+      if (ran) {
+        hideToolForm(state, ui);
+      }
+      return;
+    }
     if (state.mode === 'list') {
       await enterFullView(state, ui, dbPath, sourcesDir);
     } else if (state.mode === 'project-picker') {
       await selectProject(state, ui, dbPath, dataDir, sourceType);
     } else if (state.mode === 'tools') {
       selectTool(state, ui);
-      await callTool(state, ui, dbPath, dataDir);
+      showToolForm(state, ui);
     }
   });
 
@@ -264,7 +277,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['e'], () => {
-    if (!toolArgsInput.hidden && state.mode !== 'tools') return;
+    if (!toolForm.hidden && state.mode !== 'tools') return;
     if (state.mode === 'list' || state.mode === 'fullview') {
       openInEditor(state, ui, sourcesDir);
     }
@@ -278,7 +291,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
 
   // Project picker keybindings
   screen.key(['p'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode === 'list') {
       showProjectPicker(state, ui, dbPath);
     } else if (state.mode === 'project-picker') {
@@ -288,17 +301,66 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   });
 
   screen.key(['S-p'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode === 'list') {
       clearProjectFilter(state, ui, dbPath, dataDir, sourceType);
     }
   });
 
   screen.key(['t'], () => {
-    if (!toolArgsInput.hidden) return;
+    if (!toolForm.hidden) return;
     if (state.mode === 'list') {
       showTools(state, ui);
     }
+  });
+
+  screen.key(['tab'], () => {
+    if (!toolForm.hidden) {
+      formFieldNext(state, ui);
+    }
+  });
+
+  screen.key(['S-tab'], () => {
+    if (!toolForm.hidden) {
+      formFieldPrev(state, ui);
+    }
+  });
+
+  screen.key(['backspace', 'delete'], () => {
+    if (toolForm.hidden) return;
+    const field = state.toolFormFields[state.toolFormIndex];
+    if (!field || field.type === 'boolean') return;
+    const current = field.value === undefined || field.value === null ? '' : String(field.value);
+    formFieldUpdate(state, ui, current.slice(0, -1));
+  });
+
+  screen.key(['space'], () => {
+    if (toolForm.hidden) return;
+    const field = state.toolFormFields[state.toolFormIndex];
+    if (!field) return;
+    if (field.type === 'boolean') {
+      formFieldUpdate(state, ui, !Boolean(field.value));
+    } else {
+      const current = field.value === undefined || field.value === null ? '' : String(field.value);
+      formFieldUpdate(state, ui, `${current} `);
+    }
+  });
+
+  screen.on('keypress', (ch: string | undefined, key: { name?: string; ctrl?: boolean; meta?: boolean; shift?: boolean }) => {
+    if (toolForm.hidden) return;
+    if (!ch || key?.ctrl || key?.meta) return;
+    if (key.name === 'enter' || key.name === 'escape' || key.name === 'tab' || key.name === 'backspace' || key.name === 'delete') {
+      return;
+    }
+    const field = state.toolFormFields[state.toolFormIndex];
+    if (!field || field.type === 'boolean') return;
+
+    if (field.type === 'number' && !/[\d.\-]/.test(ch)) {
+      return;
+    }
+
+    const current = field.value === undefined || field.value === null ? '' : String(field.value);
+    formFieldUpdate(state, ui, `${current}${ch}`);
   });
 
   // Any key closes help

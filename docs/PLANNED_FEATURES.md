@@ -549,6 +549,7 @@ lore webhook add https://your-app.com/lore-events \
 - Webhook management via CLI/API
 - Retry logic for failed deliveries
 - Signature verification
+- Internal extension event bus (tool.call/tool.result) ✅ Done
 
 ### 8.3 Extension System 🔴
 
@@ -584,6 +585,8 @@ lore extension install @lore/sales-toolkit
 **Implementation notes:**
 - npm packages with standard interface
 - Extensions can add MCP tools, CLI commands, hooks
+- Extension middleware (before/after tool calls) ✅ Done
+- Extension event handlers (tool.call/tool.result) ✅ Done
 - Sandboxed execution
 - Extension registry/marketplace
 - Version compatibility checking

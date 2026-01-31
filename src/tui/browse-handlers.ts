@@ -9,7 +9,7 @@ import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 
-import type { BrowserState, UIComponents, SourceDetails, ProjectInfo } from './browse-types.js';
+import type { BrowserState, UIComponents, SourceDetails, ProjectInfo, ToolFormField } from './browse-types.js';
 import {
   formatDate,
   markdownToBlessed,
@@ -17,6 +17,7 @@ import {
   renderList,
   renderPreview,
   renderToolsList,
+  renderToolForm,
   renderToolResult,
   updateStatus,
 } from './browse-render.js';
@@ -398,9 +399,78 @@ export function hideHelp(state: BrowserState, ui: UIComponents): void {
 // Tools View
 // ============================================================================
 
+export function parseInputSchema(inputSchema: Record<string, unknown>): ToolFormField[] {
+  if (!inputSchema || typeof inputSchema !== 'object') return [];
+
+  const schema = inputSchema as {
+    type?: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  const properties = schema.properties && typeof schema.properties === 'object'
+    ? schema.properties as Record<string, any>
+    : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+
+  const fields: ToolFormField[] = [];
+
+  for (const [name, prop] of Object.entries(properties)) {
+    const propType = typeof prop === 'object' && prop ? prop.type : undefined;
+    let type: ToolFormField['type'] = 'string';
+    if (propType === 'number' || propType === 'integer') {
+      type = 'number';
+    } else if (propType === 'boolean') {
+      type = 'boolean';
+    } else if (propType === 'string') {
+      type = 'string';
+    }
+
+    const description = typeof prop?.description === 'string' ? prop.description : '';
+    const defaultValue = prop?.default;
+
+    let value: ToolFormField['value'];
+    if (defaultValue !== undefined) {
+      if (type === 'boolean') {
+        value = Boolean(defaultValue);
+      } else if (type === 'number') {
+        const numeric = typeof defaultValue === 'number' ? defaultValue : Number(defaultValue);
+        value = Number.isNaN(numeric) ? '' : numeric;
+      } else {
+        value = String(defaultValue);
+      }
+    } else if (type === 'boolean') {
+      value = false;
+    } else {
+      value = '';
+    }
+
+    fields.push({
+      name,
+      type,
+      description,
+      default: defaultValue,
+      required: required.includes(name),
+      value,
+    });
+  }
+
+  return fields;
+}
+
+function setToolFormFields(state: BrowserState, tool?: { inputSchema?: Record<string, unknown> }): void {
+  if (!tool || !tool.inputSchema) {
+    state.toolFormFields = [];
+    state.toolFormIndex = 0;
+    return;
+  }
+  state.toolFormFields = parseInputSchema(tool.inputSchema);
+  state.toolFormIndex = 0;
+}
+
 export async function showTools(state: BrowserState, ui: UIComponents): Promise<void> {
   state.mode = 'tools';
   state.toolResult = null;
+  ui.toolForm.hide();
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
@@ -415,9 +485,12 @@ export async function showTools(state: BrowserState, ui: UIComponents): Promise<
     state.toolsList = registry.getToolDefinitions();
     state.selectedToolIndex = 0;
     ui.statusBar.setContent(` ${state.toolsList.length} tool${state.toolsList.length !== 1 ? 's' : ''}`);
+    setToolFormFields(state, state.toolsList[state.selectedToolIndex]);
   } catch (error) {
     state.toolsList = [];
     state.selectedToolIndex = 0;
+    state.toolFormFields = [];
+    state.toolFormIndex = 0;
     ui.statusBar.setContent(` {red-fg}Failed to load tools: ${error}{/red-fg}`);
   }
 
@@ -428,8 +501,53 @@ export async function showTools(state: BrowserState, ui: UIComponents): Promise<
 }
 
 export function selectTool(state: BrowserState, ui: UIComponents): void {
+  const tool = state.toolsList[state.selectedToolIndex];
+  setToolFormFields(state, tool);
   renderToolsList(ui, state);
   renderToolResult(ui, state);
+  if (!ui.toolForm.hidden) {
+    renderToolForm(ui, state);
+  }
+  ui.screen.render();
+}
+
+export function showToolForm(state: BrowserState, ui: UIComponents): void {
+  const tool = state.toolsList[state.selectedToolIndex];
+  if (!tool) return;
+
+  setToolFormFields(state, tool);
+  ui.toolForm.setLabel(` ${tool.name} `);
+  ui.toolForm.show();
+  renderToolForm(ui, state);
+  ui.footer.setContent(' Tab: next field  Enter: run  Esc: back');
+  ui.screen.render();
+}
+
+export function hideToolForm(state: BrowserState, ui: UIComponents): void {
+  ui.toolForm.hide();
+  ui.footer.setContent(' j/k: navigate  Enter: run  Esc: back  q: quit');
+  ui.screen.render();
+}
+
+export function formFieldNext(state: BrowserState, ui: UIComponents): void {
+  if (state.toolFormFields.length === 0) return;
+  state.toolFormIndex = (state.toolFormIndex + 1) % state.toolFormFields.length;
+  renderToolForm(ui, state);
+  ui.screen.render();
+}
+
+export function formFieldPrev(state: BrowserState, ui: UIComponents): void {
+  if (state.toolFormFields.length === 0) return;
+  state.toolFormIndex = (state.toolFormIndex - 1 + state.toolFormFields.length) % state.toolFormFields.length;
+  renderToolForm(ui, state);
+  ui.screen.render();
+}
+
+export function formFieldUpdate(state: BrowserState, ui: UIComponents, value: ToolFormField['value']): void {
+  const field = state.toolFormFields[state.toolFormIndex];
+  if (!field) return;
+  field.value = value;
+  renderToolForm(ui, state);
   ui.screen.render();
 }
 
@@ -438,83 +556,99 @@ export async function callTool(
   ui: UIComponents,
   dbPath: string,
   dataDir: string
-): Promise<void> {
+): Promise<boolean> {
   const tool = state.toolsList[state.selectedToolIndex];
-  if (!tool) return;
+  if (!tool) return false;
 
-  if (!ui.toolArgsInput.hidden) {
-    return;
-  }
+  const args: Record<string, unknown> = {};
+  const missing: string[] = [];
 
-  ui.toolArgsInput.setLabel(` Tool args (JSON) - ${tool.name} `);
-  ui.toolArgsInput.setValue('{}');
-  ui.toolArgsInput.show();
-  ui.toolArgsInput.focus();
-  ui.screen.render();
+  for (const field of state.toolFormFields) {
+    if (field.type === 'boolean') {
+      const value = Boolean(field.value);
+      if (value || field.required || field.default !== undefined) {
+        args[field.name] = value;
+      }
+      continue;
+    }
 
-  ui.toolArgsInput.once('cancel', () => {
-    ui.toolArgsInput.hide();
-    ui.listContent.focus();
-    ui.screen.render();
-  });
-
-  ui.toolArgsInput.once('submit', async (value: string) => {
-    ui.toolArgsInput.hide();
-    ui.listContent.focus();
-
-    let args: Record<string, unknown> = {};
-    if (value.trim()) {
-      try {
-        args = JSON.parse(value);
-      } catch (error) {
+    if (field.type === 'number') {
+      const raw = field.value === undefined || field.value === null ? '' : String(field.value);
+      if (!raw.trim()) {
+        if (field.required) missing.push(field.name);
+        continue;
+      }
+      const numeric = Number(raw);
+      if (Number.isNaN(numeric)) {
         state.toolResult = {
           toolName: tool.name,
           ok: false,
-          result: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+          result: `Invalid number for "${field.name}"`,
         };
         renderToolResult(ui, state);
         ui.screen.render();
-        return;
+        return false;
       }
+      args[field.name] = numeric;
+      continue;
     }
 
-    ui.statusBar.setContent(` Running ${tool.name}...`);
+    const text = field.value === undefined || field.value === null ? '' : String(field.value);
+    if (!text.trim()) {
+      if (field.required) missing.push(field.name);
+      continue;
+    }
+    args[field.name] = text;
+  }
+
+  if (missing.length > 0) {
+    state.toolResult = {
+      toolName: tool.name,
+      ok: false,
+      result: `Missing required field(s): ${missing.join(', ')}`,
+    };
+    renderToolResult(ui, state);
     ui.screen.render();
+    return false;
+  }
 
-    try {
-      const registry = await getExtensionRegistry();
-      const result = await registry.handleToolCall(tool.name, args, {
-        mode: 'cli',
-        dataDir,
-        dbPath,
-      });
+  ui.statusBar.setContent(` Running ${tool.name}...`);
+  ui.screen.render();
 
-      if (!result.handled) {
-        state.toolResult = {
-          toolName: tool.name,
-          ok: false,
-          result: 'Tool not found',
-        };
-      } else {
-        state.toolResult = {
-          toolName: tool.name,
-          ok: true,
-          result: result.result,
-        };
-      }
-      ui.statusBar.setContent(` ${tool.name} complete`);
-    } catch (error) {
+  try {
+    const registry = await getExtensionRegistry();
+    const result = await registry.handleToolCall(tool.name, args, {
+      mode: 'cli',
+      dataDir,
+      dbPath,
+    });
+
+    if (!result.handled) {
       state.toolResult = {
         toolName: tool.name,
         ok: false,
-        result: error instanceof Error ? error.message : String(error),
+        result: 'Tool not found',
       };
-      ui.statusBar.setContent(` {red-fg}${tool.name} failed{/red-fg}`);
+    } else {
+      state.toolResult = {
+        toolName: tool.name,
+        ok: true,
+        result: result.result,
+      };
     }
+    ui.statusBar.setContent(` ${tool.name} complete`);
+  } catch (error) {
+    state.toolResult = {
+      toolName: tool.name,
+      ok: false,
+      result: error instanceof Error ? error.message : String(error),
+    };
+    ui.statusBar.setContent(` {red-fg}${tool.name} failed{/red-fg}`);
+  }
 
-    renderToolResult(ui, state);
-    ui.screen.render();
-  });
+  renderToolResult(ui, state);
+  ui.screen.render();
+  return true;
 }
 
 /**

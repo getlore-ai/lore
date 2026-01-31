@@ -332,6 +332,50 @@ function formatJsonForPreview(value: unknown): string {
   }
 }
 
+function formatToolFormValue(fieldType: 'string' | 'number' | 'boolean', value: unknown): string {
+  if (fieldType === 'boolean') {
+    return value ? '[x]' : '[ ]';
+  }
+  const text = value === undefined || value === null ? '' : String(value);
+  return `[${escapeForBlessed(text)}]`;
+}
+
+/**
+ * Render the tool form overlay
+ */
+export function renderToolForm(ui: UIComponents, state: BrowserState): void {
+  const width = (ui.toolFormContent.width as number) - 2;
+  const lines: string[] = [];
+
+  if (state.toolFormFields.length === 0) {
+    lines.push('{blue-fg}No input fields for this tool.{/blue-fg}');
+    lines.push('');
+    lines.push('{blue-fg}[Enter: run]  [Esc: back]{/blue-fg}');
+    ui.toolFormContent.setContent(lines.join('\n'));
+    return;
+  }
+
+  for (let i = 0; i < state.toolFormFields.length; i++) {
+    const field = state.toolFormFields[i];
+    const isFocused = i === state.toolFormIndex;
+    const name = escapeForBlessed(field.name);
+    const reqLabel = field.required ? '{red-fg}(required){/red-fg}' : '{green-fg}(optional){/green-fg}';
+    const valueText = formatToolFormValue(field.type, field.value);
+    const line = truncate(`${name}: ${valueText} ${reqLabel}`, width);
+    lines.push(isFocused ? `{inverse}${line}{/inverse}` : line);
+
+    if (field.description) {
+      const hint = truncate(escapeForBlessed(field.description), Math.max(0, width - 2));
+      lines.push(`  {blue-fg}${hint}{/blue-fg}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('{blue-fg}[Tab: next field]  [Shift+Tab: prev]  [Enter: run]  [Esc: back]{/blue-fg}');
+
+  ui.toolFormContent.setContent(lines.join('\n'));
+}
+
 /**
  * Render the tools list
  */

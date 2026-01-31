@@ -39,6 +39,15 @@ export interface ToolResult {
   result: unknown;
 }
 
+export interface ToolFormField {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  description: string;
+  default?: unknown;
+  required?: boolean;
+  value: string | number | boolean | undefined;
+}
+
 // Project info for picker
 export interface ProjectInfo {
   name: string;
@@ -70,6 +79,8 @@ export interface BrowserState {
   toolsList: ToolDefinition[];
   selectedToolIndex: number;
   toolResult: ToolResult | null;
+  toolFormFields: ToolFormField[];
+  toolFormIndex: number;
 }
 
 // UI components from blessed
@@ -90,7 +101,8 @@ export interface UIComponents {
   searchInput: any;
   regexInput: any;
   docSearchInput: any;
-  toolArgsInput: any;
+  toolForm: any;
+  toolFormContent: any;
   footer: any;
   projectPicker: any;
   projectPickerContent: any;

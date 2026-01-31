@@ -19,6 +19,10 @@ import type {
   ExtensionTool,
   ExtensionToolContext,
   ExtensionCommandContext,
+  ExtensionMiddleware,
+  LoreEventType,
+  EventHandler,
+  LoreEvent,
 } from './types.js';
 import type { Command } from 'commander';
 
@@ -140,6 +144,61 @@ export class ExtensionRegistry {
     return this.toolRoutes.get(name);
   }
 
+  private collectMiddleware(): ExtensionMiddleware[] {
+    const chain: ExtensionMiddleware[] = [];
+    for (const loaded of this.extensions) {
+      const middleware = loaded.extension.middleware || [];
+      for (const entry of middleware) {
+        if (!entry?.name) {
+          this.logger(
+            `[extensions] Skipping unnamed middleware in ${loaded.extension.name}`
+          );
+          continue;
+        }
+        chain.push(entry);
+      }
+    }
+    return chain;
+  }
+
+  private collectEventHandlers(type: LoreEventType): EventHandler[] {
+    const handlers: EventHandler[] = [];
+    for (const loaded of this.extensions) {
+      const handler = loaded.extension.events?.[type];
+      if (handler) {
+        handlers.push(handler);
+      }
+    }
+    return handlers;
+  }
+
+  async emitEvent(
+    type: LoreEventType,
+    payload: unknown,
+    context: ExtensionToolContext
+  ): Promise<void> {
+    const event: LoreEvent = {
+      type,
+      payload,
+      timestamp: Date.now(),
+    };
+    const handlers = this.collectEventHandlers(type);
+    for (const handler of handlers) {
+      try {
+        await handler(event, {
+          ...context,
+          logger: context.logger || this.logger,
+        });
+      } catch (error) {
+        this.logger(
+          `[extensions] Event ${type} handler failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  }
+
   registerCommands(program: Command, context: ExtensionCommandContext): void {
     for (const loaded of this.extensions) {
       const commands = loaded.extension.commands || [];
@@ -174,16 +233,71 @@ export class ExtensionRegistry {
     };
 
     try {
-      if (this.sandbox) {
-        const result = await this.sandbox.callTool(route, name, args, extensionContext);
-        return { handled: true, result };
+      const middlewareChain = this.collectMiddleware();
+      let currentArgs = args;
+      let result: unknown;
+      let skipped = false;
+
+      await this.emitEvent('tool.call', { toolName: name, args: currentArgs }, extensionContext);
+
+      for (const middleware of middlewareChain) {
+        if (!middleware.beforeToolCall) {
+          continue;
+        }
+        try {
+          const response = await middleware.beforeToolCall(name, currentArgs, extensionContext);
+          if (response?.args) {
+            currentArgs = response.args;
+          }
+          if (response?.skip) {
+            skipped = true;
+            if ('result' in response) {
+              result = response.result;
+            }
+            break;
+          }
+        } catch (error) {
+          this.logger(
+            `[extensions] Middleware ${middleware.name} beforeToolCall failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
       }
 
-      const tool = this.toolHandlers.get(name);
-      if (!tool) {
-        return { handled: false };
+      if (!skipped) {
+        if (this.sandbox) {
+          result = await this.sandbox.callTool(route, name, currentArgs, extensionContext);
+        } else {
+          const tool = this.toolHandlers.get(name);
+          if (!tool) {
+            return { handled: false };
+          }
+          result = await tool.handler(currentArgs, extensionContext);
+        }
       }
-      const result = await tool.handler(args, extensionContext);
+
+      for (const middleware of middlewareChain) {
+        if (!middleware.afterToolCall) {
+          continue;
+        }
+        try {
+          result = await middleware.afterToolCall(name, currentArgs, result, extensionContext);
+        } catch (error) {
+          this.logger(
+            `[extensions] Middleware ${middleware.name} afterToolCall failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      }
+
+      await this.emitEvent(
+        'tool.result',
+        { toolName: name, args: currentArgs, result, skipped },
+        extensionContext
+      );
+
       return { handled: true, result };
     } catch (error) {
       this.logger(
