@@ -48,11 +48,18 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
       console.log(`\nResearching: "${query}"\n`);
       console.log('This may take a moment...\n');
 
-      const result = await handleResearch(dbPath, dataDir, {
-        task: query,
-        project: options.project,
-        include_sources: true,
-      });
+      const result = await handleResearch(
+        dbPath,
+        dataDir,
+        {
+          task: query,
+          project: options.project,
+          include_sources: true,
+        },
+        {
+          hookContext: { mode: 'cli' },
+        }
+      );
 
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`📊 Research Results`);

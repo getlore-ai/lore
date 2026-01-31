@@ -13,6 +13,7 @@ import {
 } from '../core/vector-store.js';
 import { generateEmbeddings, createSearchableText } from '../core/embedder.js';
 import type { SourceDocument, SourceRecord, Quote, Theme } from '../core/types.js';
+import { getExtensionRegistry } from '../extensions/registry.js';
 
 /**
  * Build vector index for ingested sources
@@ -108,6 +109,12 @@ export async function saveSourcesToDisk(
     insights?: { summary: string; themes: Theme[]; quotes: Quote[] };
   }>
 ): Promise<void> {
+  const dataDir = path.dirname(sourcesDir);
+  const dbPath = path.join(dataDir, 'lore.lance');
+  const extensionRegistry = await getExtensionRegistry({
+    logger: (message) => console.error(message),
+  });
+
   for (const result of results) {
     const sourceDir = path.join(sourcesDir, result.source.id);
     await mkdir(sourceDir, { recursive: true });
@@ -133,5 +140,21 @@ export async function saveSourcesToDisk(
     if (result.insights) {
       await writeFile(path.join(sourceDir, 'insights.json'), JSON.stringify(result.insights, null, 2));
     }
+
+    await extensionRegistry.runHook('onSourceCreated', {
+      id: result.source.id,
+      title: result.source.title,
+      source_type: result.source.source_type,
+      content_type: result.source.content_type,
+      created_at: result.source.created_at,
+      imported_at: result.source.imported_at,
+      projects: result.source.projects,
+      tags: result.source.tags,
+      source_path: result.source.source_path,
+    }, {
+      mode: 'cli',
+      dataDir,
+      dbPath,
+    });
   }
 }

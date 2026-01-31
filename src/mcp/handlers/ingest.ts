@@ -14,6 +14,7 @@ import { generateEmbedding, createSearchableText } from '../../core/embedder.js'
 import { extractInsights } from '../../core/insight-extractor.js';
 import { gitCommitAndPush } from '../../core/git.js';
 import type { SourceRecord, ContentType } from '../../core/types.js';
+import { getExtensionRegistry } from '../../extensions/registry.js';
 
 interface IngestArgs {
   content: string;
@@ -48,7 +49,7 @@ export async function handleIngest(
   dbPath: string,
   dataDir: string,
   args: IngestArgs,
-  options: { autoPush?: boolean } = {}
+  options: { autoPush?: boolean; hookContext?: { mode: 'mcp' | 'cli' } } = {}
 ): Promise<unknown> {
   const {
     content,
@@ -59,7 +60,7 @@ export async function handleIngest(
     participants = [],
     tags = [],
   } = args;
-  const { autoPush = true } = options;
+  const { autoPush = true, hookContext } = options;
 
   const id = randomUUID();
   const timestamp = date || new Date().toISOString();
@@ -142,7 +143,7 @@ export async function handleIngest(
       pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
     }
 
-    return {
+    const result = {
       success: true,
       id,
       title,
@@ -153,6 +154,27 @@ export async function handleIngest(
       indexed: true,
       synced: pushed,
     };
+
+    await runSourceCreatedHook(
+      {
+        id,
+        title,
+        source_type: 'markdown',
+        content_type: contentType,
+        created_at: timestamp,
+        imported_at: new Date().toISOString(),
+        projects: [project],
+        tags,
+        source_path: path.join(dataDir, 'sources', id),
+      },
+      {
+        mode: hookContext?.mode || 'mcp',
+        dataDir,
+        dbPath,
+      }
+    );
+
+    return result;
   } catch (error) {
     console.error('Failed to index ingested document:', error);
 
@@ -163,7 +185,7 @@ export async function handleIngest(
       pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
     }
 
-    return {
+    const result = {
       success: true,
       id,
       title,
@@ -174,5 +196,53 @@ export async function handleIngest(
       synced: pushed,
       note: 'Saved to disk but indexing failed. Run "lore sync" to index.',
     };
+
+    await runSourceCreatedHook(
+      {
+        id,
+        title,
+        source_type: 'markdown',
+        content_type: contentType,
+        created_at: timestamp,
+        imported_at: new Date().toISOString(),
+        projects: [project],
+        tags,
+        source_path: path.join(dataDir, 'sources', id),
+      },
+      {
+        mode: hookContext?.mode || 'mcp',
+        dataDir,
+        dbPath,
+      }
+    );
+
+    return result;
+  }
+}
+
+async function runSourceCreatedHook(
+  event: {
+    id: string;
+    title: string;
+    source_type: string;
+    content_type: string;
+    created_at: string;
+    imported_at: string;
+    projects: string[];
+    tags: string[];
+  },
+  context: { mode: 'mcp' | 'cli'; dataDir: string; dbPath: string }
+): Promise<void> {
+  try {
+    const registry = await getExtensionRegistry({
+      logger: (message) => console.error(message),
+    });
+    await registry.runHook('onSourceCreated', event, {
+      mode: context.mode,
+      dataDir: context.dataDir,
+      dbPath: context.dbPath,
+    });
+  } catch (error) {
+    console.error('[extensions] Failed to run onSourceCreated hook:', error);
   }
 }

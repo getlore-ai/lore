@@ -108,12 +108,17 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
       if (options.dryRun) console.log(`Mode: DRY RUN`);
       console.log('');
 
-      const result = await handleSync(dbPath, dataDir, {
-        git_pull: options.git !== false,
-        git_push: options.git !== false,
-        dry_run: options.dryRun,
-        use_legacy: options.legacy,
-      });
+      const result = await handleSync(
+        dbPath,
+        dataDir,
+        {
+          git_pull: options.git !== false,
+          git_push: options.git !== false,
+          dry_run: options.dryRun,
+          use_legacy: options.legacy,
+        },
+        { hookContext: { mode: 'cli' } }
+      );
 
       if (result.git_pulled) {
         console.log('✓ Pulled latest changes from git');
@@ -430,10 +435,15 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
       if (options.initial !== false) {
         console.log(c.info('  ⚡ Initial sync...'));
         try {
-          const result = await handleSync(dbPath, dataDir, {
-            git_pull: true,
-            git_push: true,
-          });
+          const result = await handleSync(
+            dbPath,
+            dataDir,
+            {
+              git_pull: true,
+              git_push: true,
+            },
+            { hookContext: { mode: 'cli' } }
+          );
 
           const totalFiles = result.discovery?.total_files || 0;
           const newFiles = result.discovery?.new_files || 0;
@@ -503,10 +513,15 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
         }
 
         try {
-          const result = await handleSync(dbPath, dataDir, {
-            git_pull: false,
-            git_push: true,
-          });
+          const result = await handleSync(
+            dbPath,
+            dataDir,
+            {
+              git_pull: false,
+              git_push: true,
+            },
+            { hookContext: { mode: 'cli' } }
+          );
 
           const processed = result.processing?.processed || 0;
           const errors = result.processing?.errors || 0;
@@ -590,10 +605,15 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
         console.log(`  ${c.time(ts)} ${c.badge('PULL', colors.bgBlue)} Checking for remote changes...`);
 
         try {
-          const result = await handleSync(dbPath, dataDir, {
-            git_pull: true,
-            git_push: false,
-          });
+          const result = await handleSync(
+            dbPath,
+            dataDir,
+            {
+              git_pull: true,
+              git_push: false,
+            },
+            { hookContext: { mode: 'cli' } }
+          );
 
           if (result.git_pulled) {
             console.log(`  ${c.time(ts)} ${c.success('✓')} Pulled latest changes`);
@@ -602,10 +622,15 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
           const newFiles = result.discovery?.new_files || 0;
           if (newFiles > 0) {
             console.log(`  ${c.time(ts)} ${c.info('→')} Found ${newFiles} new file(s) from remote`);
-            const processResult = await handleSync(dbPath, dataDir, {
-              git_pull: false,
-              git_push: true,
-            });
+            const processResult = await handleSync(
+              dbPath,
+              dataDir,
+              {
+                git_pull: false,
+                git_push: true,
+              },
+              { hookContext: { mode: 'cli' } }
+            );
             if (processResult.processing && processResult.processing.processed > 0) {
               console.log(`  ${c.time(ts)} ${c.badge('DONE', colors.bgGreen)} Indexed ${processResult.processing.processed} file(s):`);
               for (const title of processResult.processing.titles) {

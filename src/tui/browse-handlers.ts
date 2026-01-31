@@ -544,10 +544,15 @@ export async function triggerSync(
     const { handleSync } = await import('../mcp/handlers/sync.js');
     const { getAllSources } = await import('../core/vector-store.js');
 
-    const result = await handleSync(dbPath, dataDir, {
-      git_pull: true,
-      git_push: true,
-    });
+    const result = await handleSync(
+      dbPath,
+      dataDir,
+      {
+        git_pull: true,
+        git_push: true,
+      },
+      { hookContext: { mode: 'cli' } }
+    );
 
     const processed = result.processing?.processed || 0;
 

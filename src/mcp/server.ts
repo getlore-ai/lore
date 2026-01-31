@@ -32,6 +32,7 @@ import { handleSync } from './handlers/sync.js';
 import { handleArchiveProject } from './handlers/archive-project.js';
 import { indexExists, getAllSources } from '../core/vector-store.js';
 import { expandPath } from '../sync/config.js';
+import { getExtensionRegistry } from '../extensions/registry.js';
 
 const execAsync = promisify(exec);
 
@@ -99,10 +100,15 @@ async function findUnsyncedSources(): Promise<string[]> {
 async function syncCheck(): Promise<void> {
   try {
     // Use the sync handler for actual sync
-    const result = await handleSync(DB_PATH, LORE_DATA_DIR, {
-      git_pull: AUTO_GIT_PULL,
-      index_new: AUTO_INDEX,
-    });
+    const result = await handleSync(
+      DB_PATH,
+      LORE_DATA_DIR,
+      {
+        git_pull: AUTO_GIT_PULL,
+        index_new: AUTO_INDEX,
+      },
+      { hookContext: { mode: 'mcp' } }
+    );
 
     if (result.git_pulled) {
       console.error('[lore] Git pulled new changes');
@@ -153,9 +159,17 @@ async function main() {
     }
   );
 
+  const extensionRegistry = await getExtensionRegistry({
+    logger: (message) => console.error(message),
+  });
+  const coreToolNames = new Set(toolDefinitions.map((tool) => tool.name));
+
   // List available tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return { tools: toolDefinitions };
+    const extensionTools = extensionRegistry
+      .getToolDefinitions()
+      .filter((tool) => !coreToolNames.has(tool.name));
+    return { tools: [...toolDefinitions, ...extensionTools] };
   });
 
   // Handle tool calls
@@ -165,57 +179,74 @@ async function main() {
     try {
       let result: unknown;
 
-      switch (name) {
-        // Simple query tools (cheap, fast)
-        case 'search':
-          result = await handleSearch(DB_PATH, LORE_DATA_DIR, args as any);
-          break;
-
-        case 'get_source':
-          result = await handleGetSource(DB_PATH, LORE_DATA_DIR, args as any);
-          break;
-
-        case 'list_sources':
-          result = await handleListSources(DB_PATH, args as any);
-          break;
-
-        case 'list_projects':
-          result = await handleListProjects(DB_PATH);
-          break;
-
-        // Push-based retention
-        case 'retain':
-          result = await handleRetain(DB_PATH, LORE_DATA_DIR, args as any, {
-            autoPush: AUTO_GIT_PUSH,
+      const extensionResult = coreToolNames.has(name)
+        ? { handled: false as const }
+        : await extensionRegistry.handleToolCall(name, args as any, {
+            mode: 'mcp',
+            dataDir: LORE_DATA_DIR,
+            dbPath: DB_PATH,
           });
-          break;
 
-        // Direct document ingestion
-        case 'ingest':
-          result = await handleIngest(DB_PATH, LORE_DATA_DIR, args as any, {
-            autoPush: AUTO_GIT_PUSH,
-          });
-          break;
+      if (extensionResult.handled) {
+        result = extensionResult.result;
+      } else {
+        switch (name) {
+          // Simple query tools (cheap, fast)
+          case 'search':
+            result = await handleSearch(DB_PATH, LORE_DATA_DIR, args as any);
+            break;
 
-        // Agentic research tool (uses Claude Agent SDK internally)
-        case 'research':
-          result = await handleResearch(DB_PATH, LORE_DATA_DIR, args as any);
-          break;
+          case 'get_source':
+            result = await handleGetSource(DB_PATH, LORE_DATA_DIR, args as any);
+            break;
 
-        // Sync tool
-        case 'sync':
-          result = await handleSync(DB_PATH, LORE_DATA_DIR, args as any);
-          break;
+          case 'list_sources':
+            result = await handleListSources(DB_PATH, args as any);
+            break;
 
-        // Project management
-        case 'archive_project':
-          result = await handleArchiveProject(DB_PATH, LORE_DATA_DIR, args as any, {
-            autoPush: AUTO_GIT_PUSH,
-          });
-          break;
+          case 'list_projects':
+            result = await handleListProjects(DB_PATH);
+            break;
 
-        default:
-          throw new Error(`Unknown tool: ${name}`);
+          // Push-based retention
+          case 'retain':
+            result = await handleRetain(DB_PATH, LORE_DATA_DIR, args as any, {
+              autoPush: AUTO_GIT_PUSH,
+            });
+            break;
+
+          // Direct document ingestion
+          case 'ingest':
+            result = await handleIngest(DB_PATH, LORE_DATA_DIR, args as any, {
+              autoPush: AUTO_GIT_PUSH,
+              hookContext: { mode: 'mcp' },
+            });
+            break;
+
+          // Agentic research tool (uses Claude Agent SDK internally)
+          case 'research':
+            result = await handleResearch(DB_PATH, LORE_DATA_DIR, args as any, {
+              hookContext: { mode: 'mcp' },
+            });
+            break;
+
+          // Sync tool
+          case 'sync':
+            result = await handleSync(DB_PATH, LORE_DATA_DIR, args as any, {
+              hookContext: { mode: 'mcp' },
+            });
+            break;
+
+          // Project management
+          case 'archive_project':
+            result = await handleArchiveProject(DB_PATH, LORE_DATA_DIR, args as any, {
+              autoPush: AUTO_GIT_PUSH,
+            });
+            break;
+
+          default:
+            throw new Error(`Unknown tool: ${name}`);
+        }
       }
 
       return {

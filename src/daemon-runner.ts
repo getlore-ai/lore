@@ -67,10 +67,15 @@ async function runSync(gitPull: boolean = true): Promise<{
 }> {
   const { handleSync } = await import('./mcp/handlers/sync.js');
 
-  const result = await handleSync(dbPath, dataDir, {
-    git_pull: gitPull,
-    git_push: true,
-  });
+  const result = await handleSync(
+    dbPath,
+    dataDir,
+    {
+      git_pull: gitPull,
+      git_push: true,
+    },
+    { hookContext: { mode: 'cli' } }
+  );
 
   return {
     files_scanned: result.discovery?.total_files || 0,

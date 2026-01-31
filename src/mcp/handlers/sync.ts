@@ -207,7 +207,8 @@ async function legacyDiskSync(
 
 async function universalSync(
   dataDir: string,
-  dryRun: boolean
+  dryRun: boolean,
+  hookContext?: { mode: 'mcp' | 'cli' }
 ): Promise<{
   discovery: SyncResult['discovery'];
   processing: SyncResult['processing'];
@@ -256,6 +257,7 @@ async function universalSync(
 
   const processResult = await processFiles(allFilesToProcess, dataDir, {
     gitPush: false, // We'll handle git at the end
+    hookContext,
   });
 
   const processing: SyncResult['processing'] = {
@@ -274,7 +276,8 @@ async function universalSync(
 export async function handleSync(
   dbPath: string,
   dataDir: string,
-  args: SyncArgs
+  args: SyncArgs,
+  options: { hookContext?: { mode: 'mcp' | 'cli' } } = {}
 ): Promise<SyncResult> {
   const doPull = args.git_pull !== false;
   const doPush = args.git_push !== false;
@@ -309,7 +312,11 @@ export async function handleSync(
 
     if (hasUniversalSources && !useLegacy) {
       // Use new universal sync
-      const { discovery, processing } = await universalSync(dataDir, dryRun);
+      const { discovery, processing } = await universalSync(
+        dataDir,
+        dryRun,
+        options.hookContext
+      );
       result.discovery = discovery;
       result.processing = processing;
     }

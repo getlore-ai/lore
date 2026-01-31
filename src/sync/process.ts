@@ -21,6 +21,7 @@ import { processFile, type ProcessedContent, type ImageMediaType } from './proce
 import { generateEmbedding, createSearchableText } from '../core/embedder.js';
 import { addSource } from '../core/vector-store.js';
 import { gitCommitAndPush } from '../core/git.js';
+import { getExtensionRegistry } from '../extensions/registry.js';
 
 // ============================================================================
 // Types
@@ -294,6 +295,7 @@ export async function processFiles(
     model?: string;
     concurrency?: number;
     gitPush?: boolean;
+    hookContext?: { mode: 'mcp' | 'cli' };
   } = {}
 ): Promise<ProcessResult> {
   const {
@@ -301,6 +303,7 @@ export async function processFiles(
     model = 'claude-sonnet-4-20250514',
     concurrency = 2,
     gitPush = true,
+    hookContext,
   } = options;
 
   const dbPath = path.join(dataDir, 'lore.lance');
@@ -308,6 +311,10 @@ export async function processFiles(
     processed: [],
     errors: [],
   };
+
+  const extensionRegistry = hookContext
+    ? await getExtensionRegistry({ logger: (message) => console.error(message) })
+    : null;
 
   // Process files with controlled concurrency
   for (let i = 0; i < files.length; i += concurrency) {
@@ -344,6 +351,27 @@ export async function processFiles(
           contentText,
           dataDir
         );
+
+        if (extensionRegistry && hookContext) {
+          await extensionRegistry.runHook('onSourceCreated', {
+            id: sourceId,
+            title: metadata.title,
+            source_type: 'document',
+            content_type: metadata.content_type,
+            created_at: metadata.date || new Date().toISOString(),
+            imported_at: new Date().toISOString(),
+            projects: [file.project],
+            tags: [],
+            source_path: file.absolutePath,
+            content_hash: file.contentHash,
+            sync_source: file.sourceName,
+            original_file: file.relativePath,
+          }, {
+            mode: hookContext.mode,
+            dataDir,
+            dbPath,
+          });
+        }
 
         return { file, metadata, sourceId };
       })

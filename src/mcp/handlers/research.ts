@@ -14,6 +14,7 @@ import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
 import { runResearchAgent } from './research-agent.js';
 import type { ResearchPackage, Quote, SourceType } from '../../core/types.js';
+import { getExtensionRegistry } from '../../extensions/registry.js';
 
 // Lazy initialization for OpenAI (only used in simple mode)
 let openaiClient: OpenAI | null = null;
@@ -142,7 +143,8 @@ Respond with only the JSON object.`;
 export async function handleResearch(
   dbPath: string,
   dataDir: string,
-  args: ResearchArgs
+  args: ResearchArgs,
+  options: { hookContext?: { mode: 'mcp' | 'cli' } } = {}
 ): Promise<ResearchPackage> {
   const { task, project, include_sources = true } = args;
 
@@ -152,7 +154,13 @@ export async function handleResearch(
   if (useAgenticMode) {
     console.error('[research] Using agentic mode (Claude Agent SDK)');
     try {
-      return await runResearchAgent(dbPath, dataDir, args);
+      const result = await runResearchAgent(dbPath, dataDir, args);
+      await runResearchCompletedHook(result, {
+        mode: options.hookContext?.mode || 'mcp',
+        dataDir,
+        dbPath,
+      });
+      return result;
     } catch (error) {
       console.error('[research] Agentic mode failed, falling back to simple mode:', error);
       // Fall through to simple mode
@@ -160,7 +168,13 @@ export async function handleResearch(
   }
 
   console.error('[research] Using simple mode (single-pass synthesis)');
-  return handleResearchSimple(dbPath, dataDir, args);
+  const result = await handleResearchSimple(dbPath, dataDir, args);
+  await runResearchCompletedHook(result, {
+    mode: options.hookContext?.mode || 'mcp',
+    dataDir,
+    dbPath,
+  });
+  return result;
 }
 
 /**
@@ -256,4 +270,22 @@ async function handleResearchSimple(
   };
 
   return researchPackage;
+}
+
+async function runResearchCompletedHook(
+  result: ResearchPackage,
+  context: { mode: 'mcp' | 'cli'; dataDir: string; dbPath: string }
+): Promise<void> {
+  try {
+    const registry = await getExtensionRegistry({
+      logger: (message) => console.error(message),
+    });
+    await registry.runHook('onResearchCompleted', result, {
+      mode: context.mode,
+      dataDir: context.dataDir,
+      dbPath: context.dbPath,
+    });
+  } catch (error) {
+    console.error('[extensions] Failed to run onResearchCompleted hook:', error);
+  }
 }

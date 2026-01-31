@@ -27,6 +27,8 @@ import { registerSearchCommand } from './cli/commands/search.js';
 import { registerMiscCommands } from './cli/commands/misc.js';
 import { registerDocsCommand } from './cli/commands/docs.js';
 import { registerProjectsCommand } from './cli/commands/projects.js';
+import { registerExtensionCommands } from './cli/commands/extensions.js';
+import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
 
 // Load .env files silently (without the v17 logging)
 function loadEnvFile(filePath: string, override = false): void {
@@ -57,7 +59,7 @@ const program = new Command();
 program
   .name('lore')
   .description('Research knowledge repository with semantic search and citations')
-  .version('0.1.0');
+  .version((await getLoreVersionString()) || '0.1.0');
 
 // Register all commands
 registerSyncCommand(program, DEFAULT_DATA_DIR);
@@ -65,6 +67,19 @@ registerSearchCommand(program, DEFAULT_DATA_DIR);
 registerDocsCommand(program, DEFAULT_DATA_DIR);
 registerProjectsCommand(program, DEFAULT_DATA_DIR);
 registerMiscCommands(program, DEFAULT_DATA_DIR);
+registerExtensionCommands(program);
+
+// Load extension registry and register extension commands
+try {
+  const extensionRegistry = await getExtensionRegistry({
+    logger: (message) => console.error(message),
+  });
+  extensionRegistry.registerCommands(program, {
+    defaultDataDir: DEFAULT_DATA_DIR,
+  });
+} catch (error) {
+  console.error('[extensions] Failed to load extensions:', error);
+}
 
 // Parse and run
 program.parse();
