@@ -355,7 +355,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   screen.key(['P'], () => {
     if (state.pendingConfirmAction) return;
     if (!toolForm.hidden) return;
-    if (state.mode === 'list') {
+    // Allow switching to pending from list or tools view
+    if (state.mode === 'list' || state.mode === 'tools') {
       showPendingView(state, ui, dbPath, dataDir);
     }
   });
