@@ -1045,12 +1045,17 @@ lore extension install my-extension
 ## Implementation Phases
 
 ### Phase A: Core Foundation
-- 🔴 Layered summaries
-- 🔴 Verification mode
-- 🔴 Knowledge graph (basic)
-- 🔴 Agent handoff
-- 🔴 PDF/Web import
-- 🔴 Extension system architecture
+
+In priority order:
+
+| # | Feature | Rationale |
+|---|---------|-----------|
+| 1 | 🔴 Extension system architecture | Foundation needed so features can be built as extensions |
+| 2 | 🔴 PDF/Web import | Reduces adoption friction - people need to get data in |
+| 3 | 🔴 Layered summaries | Core retrieval improvement, benefits all users immediately |
+| 4 | 🔴 Agent handoff | Core value prop - multi-tool context sharing |
+| 5 | 🔴 Verification mode | Trust/accuracy - builds on retrieval working well |
+| 6 | 🔴 Knowledge graph (basic) | Most complex, builds on import working well |
 
 ### Phase B: Growth Features
 - 🟠 Confidence scoring

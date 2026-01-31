@@ -123,15 +123,32 @@
 
 ## Future Features
 
-See **[PLANNED_FEATURES.md](PLANNED_FEATURES.md)** for the complete product roadmap including:
+See **[PLANNED_FEATURES.md](PLANNED_FEATURES.md)** for complete details, implementation notes, and business model.
 
-- **Universal Import**: Web pages, PDFs, Notion, Google Docs, emails, voice memos
-- **Knowledge Graph**: Automatic entity extraction and linking
-- **Layered Summaries**: Zoom in/out on detail levels
-- **Verification Mode**: Confidence scoring and source highlighting
-- **Agent Handoff**: Cross-session context continuity
-- **Team Collaboration**: Shared workspaces with access control
-- **Web UI & API**: Visual interface and REST/GraphQL access
-- **Local-First Option**: Fully private deployment
+### P0 - Critical (Next)
 
-Prioritized by P0-P3 with implementation phases and pricing model.
+In priority order:
+
+1. **Extension System** - Architecture for domain-specific toolkits
+2. **Universal Import** - PDF and web page ingestion
+3. **Layered Summaries** - Zoom in/out on detail levels
+4. **Agent Handoff** - Cross-session context continuity
+5. **Verification Mode** - Confidence scoring and source highlighting
+6. **Knowledge Graph** - Automatic entity extraction and linking
+
+### P1 - High Value (After P0)
+
+- **Confidence Scoring** - Evidence strength metrics
+- **Contradiction Detection** - Evolution timeline
+- **REST API** - Access beyond MCP
+- **Notion/Google Docs Sync** - OAuth integrations
+- **Team Workspaces** - Collaboration with access control
+- **Local-First Option** - Fully private deployment
+
+### P2/P3 - Growth & Expansion
+
+- **Web UI** - Visual interface
+- **Browser Extension** - Web capture
+- **Temporal Queries** - Time travel search
+- **Mobile App** - On-the-go access
+- **Extension Marketplace** - Third-party ecosystem
