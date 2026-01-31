@@ -190,7 +190,7 @@ export function createUIComponents(): UIComponents {
     top: 'center',
     left: 'center',
     width: 50,
-    height: 18,
+    height: 20,
     border: {
       type: 'line',
     },
@@ -210,6 +210,8 @@ export function createUIComponents(): UIComponents {
   Enter      View full document
   /          Hybrid search (semantic+keyword)
   :          Regex search (grep files)
+  p          Switch project filter
+  P          Clear project filter (show all)
   e          Open in $EDITOR
   s          Sync now (git pull + index)
 
@@ -224,13 +226,39 @@ export function createUIComponents(): UIComponents {
   q          Quit
   ?          Show this help
 
-{bold}Daemon:{/bold}
-  lore daemon start    Start background sync
-  lore daemon status   Check if running
-  lore daemon logs     View sync history
-
 {blue-fg}Press any key to close{/blue-fg}
 `,
+  });
+
+  // Project picker overlay (hidden initially)
+  const projectPicker = blessed.box({
+    parent: screen,
+    top: 'center',
+    left: 'center',
+    width: 50,
+    height: 15,
+    border: {
+      type: 'line',
+    },
+    style: {
+      border: {
+        fg: 'yellow',
+      },
+      bg: 'black',
+    },
+    hidden: true,
+    tags: true,
+  });
+
+  const projectPickerContent = blessed.box({
+    parent: projectPicker,
+    top: 0,
+    left: 1,
+    width: '100%-4',
+    height: '100%-2',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
   });
 
   // Search input (hidden initially)
@@ -285,7 +313,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' j/k: navigate  Enter: view  /: search  :: regex  s: sync  e: editor  q: quit  ?: help',
+    content: ' j/k: nav  Enter: view  /: search  :: regex  p: projects  s: sync  e: edit  q: quit  ?: help',
     style: {
       fg: 'black',
       bg: 'white',
@@ -309,5 +337,7 @@ export function createUIComponents(): UIComponents {
     regexInput,
     docSearchInput,
     footer,
+    projectPicker,
+    projectPickerContent,
   };
 }

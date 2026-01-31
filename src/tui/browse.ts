@@ -37,6 +37,12 @@ import {
   jumpToEnd,
   jumpToStart,
   triggerSync,
+  showProjectPicker,
+  projectPickerDown,
+  projectPickerUp,
+  selectProject,
+  cancelProjectPicker,
+  clearProjectFilter,
 } from './browse-handlers.js';
 import { getAllSources } from '../core/vector-store.js';
 
@@ -64,6 +70,9 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     docSearchPattern: '',
     docSearchMatches: [],
     docSearchCurrentIdx: 0,
+    projects: [],
+    projectPickerIndex: 0,
+    currentProject: project, // Start with CLI-provided project filter
   };
 
   // Create UI components
@@ -102,22 +111,28 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       exitSearch(state, ui);
     } else if (state.mode === 'help') {
       hideHelp(state, ui);
+    } else if (state.mode === 'project-picker') {
+      cancelProjectPicker(state, ui);
     } else if (state.mode === 'list' && state.searchQuery) {
       // Clear search filter
-      applyFilter(state, ui, '', 'hybrid', dbPath, dataDir, project, sourceType);
+      applyFilter(state, ui, '', 'hybrid', dbPath, dataDir, state.currentProject, sourceType);
       screen.render();
     }
   });
 
   screen.key(['j', 'down'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (state.mode === 'project-picker') {
+      projectPickerDown(state, ui);
+    } else if (state.mode !== 'search' && state.mode !== 'help') {
       state.gPressed = false;
       moveDown(state, ui);
     }
   });
 
   screen.key(['k', 'up'], () => {
-    if (state.mode !== 'search' && state.mode !== 'help') {
+    if (state.mode === 'project-picker') {
+      projectPickerUp(state, ui);
+    } else if (state.mode !== 'search' && state.mode !== 'help') {
       state.gPressed = false;
       moveUp(state, ui);
     }
@@ -174,6 +189,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   screen.key(['enter'], async () => {
     if (state.mode === 'list') {
       await enterFullView(state, ui, dbPath, sourcesDir);
+    } else if (state.mode === 'project-picker') {
+      await selectProject(state, ui, dbPath, dataDir, sourceType);
     }
   });
 
@@ -211,7 +228,23 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
 
   screen.key(['s'], () => {
     if (state.mode === 'list') {
-      triggerSync(state, ui, dbPath, dataDir, project, sourceType);
+      triggerSync(state, ui, dbPath, dataDir, state.currentProject, sourceType);
+    }
+  });
+
+  // Project picker keybindings
+  screen.key(['p'], () => {
+    if (state.mode === 'list') {
+      showProjectPicker(state, ui, dbPath);
+    } else if (state.mode === 'project-picker') {
+      // In picker, 'p' also closes (toggle behavior)
+      cancelProjectPicker(state, ui);
+    }
+  });
+
+  screen.key(['S-p'], () => {
+    if (state.mode === 'list') {
+      clearProjectFilter(state, ui, dbPath, dataDir, sourceType);
     }
   });
 
@@ -224,7 +257,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   searchInput.on('submit', async (value: string) => {
     const query = value.startsWith('/') ? value.slice(1) : value;
     exitSearch(state, ui);
-    await applyFilter(state, ui, query, 'hybrid', dbPath, dataDir, project, sourceType);
+    await applyFilter(state, ui, query, 'hybrid', dbPath, dataDir, state.currentProject, sourceType);
   });
 
   searchInput.on('cancel', () => {
@@ -235,7 +268,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   regexInput.on('submit', async (value: string) => {
     const query = value.startsWith(':') ? value.slice(1) : value;
     exitSearch(state, ui);
-    await applyFilter(state, ui, query, 'regex', dbPath, dataDir, project, sourceType);
+    await applyFilter(state, ui, query, 'regex', dbPath, dataDir, state.currentProject, sourceType);
   });
 
   regexInput.on('cancel', () => {
@@ -274,7 +307,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   }
 
   // Initial render
-  updateStatus(ui, state, project, sourceType);
+  updateStatus(ui, state, state.currentProject, sourceType);
   renderList(ui, state);
   renderPreview(ui, state);
   listContent.focus();

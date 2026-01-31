@@ -181,7 +181,14 @@ export function updateStatus(
   sourceType?: SourceType
 ): void {
   const count = state.filtered.length;
-  const projectInfo = project ? ` · ${project}` : '';
+  // Display user-friendly names for special project values
+  let projectDisplay = project;
+  if (project === '__unassigned__') {
+    projectDisplay = 'Unassigned';
+  } else if (project === '__all__') {
+    projectDisplay = undefined; // Don't show when viewing all
+  }
+  const projectInfo = projectDisplay ? ` · ${projectDisplay}` : '';
   const typeInfo = sourceType ? ` · ${sourceType}` : '';
   const searchInfo = state.searchQuery ? ` · ${state.searchMode}: "${state.searchQuery}"` : '';
 

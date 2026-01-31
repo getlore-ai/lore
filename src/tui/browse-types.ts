@@ -30,7 +30,14 @@ export interface BrowseOptions {
   dataDir: string;
 }
 
-export type Mode = 'list' | 'search' | 'regex-search' | 'fullview' | 'doc-search' | 'help';
+export type Mode = 'list' | 'search' | 'regex-search' | 'fullview' | 'doc-search' | 'help' | 'project-picker';
+
+// Project info for picker
+export interface ProjectInfo {
+  name: string;
+  count: number;
+  latestActivity: string;
+}
 
 // Browser state
 export interface BrowserState {
@@ -49,6 +56,10 @@ export interface BrowserState {
   docSearchPattern: string;
   docSearchMatches: number[]; // Line numbers with matches
   docSearchCurrentIdx: number;
+  // Project picker state
+  projects: ProjectInfo[];
+  projectPickerIndex: number;
+  currentProject?: string; // Active project filter (can change at runtime)
 }
 
 // UI components from blessed
@@ -69,6 +80,8 @@ export interface UIComponents {
   regexInput: any;
   docSearchInput: any;
   footer: any;
+  projectPicker: any;
+  projectPickerContent: any;
 }
 
 /**
