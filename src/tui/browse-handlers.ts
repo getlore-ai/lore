@@ -621,6 +621,8 @@ export async function callTool(
       mode: 'cli',
       dataDir,
       dbPath,
+      // Silence extension logs in TUI mode
+      logger: () => {},
     });
 
     if (!result.handled) {
