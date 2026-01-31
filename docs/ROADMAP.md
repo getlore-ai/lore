@@ -121,10 +121,17 @@
 - [ ] Integration tests for MCP
 - [ ] Test fixtures with sample data
 
-## Future Ideas
+## Future Features
 
-- **Web UI**: Browse and manage knowledge visually
-- **API Server**: REST/GraphQL access beyond MCP
-- **Collaborative**: Multi-user with permissions
-- **Plugin System**: Custom source adapters
-- **Real-time Watch**: Auto-sync when files change in watched directories
+See **[PLANNED_FEATURES.md](PLANNED_FEATURES.md)** for the complete product roadmap including:
+
+- **Universal Import**: Web pages, PDFs, Notion, Google Docs, emails, voice memos
+- **Knowledge Graph**: Automatic entity extraction and linking
+- **Layered Summaries**: Zoom in/out on detail levels
+- **Verification Mode**: Confidence scoring and source highlighting
+- **Agent Handoff**: Cross-session context continuity
+- **Team Collaboration**: Shared workspaces with access control
+- **Web UI & API**: Visual interface and REST/GraphQL access
+- **Local-First Option**: Fully private deployment
+
+Prioritized by P0-P3 with implementation phases and pricing model.

@@ -15,6 +15,7 @@ Lore is a **research knowledge repository** for rapid prototyping and user resea
 Detailed docs are in the `docs/` folder:
 - **[VISION.md](docs/VISION.md)** - Full requirements and architecture decisions
 - **[ROADMAP.md](docs/ROADMAP.md)** - Development phases and tasks
+- **[PLANNED_FEATURES.md](docs/PLANNED_FEATURES.md)** - Future features and product roadmap
 - **[DATA_MODEL.md](docs/DATA_MODEL.md)** - Complete type system and storage schema
 - **[GRANOLA_INTEGRATION.md](docs/GRANOLA_INTEGRATION.md)** - Relationship with granola-extractor
 
@@ -265,8 +266,9 @@ This approach ensures:
 - No silent data loss from AI reasoning errors
 - Transparent, traceable reasoning
 
-## Non-Goals
+## Non-Goals (Current Phase)
 
-- Not a ChatGPT integration (moving away from ChatGPT)
 - Not a note-taking app (sources come from other tools)
-- Not multi-user (single-user focus initially)
+- Not a real-time collaboration tool (async knowledge sharing)
+
+See **[PLANNED_FEATURES.md](docs/PLANNED_FEATURES.md)** for future roadmap including team features and commercial plans.
