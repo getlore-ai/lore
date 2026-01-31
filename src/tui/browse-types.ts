@@ -79,6 +79,8 @@ export interface BrowserState {
   toolsList: ToolDefinition[];
   selectedToolIndex: number;
   toolResult: ToolResult | null;
+  toolRunning: boolean;
+  toolStartTime: number | null;
   toolFormFields: ToolFormField[];
   toolFormIndex: number;
 }

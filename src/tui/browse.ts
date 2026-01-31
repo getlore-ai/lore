@@ -84,6 +84,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     toolsList: [],
     selectedToolIndex: 0,
     toolResult: null,
+    toolRunning: false,
+    toolStartTime: null,
     toolFormFields: [],
     toolFormIndex: 0,
   };

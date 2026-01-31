@@ -415,6 +415,123 @@ export function renderToolsList(ui: UIComponents, state: BrowserState): void {
 }
 
 /**
+ * Format tool result in a human-readable way
+ */
+function formatToolResultNicely(result: unknown, maxWidth: number): string[] {
+  const lines: string[] = [];
+  
+  if (result === null || result === undefined) {
+    lines.push('{blue-fg}(no result){/blue-fg}');
+    return lines;
+  }
+  
+  if (typeof result !== 'object') {
+    lines.push(escapeForBlessed(String(result)));
+    return lines;
+  }
+  
+  const obj = result as Record<string, unknown>;
+  
+  // Handle common patterns
+  if ('status' in obj && obj.status === 'ok') {
+    lines.push(`{green-fg}Status:{/green-fg} ${escapeForBlessed(String(obj.status))}`);
+  }
+  
+  if ('message' in obj) {
+    lines.push(`{cyan-fg}Message:{/cyan-fg} ${escapeForBlessed(String(obj.message))}`);
+  }
+  
+  if ('total_sources_analyzed' in obj) {
+    lines.push(`{cyan-fg}Sources analyzed:{/cyan-fg} ${obj.total_sources_analyzed}`);
+  }
+  
+  if ('total_speakers' in obj) {
+    lines.push(`{cyan-fg}Total speakers:{/cyan-fg} ${obj.total_speakers}`);
+  }
+  
+  if ('top_pain_point' in obj) {
+    lines.push(`{cyan-fg}Top pain point:{/cyan-fg} ${escapeForBlessed(String(obj.top_pain_point))}`);
+  }
+  
+  if ('verdict' in obj) {
+    const verdict = String(obj.verdict);
+    const color = verdict === 'SUPPORTED' ? 'green' : verdict === 'CONTRADICTED' ? 'red' : 'yellow';
+    lines.push(`{${color}-fg}Verdict:{/${color}-fg} ${verdict}`);
+  }
+  
+  if ('confidence' in obj) {
+    lines.push(`{cyan-fg}Confidence:{/cyan-fg} ${escapeForBlessed(String(obj.confidence))}`);
+  }
+  
+  if ('coverage_note' in obj && obj.coverage_note) {
+    lines.push('');
+    lines.push(`{yellow-fg}⚠ ${escapeForBlessed(String(obj.coverage_note))}{/yellow-fg}`);
+  }
+  
+  if ('features_tested' in obj && Array.isArray(obj.features_tested)) {
+    lines.push('');
+    lines.push('{cyan-fg}Features tested:{/cyan-fg}');
+    for (const feature of obj.features_tested) {
+      lines.push(`  • ${escapeForBlessed(String(feature))}`);
+    }
+  }
+  
+  if ('pain_points' in obj && Array.isArray(obj.pain_points)) {
+    const painPoints = obj.pain_points as Array<{ category?: string; frequency?: number }>;
+    if (painPoints.length > 0) {
+      lines.push('');
+      lines.push('{cyan-fg}Pain points:{/cyan-fg}');
+      for (const pp of painPoints.slice(0, 5)) {
+        lines.push(`  • ${escapeForBlessed(pp.category || 'Unknown')} (${pp.frequency || 0}x)`);
+      }
+    }
+  }
+  
+  if ('profiles' in obj && Array.isArray(obj.profiles)) {
+    const profiles = obj.profiles as Array<{ name?: string; appearances?: number }>;
+    if (profiles.length > 0) {
+      lines.push('');
+      lines.push('{cyan-fg}Speakers:{/cyan-fg}');
+      for (const p of profiles.slice(0, 5)) {
+        lines.push(`  • ${escapeForBlessed(p.name || 'Unknown')} (${p.appearances || 0} appearances)`);
+      }
+    }
+  }
+  
+  if ('supporting' in obj && Array.isArray(obj.supporting)) {
+    const supporting = obj.supporting as Array<{ source?: string }>;
+    if (supporting.length > 0) {
+      lines.push('');
+      lines.push(`{green-fg}Supporting evidence:{/green-fg} ${supporting.length} sources`);
+      for (const s of supporting.slice(0, 3)) {
+        lines.push(`  • ${escapeForBlessed(s.source || 'Unknown source')}`);
+      }
+    }
+  }
+  
+  if ('contradicting' in obj && Array.isArray(obj.contradicting)) {
+    const contradicting = obj.contradicting as Array<{ source?: string }>;
+    if (contradicting.length > 0) {
+      lines.push('');
+      lines.push(`{red-fg}Contradicting evidence:{/red-fg} ${contradicting.length} sources`);
+      for (const c of contradicting.slice(0, 3)) {
+        lines.push(`  • ${escapeForBlessed(c.source || 'Unknown source')}`);
+      }
+    }
+  }
+  
+  // If we didn't format anything special, fall back to JSON
+  if (lines.length === 0) {
+    const jsonText = formatJsonForPreview(result);
+    for (const line of jsonText.split('\n')) {
+      lines.push(truncate(escapeForBlessed(line), maxWidth));
+    }
+  }
+  
+  return lines;
+}
+
+/**
  * Render the tool preview (schema + result)
  */
 export function renderToolResult(ui: UIComponents, state: BrowserState): void {
@@ -451,12 +568,19 @@ export function renderToolResult(ui: UIComponents, state: BrowserState): void {
 
   if (matchingResult) {
     lines.push('');
-    lines.push(matchingResult.ok ? '{green-fg}Result{/green-fg}' : '{red-fg}Error{/red-fg}');
-    lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
-    const resultText = formatJsonForPreview(matchingResult.result);
-    for (const line of resultText.split('\n')) {
-      lines.push(truncate(escapeForBlessed(line), previewWidth));
+    if (matchingResult.ok) {
+      lines.push('{green-fg}✓ Result{/green-fg}');
+      lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
+      const formattedResult = formatToolResultNicely(matchingResult.result, previewWidth);
+      lines.push(...formattedResult);
+    } else {
+      lines.push('{red-fg}✗ Error{/red-fg}');
+      lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
+      lines.push(`{red-fg}${escapeForBlessed(String(matchingResult.result))}{/red-fg}`);
     }
+  } else if (state.toolRunning) {
+    lines.push('');
+    lines.push('{yellow-fg}⏳ Running...{/yellow-fg}');
   } else {
     lines.push('');
     lines.push('{cyan-fg}Press Enter to run tool{/cyan-fg}');

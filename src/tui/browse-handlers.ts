@@ -612,7 +612,9 @@ export async function callTool(
     return false;
   }
 
-  ui.statusBar.setContent(` Running ${tool.name}...`);
+  state.toolRunning = true;
+  state.toolStartTime = Date.now();
+  ui.statusBar.setContent(` ⏳ Running ${tool.name}...`);
   ui.screen.render();
 
   try {
@@ -625,27 +627,33 @@ export async function callTool(
       logger: () => {},
     });
 
+    state.toolRunning = false;
+    state.toolStartTime = null;
+
     if (!result.handled) {
       state.toolResult = {
         toolName: tool.name,
         ok: false,
         result: 'Tool not found',
       };
+      ui.statusBar.setContent(` {red-fg}✗ ${tool.name}: Tool not found{/red-fg}`);
     } else {
       state.toolResult = {
         toolName: tool.name,
         ok: true,
         result: result.result,
       };
+      ui.statusBar.setContent(` {green-fg}✓ ${tool.name} complete{/green-fg}`);
     }
-    ui.statusBar.setContent(` ${tool.name} complete`);
   } catch (error) {
+    state.toolRunning = false;
+    state.toolStartTime = null;
     state.toolResult = {
       toolName: tool.name,
       ok: false,
       result: error instanceof Error ? error.message : String(error),
     };
-    ui.statusBar.setContent(` {red-fg}${tool.name} failed{/red-fg}`);
+    ui.statusBar.setContent(` {red-fg}✗ ${tool.name} failed{/red-fg}`);
   }
 
   renderToolResult(ui, state);
