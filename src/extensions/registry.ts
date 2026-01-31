@@ -13,11 +13,14 @@ import {
   type ExtensionConfigEntry,
 } from './config.js';
 import { ExtensionSandbox, type ExtensionRoute } from './sandbox.js';
+import { getAllSources } from '../core/vector-store.js';
 import type {
   LoreExtension,
   ToolDefinition,
   ExtensionTool,
   ExtensionToolContext,
+  ExtensionQueryOptions,
+  ExtensionQueryResult,
   ExtensionCommandContext,
   ExtensionMiddleware,
   LoreEventType,
@@ -43,6 +46,29 @@ interface ExtensionRegistryOptions {
 
 function getLogger(logger?: (message: string) => void): (message: string) => void {
   return logger || ((message: string) => console.error(message));
+}
+
+function createQueryFunction(): (options: ExtensionQueryOptions) => Promise<ExtensionQueryResult[]> {
+  return async (options: ExtensionQueryOptions): Promise<ExtensionQueryResult[]> => {
+    try {
+      // Get all sources for project (search with embeddings requires more complex setup)
+      const results = await getAllSources('', {
+        project: options.project,
+        limit: options.limit || 100,
+        source_type: options.sourceType as any,
+      });
+      return results.map((r) => ({
+        id: r.id,
+        title: r.title,
+        summary: r.summary || '',
+        projects: r.projects || [],
+        created_at: r.created_at,
+      }));
+    } catch (error) {
+      console.error('[extensions] Query failed:', error);
+      return [];
+    }
+  };
 }
 
 async function resolveLoreExtension(mod: Record<string, unknown>): Promise<LoreExtension | null> {
@@ -230,6 +256,7 @@ export class ExtensionRegistry {
     const extensionContext: ExtensionToolContext = {
       ...context,
       logger: context.logger || this.logger,
+      query: createQueryFunction(),
     };
 
     try {
