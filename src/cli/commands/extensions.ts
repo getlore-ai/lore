@@ -6,9 +6,10 @@
 
 import type { Command } from 'commander';
 import path from 'path';
-import { readFile } from 'fs/promises';
+import os from 'os';
+import { readFile, stat } from 'fs/promises';
 import { promisify } from 'util';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 
 import {
   addExtensionToConfig,
@@ -29,6 +30,13 @@ async function readInstalledVersion(extensionsDir: string, packageName: string):
   } catch {
     return undefined;
   }
+}
+
+function resolveExtensionPath(inputPath: string): string {
+  if (inputPath.startsWith('~')) {
+    return path.resolve(path.join(os.homedir(), inputPath.slice(1)));
+  }
+  return path.resolve(inputPath);
 }
 
 export function registerExtensionCommands(program: Command): void {
@@ -70,6 +78,68 @@ export function registerExtensionCommands(program: Command): void {
       await addExtensionToConfig(packageName, version);
 
       console.log(`✓ Installed ${packageName}${version ? `@${version}` : ''}`);
+    });
+
+  extension
+    .command('dev')
+    .description('Link a local extension for development')
+    .argument('<path>', 'local path to extension')
+    .option('--serve', 'start lore serve --watch after install')
+    .action(async (inputPath: string, options: { serve?: boolean }) => {
+      const extensionsDir = getExtensionsDir();
+      await ensureExtensionsDir();
+
+      const resolvedPath = resolveExtensionPath(inputPath);
+
+      try {
+        await stat(resolvedPath);
+      } catch {
+        console.error(`Path does not exist: ${inputPath}`);
+        process.exit(1);
+      }
+
+      let packageName: string | undefined;
+      let packageVersion: string | undefined;
+      try {
+        const pkgPath = path.join(resolvedPath, 'package.json');
+        const content = await readFile(pkgPath, 'utf-8');
+        const parsed = JSON.parse(content) as { name?: string; version?: string };
+        packageName = parsed.name;
+        packageVersion = parsed.version;
+      } catch {
+        console.error(`No package.json found in: ${inputPath}`);
+        process.exit(1);
+      }
+
+      if (!packageName) {
+        console.error(`package.json is missing a name in: ${inputPath}`);
+        process.exit(1);
+      }
+
+      console.log(`Installing from ${inputPath}...`);
+      await execAsync(`npm install ${resolvedPath}`, { cwd: extensionsDir });
+
+      await addExtensionToConfig(packageName, packageVersion);
+
+      console.log(`✓ Linked ${packageName}${packageVersion ? `@${packageVersion}` : ''}`);
+
+      if (options.serve) {
+        console.log('Starting lore serve --watch...');
+        const child = spawn('lore serve --watch', { cwd: process.cwd(), stdio: 'inherit', shell: true });
+        await new Promise<void>((resolve, reject) => {
+          child.on('exit', code => {
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error(`lore serve --watch exited with code ${code ?? 'unknown'}`));
+            }
+          });
+          child.on('error', reject);
+        });
+        return;
+      }
+
+      console.log('\nTo test: lore serve --watch');
     });
 
   extension
