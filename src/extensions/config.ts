@@ -108,7 +108,8 @@ export async function ensureExtensionsDir(): Promise<void> {
 
 export async function addExtensionToConfig(
   name: string,
-  version?: string
+  version?: string,
+  enabled: boolean = true
 ): Promise<ExtensionConfig> {
   const config = await loadExtensionConfig();
   const existingIndex = config.extensions.findIndex((ext) => ext.name === name);
@@ -116,11 +117,11 @@ export async function addExtensionToConfig(
   if (existingIndex !== -1) {
     config.extensions[existingIndex] = {
       ...config.extensions[existingIndex],
-      version: version || config.extensions[existingIndex].version,
-      enabled: true,
+      version: version ?? config.extensions[existingIndex].version,
+      enabled,
     };
   } else {
-    config.extensions.push({ name, version, enabled: true });
+    config.extensions.push({ name, version, enabled });
   }
 
   await saveExtensionConfig(config);
