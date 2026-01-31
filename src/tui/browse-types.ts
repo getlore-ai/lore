@@ -41,7 +41,8 @@ export type Mode =
   | 'help'
   | 'project-picker'
   | 'tools'
-  | 'pending';
+  | 'pending'
+  | 'ask';
 
 export interface ToolResult {
   toolName: string;
@@ -96,6 +97,10 @@ export interface BrowserState {
   pendingList: PendingProposal[];
   selectedPendingIndex: number;
   pendingConfirmAction: 'approve' | 'reject' | null;
+  // Ask mode
+  askQuery: string;
+  askResponse: string;
+  askStreaming: boolean;
 }
 
 // UI components from blessed
@@ -118,6 +123,8 @@ export interface UIComponents {
   docSearchInput: any;
   toolForm: any;
   toolFormContent: any;
+  askInput: any;
+  askPane: any;
   footer: any;
   projectPicker: any;
   projectPickerContent: any;

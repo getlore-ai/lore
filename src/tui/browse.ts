@@ -60,6 +60,12 @@ import {
   rejectSelectedProposal,
   refreshPendingView,
 } from './browse-handlers-pending.js';
+import {
+  enterAskMode,
+  exitAskMode,
+  executeAsk,
+  saveAskResponse,
+} from './browse-handlers-ask.js';
 import { getAllSources } from '../core/vector-store.js';
 
 /**
@@ -99,6 +105,9 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     pendingList: [],
     selectedPendingIndex: 0,
     pendingConfirmAction: null,
+    askQuery: '',
+    askResponse: '',
+    askStreaming: false,
   };
 
   // Create UI components
@@ -169,7 +178,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  r Review  │  e Editor  │  q Quit  │  ? Help');
+      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  a Ask  │  p Projects  │  t Tools  │  r Review  │  q Quit  │  ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -178,11 +187,15 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  r Review  │  e Editor  │  q Quit  │  ? Help');
+      ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  a Ask  │  p Projects  │  t Tools  │  r Review  │  q Quit  │  ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
       screen.render();
+    } else if (state.mode === 'ask') {
+      if (!state.askStreaming) {
+        exitAskMode(state, ui);
+      }
     } else if (state.mode === 'list' && state.searchQuery) {
       // Clear search filter
       applyFilter(state, ui, '', 'hybrid', dbPath, dataDir, state.currentProject, sourceType);
@@ -345,6 +358,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     if (state.pendingConfirmAction) return;
     if (state.mode === 'list') {
       triggerSync(state, ui, dbPath, dataDir, state.currentProject, sourceType);
+    } else if (state.mode === 'ask' && state.askResponse && !state.askStreaming) {
+      saveAskResponse(state, ui);
     }
   });
 
@@ -365,6 +380,22 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     if (!toolForm.hidden) return;
     if (state.mode === 'list') {
       clearProjectFilter(state, ui, dbPath, dataDir, sourceType);
+    }
+  });
+
+  screen.key(['a'], () => {
+    if (state.pendingConfirmAction) return;
+    if (!toolForm.hidden) return;
+    if (state.mode === 'list') {
+      enterAskMode(state, ui);
+    } else if (state.mode === 'ask' && !state.askStreaming) {
+      // In ask mode, 'a' starts a new question
+      ui.askInput.setValue('');
+      ui.askInput.show();
+      ui.askPane.setContent('{cyan-fg}Enter your question and press Enter{/cyan-fg}');
+      ui.askInput.focus();
+      ui.askInput.readInput();
+      screen.render();
     }
   });
 
@@ -495,6 +526,16 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
 
   docSearchInput.on('cancel', () => {
     exitDocSearch(state, ui, false);
+  });
+
+  // Ask input handlers
+  const { askInput } = ui;
+  askInput.on('submit', async (value: string) => {
+    await executeAsk(state, ui, dbPath, value);
+  });
+
+  askInput.on('cancel', () => {
+    exitAskMode(state, ui);
   });
 
   // Load data

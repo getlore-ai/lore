@@ -357,6 +357,39 @@ export function createUIComponents(): UIComponents {
     mouse: false,
   });
 
+  // Ask input (hidden initially)
+  const askInput = blessed.textbox({
+    parent: screen,
+    top: 2,
+    left: 0,
+    width: '100%',
+    height: 3,
+    label: ' Ask Lore ',
+    border: { type: 'line' },
+    style: { border: { fg: 'cyan' }, focus: { border: { fg: 'green' } } },
+    hidden: true,
+    inputOnFocus: true,
+  });
+
+  // Ask response pane (hidden initially)
+  const askPane = blessed.box({
+    parent: screen,
+    top: 5,
+    left: 0,
+    width: '100%',
+    height: '100%-7',
+    label: ' Response ',
+    border: { type: 'line' },
+    style: { border: { fg: 'cyan' } },
+    hidden: true,
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: true,
+    vi: true,
+    mouse: true,
+  });
+
   // Footer
   const footer = blessed.box({
     parent: screen,
@@ -364,7 +397,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  p Projects  │  t Tools  │  P Pending  │  e Editor  │  q Quit  │  ? Help',
+    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  a Ask  │  p Projects  │  t Tools  │  r Review  │  q Quit  │  ? Help',
     tags: true,
     style: {
       fg: 'white',
@@ -391,6 +424,8 @@ export function createUIComponents(): UIComponents {
     docSearchInput,
     toolForm,
     toolFormContent,
+    askInput,
+    askPane,
     footer,
     projectPicker,
     projectPickerContent,
