@@ -27,8 +27,8 @@ export function createUIComponents(): UIComponents {
     height: 1,
     content: ' Lore Browser',
     style: {
-      fg: 'white',
-      bg: 'blue',
+      fg: 'black',
+      bg: 'cyan',
       bold: true,
     },
   });
