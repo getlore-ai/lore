@@ -239,46 +239,25 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
 
     // Build metadata string
     const meta = `${date}  ·  ${contentType}${project ? `  ·  ${project}` : ''}`;
+    const title = truncate(source.title, width - 4);
+    const metaTrunc = truncate(meta, width - 6);
 
-    if (isSelected) {
-      // Selected item: draw a box around it
-      const boxWidth = width - 2;
-      const innerWidth = boxWidth - 2;
-      const title = truncate(source.title, innerWidth);
-      const metaTrunc = truncate(meta, innerWidth);
+    // Use consistent layout - only the accent bar changes
+    const accent = isSelected ? '{cyan-fg}▌{/cyan-fg}' : ' ';
 
-      // Box drawing with cyan color
-      lines.push(`{cyan-fg}┌${'─'.repeat(boxWidth)}┐{/cyan-fg}`);
-      lines.push(`{cyan-fg}│{/cyan-fg} {bold}${title.padEnd(innerWidth)}{/bold} {cyan-fg}│{/cyan-fg}`);
-      lines.push(`{cyan-fg}│{/cyan-fg} {cyan-fg}${metaTrunc.padEnd(innerWidth)}{/cyan-fg} {cyan-fg}│{/cyan-fg}`);
+    lines.push(`${accent} {bold}${title}{/bold}`);
+    lines.push(`${accent}   {cyan-fg}${metaTrunc}{/cyan-fg}`);
 
-      // Show relevance score if from semantic search
-      if (source.score !== undefined) {
-        const pct = Math.round(source.score * 100);
-        const filled = Math.round(pct / 10);
-        const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
-        const scoreLine = `${bar} ${pct}%`;
-        lines.push(`{cyan-fg}│{/cyan-fg} {cyan-fg}${scoreLine.padEnd(innerWidth)}{/cyan-fg} {cyan-fg}│{/cyan-fg}`);
-      }
-
-      lines.push(`{cyan-fg}└${'─'.repeat(boxWidth)}┘{/cyan-fg}`);
-    } else {
-      // Regular item
-      const title = truncate(source.title, width - 2);
-      lines.push(` {bold}${title}{/bold}`);
-      lines.push(`   {cyan-fg}${truncate(meta, width - 4)}{/cyan-fg}`);
-
-      // Show relevance score if from semantic search
-      if (source.score !== undefined) {
-        const pct = Math.round(source.score * 100);
-        const filled = Math.round(pct / 10);
-        const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
-        lines.push(`   {cyan-fg}${bar} ${pct}%{/cyan-fg}`);
-      }
-
-      // Spacing between items
-      lines.push('');
+    // Show relevance score if from semantic search
+    if (source.score !== undefined) {
+      const pct = Math.round(source.score * 100);
+      const filled = Math.round(pct / 10);
+      const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
+      lines.push(`${accent}   {cyan-fg}${bar} ${pct}%{/cyan-fg}`);
     }
+
+    // Spacing between items
+    lines.push('');
   }
 
   ui.listContent.setContent(lines.join('\n'));
