@@ -197,7 +197,7 @@ export function updateStatus(
   let daemonInfo = '';
   if (daemon.running) {
     const syncTime = daemon.lastSync ? formatSyncTime(daemon.lastSync) : 'starting';
-    daemonInfo = ` · {green-fg}sync: ${syncTime}{/green-fg}`;
+    daemonInfo = ` · {blue-fg}sync: ${syncTime}{/blue-fg}`;
   } else {
     daemonInfo = ' · {red-fg}daemon off{/red-fg}';
   }
