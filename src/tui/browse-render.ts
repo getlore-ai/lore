@@ -241,18 +241,27 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
     const meta = `${date}  ·  ${contentType}${project ? `  ·  ${project}` : ''}`;
 
     if (isSelected) {
-      // Selected item: inverse video (swap fg/bg)
-      const title = truncate(source.title, width - 2);
-      lines.push(`{inverse} ${title} {/inverse}`);
-      lines.push(`{inverse}   ${truncate(meta, width - 4)} {/inverse}`);
+      // Selected item: draw a box around it
+      const boxWidth = width - 2;
+      const innerWidth = boxWidth - 2;
+      const title = truncate(source.title, innerWidth);
+      const metaTrunc = truncate(meta, innerWidth);
+
+      // Box drawing with cyan color
+      lines.push(`{cyan-fg}┌${'─'.repeat(boxWidth)}┐{/cyan-fg}`);
+      lines.push(`{cyan-fg}│{/cyan-fg} {bold}${title.padEnd(innerWidth)}{/bold} {cyan-fg}│{/cyan-fg}`);
+      lines.push(`{cyan-fg}│{/cyan-fg} {cyan-fg}${metaTrunc.padEnd(innerWidth)}{/cyan-fg} {cyan-fg}│{/cyan-fg}`);
 
       // Show relevance score if from semantic search
       if (source.score !== undefined) {
         const pct = Math.round(source.score * 100);
         const filled = Math.round(pct / 10);
         const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
-        lines.push(`{inverse}   ${bar} ${pct}% {/inverse}`);
+        const scoreLine = `${bar} ${pct}%`;
+        lines.push(`{cyan-fg}│{/cyan-fg} {cyan-fg}${scoreLine.padEnd(innerWidth)}{/cyan-fg} {cyan-fg}│{/cyan-fg}`);
       }
+
+      lines.push(`{cyan-fg}└${'─'.repeat(boxWidth)}┘{/cyan-fg}`);
     } else {
       // Regular item
       const title = truncate(source.title, width - 2);
@@ -266,10 +275,10 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
         const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
         lines.push(`   {cyan-fg}${bar} ${pct}%{/cyan-fg}`);
       }
-    }
 
-    // Separator between items
-    lines.push('');
+      // Spacing between items
+      lines.push('');
+    }
   }
 
   ui.listContent.setContent(lines.join('\n'));

@@ -60,7 +60,7 @@ export function createUIComponents(): UIComponents {
     },
     style: {
       border: {
-        fg: 'gray',
+        fg: 'cyan',
       },
     },
     scrollable: true,
@@ -68,7 +68,7 @@ export function createUIComponents(): UIComponents {
     scrollbar: {
       ch: '│',
       style: {
-        bg: 'blue',
+        fg: 'cyan',
       },
     },
   });
@@ -112,7 +112,7 @@ export function createUIComponents(): UIComponents {
     },
     style: {
       border: {
-        fg: 'gray',
+        fg: 'cyan',
       },
     },
   });
