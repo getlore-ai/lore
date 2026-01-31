@@ -29,6 +29,7 @@ import { registerDocsCommand } from './cli/commands/docs.js';
 import { registerProjectsCommand } from './cli/commands/projects.js';
 import { registerExtensionCommands } from './cli/commands/extensions.js';
 import { registerPendingCommand } from './cli/commands/pending.js';
+import { registerAskCommand } from './cli/commands/ask.js';
 import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
 
 // Load .env files silently (without the v17 logging)
@@ -70,6 +71,7 @@ registerProjectsCommand(program, DEFAULT_DATA_DIR);
 registerMiscCommands(program, DEFAULT_DATA_DIR);
 registerExtensionCommands(program);
 registerPendingCommand(program, DEFAULT_DATA_DIR);
+registerAskCommand(program, DEFAULT_DATA_DIR);
 
 // Load extension registry and register extension commands
 try {
