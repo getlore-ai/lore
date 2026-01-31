@@ -89,10 +89,10 @@ export function createUIComponents(): UIComponents {
 
   const listContent = blessed.box({
     parent: listPane,
-    top: 1,
+    top: 2,
     left: 1,
     width: '100%-4',
-    height: '100%-3',
+    height: '100%-4',
     tags: true,
     scrollable: true,
     alwaysScroll: true,
@@ -133,10 +133,10 @@ export function createUIComponents(): UIComponents {
 
   const previewContent = blessed.box({
     parent: previewPane,
-    top: 1,
+    top: 2,
     left: 1,
     width: '100%-4',
-    height: '100%-3',
+    height: '100%-4',
     tags: true,
     scrollable: true,
     alwaysScroll: true,
