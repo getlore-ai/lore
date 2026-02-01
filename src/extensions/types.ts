@@ -39,6 +39,11 @@ export interface ExtensionPermissions {
   proposeDelete?: boolean;  // Propose deletion (default: false)
 }
 
+export interface AskOptions {
+  project?: string;
+  maxSources?: number;
+}
+
 export interface ExtensionToolContext {
   mode: 'mcp' | 'cli';
   dataDir?: string;
@@ -46,6 +51,8 @@ export interface ExtensionToolContext {
   logger?: (message: string) => void;
   // Query lore's database (use this instead of direct DB access)
   query?: (options: ExtensionQueryOptions) => Promise<ExtensionQueryResult[]>;
+  // AI-powered question answering
+  ask?: (question: string, options?: AskOptions) => Promise<string>;
   // Propose a change that requires approval (respects extension permissions)
   propose?: (change: ProposedChange) => Promise<PendingProposal>;
 }
@@ -120,9 +127,22 @@ export interface SourceCreatedEvent {
   original_file?: string;
 }
 
+export interface SyncCompletedEvent {
+  newDocs: number;
+  updatedDocs: number;
+  totalDocs: number;
+  project?: string;
+}
+
 export interface ExtensionHooks {
+  /** Called when a new source is indexed */
   onSourceCreated?: (event: SourceCreatedEvent, context: ExtensionToolContext) => void | Promise<void>;
+  
+  /** Called when research completes */
   onResearchCompleted?: (result: ResearchPackage, context: ExtensionToolContext) => void | Promise<void>;
+  
+  /** Called when sync completes */
+  onSyncCompleted?: (event: SyncCompletedEvent, context: ExtensionToolContext) => void | Promise<void>;
 }
 
 export interface ComponentDefinition {
