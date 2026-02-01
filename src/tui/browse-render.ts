@@ -194,9 +194,8 @@ export function updateStatus(
   project?: string,
   sourceType?: SourceType
 ): void {
-  const inPending = state.mode === 'pending';
-  const count = inPending ? state.pendingList.length : state.filtered.length;
-  const label = inPending ? 'proposal' : 'document';
+  const count = state.filtered.length;
+  const label = 'document';
   // Display user-friendly names for special project values
   let projectDisplay = project;
   if (project === '__unassigned__') {
@@ -204,9 +203,9 @@ export function updateStatus(
   } else if (project === '__all__') {
     projectDisplay = undefined; // Don't show when viewing all
   }
-  const projectInfo = !inPending && projectDisplay ? ` · ${projectDisplay}` : '';
-  const typeInfo = !inPending && sourceType ? ` · ${sourceType}` : '';
-  const searchInfo = !inPending && state.searchQuery ? ` · ${state.searchMode}: "${state.searchQuery}"` : '';
+  const projectInfo = projectDisplay ? ` · ${projectDisplay}` : '';
+  const typeInfo = sourceType ? ` · ${sourceType}` : '';
+  const searchInfo = state.searchQuery ? ` · ${state.searchMode}: "${state.searchQuery}"` : '';
 
   // Check daemon status
   const daemon = getDaemonStatus();
@@ -337,81 +336,6 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
   ui.previewContent.setContent(lines.join('\n'));
 }
 
-/**
- * Render the pending proposals list
- */
-export function renderPendingList(ui: UIComponents, state: BrowserState): void {
-  const width = (ui.listContent.width as number) - 2;
-  const height = (ui.listContent.height as number) - 1;
-  const lines: string[] = [];
-
-  if (state.pendingList.length === 0) {
-    lines.push('');
-    lines.push('{blue-fg}  No pending proposals{/blue-fg}');
-    ui.listContent.setContent(lines.join('\n'));
-    return;
-  }
-
-  const visibleStart = Math.max(0, state.selectedPendingIndex - Math.floor(height / 2));
-  const visibleEnd = Math.min(state.pendingList.length, visibleStart + height);
-
-  for (let i = visibleStart; i < visibleEnd; i++) {
-    const proposal = state.pendingList[i];
-    const isSelected = i === state.selectedPendingIndex;
-    const date = formatDate(proposal.createdAt);
-    const title = truncate(`${proposal.extensionName} · ${proposal.change.type}`, width - 4);
-    const meta = truncate(`${date}  ·  ${proposal.status}`, width - 6);
-
-    const accent = isSelected ? '{cyan-fg}▌{/cyan-fg}' : ' ';
-    lines.push(`${accent} {bold}${escapeForBlessed(title)}{/bold}`);
-    lines.push(`${accent}   {cyan-fg}${escapeForBlessed(meta)}{/cyan-fg}`);
-    lines.push('');
-  }
-
-  ui.listContent.setContent(lines.join('\n'));
-}
-
-/**
- * Render the pending proposal preview
- */
-export function renderPendingPreview(ui: UIComponents, state: BrowserState): void {
-  if (state.pendingList.length === 0) {
-    ui.previewContent.setContent('{blue-fg}No proposals{/blue-fg}');
-    return;
-  }
-
-  const proposal = state.pendingList[state.selectedPendingIndex];
-  if (!proposal) return;
-
-  const lines: string[] = [];
-  const previewWidth = (ui.previewContent.width as number) - 2;
-
-  lines.push(`{bold}${escapeForBlessed(truncate(proposal.extensionName, previewWidth))}{/bold}`);
-  lines.push('');
-  lines.push(`{cyan-fg}${escapeForBlessed(proposal.change.type)}  ·  ${escapeForBlessed(proposal.status)}{/cyan-fg}`);
-  lines.push(`{cyan-fg}${escapeForBlessed(proposal.id)}{/cyan-fg}`);
-  lines.push(`{cyan-fg}Created: ${escapeForBlessed(proposal.createdAt)}{/cyan-fg}`);
-  if (proposal.reviewedAt) {
-    lines.push(`{cyan-fg}Reviewed: ${escapeForBlessed(proposal.reviewedAt)}{/cyan-fg}`);
-  }
-  lines.push('');
-  lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
-  lines.push('');
-  lines.push('{bold}Reason{/bold}');
-  lines.push(escapeForBlessed(proposal.change.reason || '(none)'));
-  lines.push('');
-  lines.push('{bold}Change{/bold}');
-  lines.push(escapeForBlessed(formatJsonForPreview(proposal.change)));
-  if (proposal.rejectionReason) {
-    lines.push('');
-    lines.push('{bold}Rejection{/bold}');
-    lines.push(escapeForBlessed(proposal.rejectionReason));
-  }
-  lines.push('');
-  lines.push('{cyan-fg}a: approve  r: reject  Esc: back{/cyan-fg}');
-
-  ui.previewContent.setContent(lines.join('\n'));
-}
 function highlightMatchesInLine(rawLine: string, pattern: string, isCurrentMatch: boolean): string {
   try {
     const regex = new RegExp(`(${pattern})`, 'gi');

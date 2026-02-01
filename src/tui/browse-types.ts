@@ -4,7 +4,6 @@
 
 import type { SourceType, ContentType, Theme, Quote, SearchMode } from '../core/types.js';
 import type { ToolDefinition } from '../extensions/types.js';
-import type { PendingProposal } from '../extensions/proposals.js';
 
 // Source from database
 export interface SourceItem {
@@ -41,7 +40,6 @@ export type Mode =
   | 'help'
   | 'project-picker'
   | 'tools'
-  | 'pending'
   | 'ask';
 
 export interface ToolResult {
@@ -94,9 +92,6 @@ export interface BrowserState {
   toolStartTime: number | null;
   toolFormFields: ToolFormField[];
   toolFormIndex: number;
-  pendingList: PendingProposal[];
-  selectedPendingIndex: number;
-  pendingConfirmAction: 'approve' | 'reject' | null;
   // Ask mode
   askQuery: string;
   askResponse: string;

@@ -16,8 +16,6 @@ import {
   renderFullView,
   renderList,
   renderPreview,
-  renderPendingList,
-  renderPendingPreview,
   updateStatus,
 } from './browse-render.js';
 import { getSourceById, searchSources, getProjectStats, getAllSources } from '../core/vector-store.js';
@@ -455,12 +453,6 @@ export function moveDown(state: BrowserState, ui: UIComponents): void {
     const maxScroll = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     state.scrollOffset = Math.min(state.scrollOffset + 1, maxScroll);
     renderFullView(ui, state);
-  } else if (state.mode === 'pending') {
-    if (state.selectedPendingIndex < state.pendingList.length - 1) {
-      state.selectedPendingIndex++;
-      renderPendingList(ui, state);
-      renderPendingPreview(ui, state);
-    }
   } else if (state.mode === 'list') {
     if (state.selectedIndex < state.filtered.length - 1) {
       state.selectedIndex++;
@@ -475,12 +467,6 @@ export function moveUp(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = Math.max(0, state.scrollOffset - 1);
     renderFullView(ui, state);
-  } else if (state.mode === 'pending') {
-    if (state.selectedPendingIndex > 0) {
-      state.selectedPendingIndex--;
-      renderPendingList(ui, state);
-      renderPendingPreview(ui, state);
-    }
   } else if (state.mode === 'list') {
     if (state.selectedIndex > 0) {
       state.selectedIndex--;
@@ -500,13 +486,6 @@ export function pageDown(state: BrowserState, ui: UIComponents): void {
     const maxScroll = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     state.scrollOffset = Math.min(state.scrollOffset + pageSize, maxScroll);
     renderFullView(ui, state);
-  } else if (state.mode === 'pending') {
-    state.selectedPendingIndex = Math.min(
-      state.selectedPendingIndex + Math.floor(pageSize),
-      state.pendingList.length - 1
-    );
-    renderPendingList(ui, state);
-    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = Math.min(state.selectedIndex + Math.floor(pageSize), state.filtered.length - 1);
     renderList(ui, state);
@@ -523,10 +502,6 @@ export function pageUp(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = Math.max(0, state.scrollOffset - pageSize);
     renderFullView(ui, state);
-  } else if (state.mode === 'pending') {
-    state.selectedPendingIndex = Math.max(state.selectedPendingIndex - Math.floor(pageSize), 0);
-    renderPendingList(ui, state);
-    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = Math.max(state.selectedIndex - Math.floor(pageSize), 0);
     renderList(ui, state);
@@ -539,10 +514,6 @@ export function jumpToEnd(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     renderFullView(ui, state);
-  } else if (state.mode === 'pending') {
-    state.selectedPendingIndex = Math.max(0, state.pendingList.length - 1);
-    renderPendingList(ui, state);
-    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = state.filtered.length - 1;
     renderList(ui, state);
@@ -555,10 +526,6 @@ export function jumpToStart(state: BrowserState, ui: UIComponents): void {
   if (state.mode === 'fullview') {
     state.scrollOffset = 0;
     renderFullView(ui, state);
-  } else if (state.mode === 'pending') {
-    state.selectedPendingIndex = 0;
-    renderPendingList(ui, state);
-    renderPendingPreview(ui, state);
   } else if (state.mode === 'list') {
     state.selectedIndex = 0;
     renderList(ui, state);
