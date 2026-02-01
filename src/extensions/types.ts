@@ -6,12 +6,6 @@ import type { Command } from 'commander';
 import type { ResearchPackage } from '../core/types.js';
 import type { ProposedChange, PendingProposal } from './proposals.js';
 
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
-
 // Query function for extensions to search lore's database
 export interface ExtensionQueryOptions {
   query?: string;
@@ -91,16 +85,6 @@ export interface LoreEvent {
 
 export type EventHandler = (event: LoreEvent, context: ExtensionToolContext) => void | Promise<void>;
 
-export type ExtensionToolHandler = (
-  args: Record<string, unknown>,
-  context: ExtensionToolContext
-) => Promise<unknown> | unknown;
-
-export interface ExtensionTool {
-  definition: ToolDefinition;
-  handler: ExtensionToolHandler;
-}
-
 export interface ExtensionCommandContext {
   defaultDataDir: string;
   logger?: (message: string) => void;
@@ -158,11 +142,10 @@ export interface LoreExtension {
   name: string;
   version: string;
   compatibility?: ExtensionCompatibility;
-  
+
   // Permission level for this extension (default: read-only)
   permissions?: ExtensionPermissions;
 
-  tools?: ExtensionTool[];
   commands?: ExtensionCommand[];
   hooks?: ExtensionHooks;
   components?: ComponentDefinition[];

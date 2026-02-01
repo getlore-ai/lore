@@ -225,10 +225,10 @@ export function createUIComponents(): UIComponents {
   Enter      View full document
   /          Hybrid search (semantic+keyword)
   :          Regex search (grep files)
+  a          Ask a question (AI-powered)
   p          Switch project filter
   C-p        Clear project filter (show all)
-  t          Tools
-  P          Pending proposals
+  x          Extensions
   e          Open in $EDITOR
   s          Sync now (git pull + index)
 
@@ -323,40 +323,6 @@ export function createUIComponents(): UIComponents {
     inputOnFocus: true,
   });
 
-  const toolForm = blessed.box({
-    parent: screen,
-    top: 'center',
-    left: 'center',
-    width: '80%',
-    height: '60%',
-    border: {
-      type: 'line',
-    },
-    label: ' Tool Form ',
-    style: {
-      fg: 'white',
-      bg: 'black',
-      border: {
-        fg: 'cyan',
-      },
-    },
-    hidden: true,
-    tags: true,
-  });
-
-  const toolFormContent = blessed.box({
-    parent: toolForm,
-    top: 0,
-    left: 1,
-    width: '100%-3',
-    height: '100%-2',
-    tags: true,
-    scrollable: true,
-    alwaysScroll: true,
-    keys: false,
-    mouse: false,
-  });
-
   // Ask input (hidden initially)
   const askInput = blessed.textbox({
     parent: screen,
@@ -397,7 +363,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' ↑↓ Navigate  │  Enter View  │  / Search  │  a Ask  │  p Projects  │  t Tools  │  r Review  │  q Quit  │  ? Help',
+    content: ' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ x Extensions │ q Quit │ ? Help',
     tags: true,
     style: {
       fg: 'white',
@@ -422,8 +388,6 @@ export function createUIComponents(): UIComponents {
     searchInput,
     regexInput,
     docSearchInput,
-    toolForm,
-    toolFormContent,
     askInput,
     askPane,
     footer,

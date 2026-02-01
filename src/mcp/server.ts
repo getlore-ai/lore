@@ -51,16 +51,6 @@ const AUTO_GIT_PUSH = process.env.LORE_AUTO_GIT_PUSH !== 'false';
 const AUTO_INDEX = process.env.LORE_AUTO_INDEX !== 'false';
 const WATCH_EXTENSIONS =
   process.env.LORE_EXTENSION_WATCH === 'true' || process.argv.includes('--watch');
-const EXTENSION_SANDBOX =
-  process.env.LORE_EXTENSION_SANDBOX === 'true' || process.argv.includes('--sandbox');
-const EXTENSION_TIMEOUT_RAW = process.env.LORE_EXTENSION_TIMEOUT_MS;
-const EXTENSION_TIMEOUT_MS = EXTENSION_TIMEOUT_RAW
-  ? Number.parseInt(EXTENSION_TIMEOUT_RAW, 10)
-  : undefined;
-const SANDBOX_TIMEOUT_MS =
-  typeof EXTENSION_TIMEOUT_MS === 'number' && Number.isFinite(EXTENSION_TIMEOUT_MS)
-    ? EXTENSION_TIMEOUT_MS
-    : undefined;
 
 /**
  * Try to git pull, handling conflicts gracefully
@@ -175,10 +165,7 @@ async function main() {
 
   const extensionRegistry = await getExtensionRegistry({
     logger: (message) => console.error(message),
-    sandboxed: EXTENSION_SANDBOX,
-    sandboxTimeoutMs: SANDBOX_TIMEOUT_MS,
   });
-  const coreToolNames = new Set(toolDefinitions.map((tool) => tool.name));
 
   if (WATCH_EXTENSIONS) {
     const extensionsDir = getExtensionsDir();
@@ -219,33 +206,19 @@ async function main() {
     console.error('[extensions] Watching for changes in installed extensions');
   }
 
-  // List available tools
+  // List available tools (core tools only - extensions are event-driven middleware)
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const extensionTools = extensionRegistry
-      .getToolDefinitions()
-      .filter((tool) => !coreToolNames.has(tool.name));
-    return { tools: [...toolDefinitions, ...extensionTools] };
+    return { tools: toolDefinitions };
   });
 
-  // Handle tool calls
+  // Handle tool calls (core tools only)
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
     try {
       let result: unknown;
 
-      const extensionResult = coreToolNames.has(name)
-        ? { handled: false as const }
-        : await extensionRegistry.handleToolCall(name, args as any, {
-            mode: 'mcp',
-            dataDir: LORE_DATA_DIR,
-            dbPath: DB_PATH,
-          });
-
-      if (extensionResult.handled) {
-        result = extensionResult.result;
-      } else {
-        switch (name) {
+      switch (name) {
           // Simple query tools (cheap, fast)
           case 'search':
             result = await handleSearch(DB_PATH, LORE_DATA_DIR, args as any);
@@ -302,7 +275,6 @@ async function main() {
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
-      }
 
       return {
         content: [

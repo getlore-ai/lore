@@ -3,7 +3,7 @@
  */
 
 import type { SourceType, ContentType, Theme, Quote, SearchMode } from '../core/types.js';
-import type { ToolDefinition } from '../extensions/types.js';
+import type { LoreExtension, ExtensionPermissions } from '../extensions/types.js';
 
 // Source from database
 export interface SourceItem {
@@ -39,22 +39,19 @@ export type Mode =
   | 'doc-search'
   | 'help'
   | 'project-picker'
-  | 'tools'
+  | 'extensions'
   | 'ask';
 
-export interface ToolResult {
-  toolName: string;
-  ok: boolean;
-  result: unknown;
-}
-
-export interface ToolFormField {
+// Extension info for display
+export interface LoadedExtensionInfo {
   name: string;
-  type: 'string' | 'number' | 'boolean';
-  description: string;
-  default?: unknown;
-  required?: boolean;
-  value: string | number | boolean | undefined;
+  version: string;
+  packageName: string;
+  enabled: boolean;
+  hooks: string[];
+  middleware: string[];
+  commands: string[];
+  permissions?: ExtensionPermissions;
 }
 
 // Project info for picker
@@ -85,13 +82,9 @@ export interface BrowserState {
   projects: ProjectInfo[];
   projectPickerIndex: number;
   currentProject?: string; // Active project filter (can change at runtime)
-  toolsList: ToolDefinition[];
-  selectedToolIndex: number;
-  toolResult: ToolResult | null;
-  toolRunning: boolean;
-  toolStartTime: number | null;
-  toolFormFields: ToolFormField[];
-  toolFormIndex: number;
+  // Extensions view
+  extensionsList: LoadedExtensionInfo[];
+  selectedExtensionIndex: number;
   // Ask mode
   askQuery: string;
   askResponse: string;
@@ -116,8 +109,6 @@ export interface UIComponents {
   searchInput: any;
   regexInput: any;
   docSearchInput: any;
-  toolForm: any;
-  toolFormContent: any;
   askInput: any;
   askPane: any;
   footer: any;

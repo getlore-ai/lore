@@ -12,13 +12,10 @@ import {
   loadExtensionConfig,
   type ExtensionConfigEntry,
 } from './config.js';
-import { ExtensionSandbox, type ExtensionRoute } from './sandbox.js';
 import { getAllSources } from '../core/vector-store.js';
 import { createProposal } from './proposals.js';
 import type {
   LoreExtension,
-  ToolDefinition,
-  ExtensionTool,
   ExtensionToolContext,
   ExtensionQueryOptions,
   ExtensionQueryResult,
@@ -42,8 +39,6 @@ interface ExtensionRegistryOptions {
   logger?: (message: string) => void;
   loreVersion?: string;
   cacheBust?: string;
-  sandboxed?: boolean;
-  sandboxTimeoutMs?: number;
 }
 
 function getLogger(logger?: (message: string) => void): (message: string) => void {
@@ -217,42 +212,21 @@ async function getLoreVersion(): Promise<string | undefined> {
 
 export class ExtensionRegistry {
   private extensions: LoadedExtension[];
-  private toolDefinitions: ToolDefinition[];
-  private toolHandlers: Map<string, ExtensionTool>;
-  private toolRoutes: Map<string, ExtensionRoute>;
-  private sandbox: ExtensionSandbox | null;
   private readonly logger: (message: string) => void;
   private readonly options: ExtensionRegistryOptions;
 
   constructor(
     extensions: LoadedExtension[],
-    toolDefinitions: ToolDefinition[],
-    toolHandlers: Map<string, ExtensionTool>,
-    toolRoutes: Map<string, ExtensionRoute>,
     logger: (message: string) => void,
     options: ExtensionRegistryOptions
   ) {
     this.extensions = extensions;
-    this.toolDefinitions = toolDefinitions;
-    this.toolHandlers = toolHandlers;
-    this.toolRoutes = toolRoutes;
     this.logger = logger;
     this.options = options;
-    this.sandbox = options.sandboxed
-      ? new ExtensionSandbox({ logger: this.logger, timeoutMs: options.sandboxTimeoutMs })
-      : null;
   }
 
   listExtensions(): LoadedExtension[] {
     return [...this.extensions];
-  }
-
-  getToolDefinitions(): ToolDefinition[] {
-    return [...this.toolDefinitions];
-  }
-
-  getToolRoute(name: string): ExtensionRoute | undefined {
-    return this.toolRoutes.get(name);
   }
 
   private collectMiddleware(): ExtensionMiddleware[] {
@@ -328,99 +302,6 @@ export class ExtensionRegistry {
     }
   }
 
-  async handleToolCall(
-    name: string,
-    args: Record<string, unknown>,
-    context: ExtensionToolContext
-  ): Promise<{ handled: boolean; result?: unknown }> {
-    const route = this.toolRoutes.get(name);
-    if (!route) {
-      return { handled: false };
-    }
-
-    const extensionContext: ExtensionToolContext = {
-      ...context,
-      logger: context.logger || this.logger,
-      query: createQueryFunction(),
-      ask: createAskFunction(context.dbPath || ''),
-      propose: createProposeFunction(route.extensionName, route.permissions),
-    };
-
-    try {
-      const middlewareChain = this.collectMiddleware();
-      let currentArgs = args;
-      let result: unknown;
-      let skipped = false;
-
-      await this.emitEvent('tool.call', { toolName: name, args: currentArgs }, extensionContext);
-
-      for (const middleware of middlewareChain) {
-        if (!middleware.beforeToolCall) {
-          continue;
-        }
-        try {
-          const response = await middleware.beforeToolCall(name, currentArgs, extensionContext);
-          if (response?.args) {
-            currentArgs = response.args;
-          }
-          if (response?.skip) {
-            skipped = true;
-            if ('result' in response) {
-              result = response.result;
-            }
-            break;
-          }
-        } catch (error) {
-          this.logger(
-            `[extensions] Middleware ${middleware.name} beforeToolCall failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-        }
-      }
-
-      if (!skipped) {
-        if (this.sandbox) {
-          result = await this.sandbox.callTool(route, name, currentArgs, extensionContext);
-        } else {
-          const tool = this.toolHandlers.get(name);
-          if (!tool) {
-            return { handled: false };
-          }
-          result = await tool.handler(currentArgs, extensionContext);
-        }
-      }
-
-      for (const middleware of middlewareChain) {
-        if (!middleware.afterToolCall) {
-          continue;
-        }
-        try {
-          result = await middleware.afterToolCall(name, currentArgs, result, extensionContext);
-        } catch (error) {
-          this.logger(
-            `[extensions] Middleware ${middleware.name} afterToolCall failed: ${
-              error instanceof Error ? error.message : String(error)
-            }`
-          );
-        }
-      }
-
-      await this.emitEvent(
-        'tool.result',
-        { toolName: name, args: currentArgs, result, skipped },
-        extensionContext
-      );
-
-      return { handled: true, result };
-    } catch (error) {
-      this.logger(
-        `[extensions] Tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`
-      );
-      throw error;
-    }
-  }
-
   async runHook(
     hookName: keyof NonNullable<LoreExtension['hooks']>,
     payload: unknown,
@@ -456,12 +337,7 @@ export class ExtensionRegistry {
       cacheBust,
     });
 
-    this.sandbox?.dispose();
     this.extensions = updated.extensions;
-    this.toolDefinitions = updated.toolDefinitions;
-    this.toolHandlers = updated.toolHandlers;
-    this.toolRoutes = updated.toolRoutes;
-    this.sandbox = updated.sandbox;
     this.logger('[extensions] Extensions reloaded');
   }
 }
@@ -482,9 +358,6 @@ export async function loadExtensionRegistry(
   const config = await loadExtensionConfig();
   const enabledExtensions = config.extensions.filter((ext) => ext.enabled !== false);
 
-  const toolDefinitions: ToolDefinition[] = [];
-  const toolHandlers = new Map<string, ExtensionTool>();
-  const toolRoutes = new Map<string, ExtensionRoute>();
   const loadedExtensions: LoadedExtension[] = [];
 
   const require = createRequire(import.meta.url);
@@ -503,38 +376,10 @@ export async function loadExtensionRegistry(
     }
 
     loadedExtensions.push(loaded);
-
-    const tools = loaded.extension.tools || [];
-    for (const tool of tools) {
-      if (!tool.definition?.name || !tool.handler) {
-        logger(`[extensions] Invalid tool definition in ${loaded.extension.name}`);
-        continue;
-      }
-
-      if (toolHandlers.has(tool.definition.name)) {
-        logger(
-          `[extensions] Duplicate tool name "${tool.definition.name}" from ${loaded.extension.name}, skipping`
-        );
-        continue;
-      }
-
-      toolHandlers.set(tool.definition.name, tool);
-      toolRoutes.set(tool.definition.name, {
-        extensionName: loaded.extension.name,
-        packageName: loaded.packageName,
-        modulePath: loaded.modulePath,
-        cacheBust: options.cacheBust,
-        permissions: loaded.extension.permissions,
-      });
-      toolDefinitions.push(tool.definition);
-    }
   }
 
   return new ExtensionRegistry(
     loadedExtensions,
-    toolDefinitions,
-    toolHandlers,
-    toolRoutes,
     logger,
     resolvedOptions
   );

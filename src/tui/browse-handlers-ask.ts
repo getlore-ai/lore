@@ -60,7 +60,7 @@ export function exitAskMode(state: BrowserState, ui: UIComponents): void {
   ui.listPane.show();
   ui.previewPane.show();
   
-  ui.footer.setContent(' ↑↓ Navigate  │  Enter View  │  / Search  │  a Ask  │  p Projects  │  t Tools  │  r Review  │  q Quit  │  ? Help');
+  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ x Extensions │ q Quit │ ? Help');
   ui.listContent.focus();
   ui.screen.render();
 }
