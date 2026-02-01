@@ -105,6 +105,7 @@ export interface UIComponents {
   fullViewPane: any;
   fullViewTitle: any;
   fullViewContent: any;
+  fullViewScrollbar: any;
   helpPane: any;
   searchInput: any;
   regexInput: any;

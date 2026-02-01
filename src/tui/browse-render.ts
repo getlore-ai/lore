@@ -360,6 +360,40 @@ function highlightMatchesInLine(rawLine: string, pattern: string, isCurrentMatch
 }
 
 /**
+ * Build scrollbar content as a vertical string
+ */
+function buildScrollbarContent(
+  visibleHeight: number,
+  totalLines: number,
+  scrollOffset: number
+): string {
+  // If content fits in view, no scrollbar needed
+  if (totalLines <= visibleHeight) {
+    return '';
+  }
+
+  // Calculate thumb size (minimum 1 line)
+  const thumbSize = Math.max(1, Math.round((visibleHeight / totalLines) * visibleHeight));
+
+  // Calculate thumb position
+  const maxScroll = totalLines - visibleHeight;
+  const scrollRatio = maxScroll > 0 ? scrollOffset / maxScroll : 0;
+  const thumbStart = Math.round(scrollRatio * (visibleHeight - thumbSize));
+  const thumbEnd = thumbStart + thumbSize;
+
+  // Build scrollbar as array of lines
+  const lines: string[] = [];
+  for (let i = 0; i < visibleHeight; i++) {
+    if (i >= thumbStart && i < thumbEnd) {
+      lines.push('{blue-fg}█{/blue-fg}'); // Thumb
+    } else {
+      lines.push('{blue-fg}│{/blue-fg}'); // Track
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
  * Render the full view pane
  */
 export function renderFullView(ui: UIComponents, state: BrowserState): void {
@@ -383,32 +417,50 @@ export function renderFullView(ui: UIComponents, state: BrowserState): void {
   // Get visible line range
   const startLine = state.scrollOffset;
   const endLine = Math.min(startLine + height, state.fullContentLines.length);
+  const totalLines = state.fullContentLines.length;
 
   const visible: string[] = [];
 
-  for (let lineNum = startLine; lineNum < endLine; lineNum++) {
+  for (let lineIndex = 0; lineIndex < endLine - startLine; lineIndex++) {
+    const lineNum = startLine + lineIndex;
     const isMatchLine = state.docSearchMatches.includes(lineNum);
     const isCurrentMatch = state.docSearchMatches[state.docSearchCurrentIdx] === lineNum;
 
+    let lineContent: string;
     if (state.docSearchPattern && isMatchLine) {
       // Get raw line and highlight matches within it
       const rawLine = state.fullContentLinesRaw[lineNum] || '';
-      const highlighted = highlightMatchesInLine(rawLine, state.docSearchPattern, isCurrentMatch);
-      visible.push(highlighted);
+      lineContent = highlightMatchesInLine(rawLine, state.docSearchPattern, isCurrentMatch);
     } else {
       // No search or non-matching line - render normally
-      visible.push(state.fullContentLines[lineNum]);
+      lineContent = state.fullContentLines[lineNum];
     }
+
+    visible.push(lineContent);
   }
 
   ui.fullViewContent.setContent(visible.join('\n'));
 
-  // Update footer for full view mode
-  let footerText = ' j/k: scroll  /: search  e: editor  Esc: back  q: quit';
+  // Update scrollbar (separate element on right edge)
+  const scrollbarContent = buildScrollbarContent(height, totalLines, state.scrollOffset);
+  ui.fullViewScrollbar.setContent(scrollbarContent);
+  // Show/hide scrollbar based on whether content is scrollable
+  if (totalLines > height) {
+    ui.fullViewScrollbar.show();
+  } else {
+    ui.fullViewScrollbar.hide();
+  }
+
+  // Update footer for full view mode with scroll position
+  const currentLine = state.scrollOffset + 1;
+  const lastVisibleLine = Math.min(state.scrollOffset + height, totalLines);
+  const positionInfo = totalLines > height ? `{cyan-fg}${currentLine}-${lastVisibleLine}/${totalLines}{/cyan-fg} ` : '';
+
+  let footerText = ` ${positionInfo}j/k: scroll  /: search  e: editor  Esc: back  q: quit`;
   if (state.docSearchPattern && state.docSearchMatches.length > 0) {
-    footerText = ` [${state.docSearchCurrentIdx + 1}/${state.docSearchMatches.length}] n/N: next/prev  /: new search  Esc: clear`;
+    footerText = ` ${positionInfo}[${state.docSearchCurrentIdx + 1}/${state.docSearchMatches.length}] n/N: next/prev  /: new search  Esc: clear`;
   } else if (state.docSearchPattern && state.docSearchMatches.length === 0) {
-    footerText = ` No matches for "${state.docSearchPattern}"  /: new search  Esc: clear`;
+    footerText = ` ${positionInfo}No matches for "${state.docSearchPattern}"  /: new search  Esc: clear`;
   }
   ui.footer.setContent(footerText);
   ui.screen.render();

@@ -190,13 +190,26 @@ export function createUIComponents(): UIComponents {
     parent: fullViewPane,
     top: 4,
     left: 1,
-    width: '100%-4',
+    width: '100%-6',  // Leave room for scrollbar
     height: '100%-6',
     tags: true,
     scrollable: true,
     alwaysScroll: true,
     keys: false,
     mouse: false,
+  });
+
+  // Scrollbar track for full view (separate element on right edge)
+  const fullViewScrollbar = blessed.box({
+    parent: fullViewPane,
+    top: 4,
+    right: 2,
+    width: 1,
+    height: '100%-6',
+    tags: true,
+    style: {
+      fg: 'blue',
+    },
   });
 
   // Help overlay (hidden initially)
@@ -384,6 +397,7 @@ export function createUIComponents(): UIComponents {
     fullViewPane,
     fullViewTitle,
     fullViewContent,
+    fullViewScrollbar,
     helpPane,
     searchInput,
     regexInput,
