@@ -43,6 +43,9 @@ import {
   selectProject,
   cancelProjectPicker,
   clearProjectFilter,
+  showDeleteConfirm,
+  cancelDelete,
+  confirmDelete,
 } from './browse-handlers.js';
 import {
   showExtensions,
@@ -128,11 +131,13 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       hideHelp(state, ui);
     } else if (state.mode === 'project-picker') {
       cancelProjectPicker(state, ui);
+    } else if (state.mode === 'delete-confirm') {
+      cancelDelete(state, ui);
     } else if (state.mode === 'extensions') {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ x Extensions │ q Quit │ ? Help');
+      ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ d Delete │ q Quit │ ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -305,6 +310,25 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   screen.key(['x'], () => {
     if (state.mode === 'list') {
       showExtensions(state, ui);
+    }
+  });
+
+  // Delete keybindings
+  screen.key(['d'], () => {
+    if (state.mode === 'list') {
+      showDeleteConfirm(state, ui);
+    }
+  });
+
+  screen.key(['y'], async () => {
+    if (state.mode === 'delete-confirm') {
+      await confirmDelete(state, ui, dbPath, dataDir, state.currentProject, sourceType);
+    }
+  });
+
+  screen.key(['n'], () => {
+    if (state.mode === 'delete-confirm') {
+      cancelDelete(state, ui);
     }
   });
 

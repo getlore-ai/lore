@@ -40,7 +40,8 @@ export type Mode =
   | 'help'
   | 'project-picker'
   | 'extensions'
-  | 'ask';
+  | 'ask'
+  | 'delete-confirm';
 
 // Extension info for display
 export interface LoadedExtensionInfo {
@@ -115,6 +116,7 @@ export interface UIComponents {
   footer: any;
   projectPicker: any;
   projectPickerContent: any;
+  deleteConfirm: any;
 }
 
 /**

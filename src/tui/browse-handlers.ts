@@ -18,7 +18,7 @@ import {
   renderPreview,
   updateStatus,
 } from './browse-render.js';
-import { getSourceById, searchSources, getProjectStats, getAllSources } from '../core/vector-store.js';
+import { getSourceById, searchSources, getProjectStats, getAllSources, deleteSource } from '../core/vector-store.js';
 import { generateEmbedding } from '../core/embedder.js';
 import { searchLocalFiles } from '../core/local-search.js';
 import type { SearchMode, SourceType } from '../core/types.js';
@@ -126,7 +126,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ x Extensions │ q Quit │ ? Help');
+  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ d Delete │ q Quit │ ? Help');
   ui.screen.render();
 }
 
@@ -837,6 +837,132 @@ export async function clearProjectFilter(
     ui.screen.render();
   } catch (error) {
     ui.statusBar.setContent(` {red-fg}Failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+// ============================================================================
+// Delete Document
+// ============================================================================
+
+/**
+ * Show delete confirmation dialog
+ */
+export function showDeleteConfirm(state: BrowserState, ui: UIComponents): void {
+  if (state.filtered.length === 0) return;
+
+  const source = state.filtered[state.selectedIndex];
+  const title = source.title.length > 40
+    ? source.title.slice(0, 37) + '...'
+    : source.title;
+
+  state.mode = 'delete-confirm';
+
+  const lines = [
+    '',
+    '{bold}{red-fg}Delete Document?{/red-fg}{/bold}',
+    '',
+    `  {bold}${title}{/bold}`,
+    '',
+    '{yellow-fg}This will delete from Supabase and local files.{/yellow-fg}',
+    '',
+    '{blue-fg}  y: confirm delete    n/Esc: cancel{/blue-fg}',
+  ];
+
+  ui.deleteConfirm.setContent(lines.join('\n'));
+  ui.deleteConfirm.show();
+  ui.screen.render();
+}
+
+/**
+ * Cancel delete operation
+ */
+export function cancelDelete(state: BrowserState, ui: UIComponents): void {
+  state.mode = 'list';
+  ui.deleteConfirm.hide();
+  ui.screen.render();
+}
+
+/**
+ * Confirm and execute delete operation
+ */
+export async function confirmDelete(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string,
+  project?: string,
+  sourceType?: import('../core/types.js').SourceType
+): Promise<void> {
+  if (state.filtered.length === 0) {
+    cancelDelete(state, ui);
+    return;
+  }
+
+  const source = state.filtered[state.selectedIndex];
+
+  // Hide dialog and show progress
+  ui.deleteConfirm.hide();
+  state.mode = 'list';
+  ui.statusBar.setContent(` {yellow-fg}Deleting "${source.title}"...{/yellow-fg}`);
+  ui.screen.render();
+
+  try {
+    // 1. Delete from Supabase (this also handles chunks cascade)
+    await deleteSource(dbPath, source.id);
+
+    // 2. Delete local files in data directory
+    const { rm } = await import('fs/promises');
+    const sourcePath = path.join(dataDir, 'sources', source.id);
+    try {
+      await rm(sourcePath, { recursive: true });
+    } catch {
+      // File may not exist on disk - that's ok
+    }
+
+    // 3. Git commit the deletion (if in a git repo)
+    try {
+      const { execSync } = await import('child_process');
+      // Check if in git repo
+      execSync('git rev-parse --git-dir', { cwd: dataDir, stdio: 'ignore' });
+      // Stage the deletion and commit
+      execSync(`git add -A`, { cwd: dataDir, stdio: 'ignore' });
+      execSync(`git commit -m "Delete source: ${source.title.slice(0, 50)}"`, {
+        cwd: dataDir,
+        stdio: 'ignore',
+      });
+    } catch {
+      // Not a git repo or git commit failed - that's ok
+    }
+
+    // 4. Refresh the source list
+    state.sources = await getAllSources(dbPath, {
+      project,
+      source_type: sourceType,
+      limit: 100,
+    });
+    state.filtered = [...state.sources];
+
+    // Adjust selection if needed
+    if (state.selectedIndex >= state.filtered.length) {
+      state.selectedIndex = Math.max(0, state.filtered.length - 1);
+    }
+
+    // Update UI
+    updateStatus(ui, state, project, sourceType);
+    renderList(ui, state);
+    renderPreview(ui, state);
+
+    ui.statusBar.setContent(` {green-fg}Deleted successfully{/green-fg}`);
+    ui.screen.render();
+
+    // Restore normal status after delay
+    setTimeout(() => {
+      updateStatus(ui, state, project, sourceType);
+      ui.screen.render();
+    }, 2000);
+  } catch (error) {
+    ui.statusBar.setContent(` {red-fg}Delete failed: ${error}{/red-fg}`);
     ui.screen.render();
   }
 }

@@ -218,7 +218,7 @@ export function createUIComponents(): UIComponents {
     top: 'center',
     left: 'center',
     width: 50,
-    height: 20,
+    height: 22,
     border: {
       type: 'line',
     },
@@ -244,6 +244,7 @@ export function createUIComponents(): UIComponents {
   x          Extensions
   e          Open in $EDITOR
   s          Sync now (git pull + index)
+  d          Delete document
 
 {bold}Document View:{/bold}
   j/k        Scroll up/down
@@ -258,6 +259,26 @@ export function createUIComponents(): UIComponents {
 
 {blue-fg}Press any key to close{/blue-fg}
 `,
+  });
+
+  // Delete confirmation dialog (hidden initially)
+  const deleteConfirm = blessed.box({
+    parent: screen,
+    top: 'center',
+    left: 'center',
+    width: 60,
+    height: 9,
+    border: {
+      type: 'line',
+    },
+    style: {
+      border: {
+        fg: 'red',
+      },
+      bg: 'black',
+    },
+    hidden: true,
+    tags: true,
   });
 
   // Project picker overlay (hidden initially)
@@ -376,7 +397,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ x Extensions │ q Quit │ ? Help',
+    content: ' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ d Delete │ q Quit │ ? Help',
     tags: true,
     style: {
       fg: 'white',
@@ -407,5 +428,6 @@ export function createUIComponents(): UIComponents {
     footer,
     projectPicker,
     projectPickerContent,
+    deleteConfirm,
   };
 }
