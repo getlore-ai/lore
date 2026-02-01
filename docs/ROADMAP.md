@@ -125,11 +125,21 @@
 
 See **[PLANNED_FEATURES.md](PLANNED_FEATURES.md)** for complete details, implementation notes, and business model.
 
+### Extension System (In Progress)
+
+- [x] Event hooks (onSourceCreated, onSyncCompleted, onResearchCompleted)
+- [x] ctx.ask() - AI-powered queries in handlers
+- [x] ctx.query() - Semantic search in handlers
+- [x] ctx.propose() - Propose changes with approval
+- [ ] **Schedule events** - onScheduleDaily, onScheduleWeekly triggers
+- [ ] Schedule daemon or cron integration
+- [ ] Extension config hot-reload
+
 ### P0 - Critical (Next)
 
 In priority order:
 
-1. **Extension System** - Architecture for domain-specific toolkits
+1. **Universal Import** - PDF and web page ingestion (Extension System done)
 2. **Universal Import** - PDF and web page ingestion
 3. **Layered Summaries** - Zoom in/out on detail levels
 4. **Agent Handoff** - Cross-session context continuity

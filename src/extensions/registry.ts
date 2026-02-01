@@ -73,6 +73,59 @@ function createQueryFunction(): (options: ExtensionQueryOptions) => Promise<Exte
   };
 }
 
+function createAskFunction(
+  dbPath: string
+): (question: string, options?: { project?: string; maxSources?: number }) => Promise<string> {
+  return async (question, options = {}) => {
+    try {
+      // Lazy import to avoid circular dependencies
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      const { searchSources } = await import('../core/vector-store.js');
+      const { generateEmbedding } = await import('../core/embedder.js');
+
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error('ANTHROPIC_API_KEY not set');
+      }
+
+      // Search for relevant sources
+      const embedding = await generateEmbedding(question);
+      const sources = await searchSources(dbPath, embedding, {
+        limit: options.maxSources || 10,
+        project: options.project,
+        queryText: question,
+        mode: 'hybrid',
+      });
+
+      if (sources.length === 0) {
+        return 'No relevant sources found.';
+      }
+
+      // Build context
+      const sourceContext = sources.map((s, i) => {
+        return `[Source ${i + 1}: ${s.title}]\n${s.summary}`;
+      }).join('\n\n---\n\n');
+
+      // Call AI
+      const anthropic = new Anthropic();
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2048,
+        system: 'You are a research assistant. Answer based on the provided sources. Be concise.',
+        messages: [{
+          role: 'user',
+          content: `Question: ${question}\n\n---\nSources:\n${sourceContext}`
+        }],
+      });
+
+      const textBlocks = response.content.filter(block => block.type === 'text');
+      return textBlocks.map(block => (block as { text: string }).text).join('\n');
+    } catch (error) {
+      console.error('[extensions] Ask failed:', error);
+      throw error;
+    }
+  };
+}
+
 export function createProposeFunction(
   extensionName: string,
   permissions?: ExtensionPermissions
@@ -289,6 +342,7 @@ export class ExtensionRegistry {
       ...context,
       logger: context.logger || this.logger,
       query: createQueryFunction(),
+      ask: createAskFunction(context.dbPath || ''),
       propose: createProposeFunction(route.extensionName, route.permissions),
     };
 
