@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
-import type { SourceItem, BrowserState, UIComponents } from './browse-types.js';
+import type { SourceItem, BrowserState, UIComponents, ListItem } from './browse-types.js';
 import { emojiReplacements } from './browse-types.js';
 import type { SourceType } from '../core/types.js';
 
@@ -205,7 +205,15 @@ export function updateStatus(
   }
   const projectInfo = projectDisplay ? ` · ${projectDisplay}` : '';
   const typeInfo = sourceType ? ` · ${sourceType}` : '';
+  const contentTypeInfo = state.currentContentType ? ` · type:${state.currentContentType}` : '';
   const searchInfo = state.searchQuery ? ` · ${state.searchMode}: "${state.searchQuery}"` : '';
+
+  // Count unique projects in grouped view
+  let groupInfo = '';
+  if (state.groupByProject && state.listItems.length > 0) {
+    const projectCount = state.listItems.filter(i => i.type === 'header').length;
+    groupInfo = ` in ${projectCount} project${projectCount !== 1 ? 's' : ''}`;
+  }
 
   // Check daemon status
   const daemon = getDaemonStatus();
@@ -217,11 +225,89 @@ export function updateStatus(
     daemonInfo = ' · [daemon off]';
   }
 
-  ui.statusBar.setContent(` ${count} ${label}${count !== 1 ? 's' : ''}${projectInfo}${typeInfo}${searchInfo}${daemonInfo}`);
+  ui.statusBar.setContent(` ${count} ${label}${count !== 1 ? 's' : ''}${groupInfo}${projectInfo}${contentTypeInfo}${typeInfo}${searchInfo}${daemonInfo}`);
 }
 
 /**
- * Render the document list
+ * Build flattened list items from grouped sources
+ */
+export function buildListItems(state: BrowserState): ListItem[] {
+  if (!state.groupByProject) {
+    // Flat view - just wrap documents
+    return state.filtered.map(source => ({
+      type: 'document' as const,
+      source,
+      projectName: source.projects[0] || '__unassigned__',
+    }));
+  }
+
+  // Group documents by project
+  const byProject = new Map<string, SourceItem[]>();
+
+  for (const source of state.filtered) {
+    const projectName = source.projects[0] || '__unassigned__';
+    if (!byProject.has(projectName)) {
+      byProject.set(projectName, []);
+    }
+    byProject.get(projectName)!.push(source);
+  }
+
+  // Sort projects alphabetically, but put __unassigned__ at the end
+  const projectNames = Array.from(byProject.keys()).sort((a, b) => {
+    if (a === '__unassigned__') return 1;
+    if (b === '__unassigned__') return -1;
+    return a.localeCompare(b);
+  });
+
+  // Build flattened list
+  const items: ListItem[] = [];
+
+  for (const projectName of projectNames) {
+    const docs = byProject.get(projectName)!;
+    const expanded = state.expandedProjects.has(projectName);
+    const displayName = projectName === '__unassigned__' ? 'Unassigned' : projectName;
+
+    // Add header
+    items.push({
+      type: 'header',
+      projectName,
+      displayName,
+      documentCount: docs.length,
+      expanded,
+    });
+
+    // Add documents if expanded
+    if (expanded) {
+      for (const source of docs) {
+        items.push({
+          type: 'document',
+          source,
+          projectName,
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+/**
+ * Get the currently selected source (if any)
+ */
+export function getSelectedSource(state: BrowserState): SourceItem | null {
+  if (!state.groupByProject) {
+    return state.filtered[state.selectedIndex] || null;
+  }
+
+  const item = state.listItems[state.selectedIndex];
+  if (item && item.type === 'document') {
+    return item.source;
+  }
+  return null;
+}
+
+/**
+ * Render the document list (supports both flat and grouped views)
  */
 export function renderList(ui: UIComponents, state: BrowserState): void {
   const width = (ui.listContent.width as number) - 2;
@@ -242,11 +328,34 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
     return;
   }
 
-  // Each item takes 3 lines (title, meta, spacing) or 4 with score
+  // Rebuild list items if in grouped mode
+  if (state.groupByProject) {
+    state.listItems = buildListItems(state);
+  }
+
+  // Use grouped view if enabled
+  if (state.groupByProject && state.listItems.length > 0) {
+    renderGroupedList(ui, state, width, height, lines);
+  } else {
+    renderFlatList(ui, state, width, height, lines);
+  }
+
+  ui.listContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Render flat list (original behavior)
+ */
+function renderFlatList(
+  ui: UIComponents,
+  state: BrowserState,
+  width: number,
+  height: number,
+  lines: string[]
+): void {
   const linesPerItem = 3;
   const itemsVisible = Math.floor(height / linesPerItem);
 
-  // Keep selected item visible, but maximize items shown
   let visibleStart = 0;
   if (state.selectedIndex >= itemsVisible) {
     visibleStart = state.selectedIndex - itemsVisible + 1;
@@ -256,34 +365,103 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
   for (let i = visibleStart; i < visibleEnd; i++) {
     const source = state.filtered[i];
     const isSelected = i === state.selectedIndex;
-    const date = formatDate(source.created_at);
-    const contentType = source.content_type || 'document';
-    const project = source.projects[0] || '';
+    renderDocumentItem(source, isSelected, width, lines, true);
+  }
+}
 
-    // Build metadata string
-    const meta = `${date}  ·  ${contentType}${project ? `  ·  ${project}` : ''}`;
-    const title = truncate(source.title, width - 4);
-    const metaTrunc = truncate(meta, width - 6);
+/**
+ * Render grouped list with collapsible project folders
+ */
+function renderGroupedList(
+  ui: UIComponents,
+  state: BrowserState,
+  width: number,
+  height: number,
+  lines: string[]
+): void {
+  // Calculate lines per item (headers take 2, docs take 3)
+  const avgLinesPerItem = 2.5;
+  const itemsVisible = Math.floor(height / avgLinesPerItem);
 
-    // Use consistent layout - only the accent bar changes
-    const accent = isSelected ? '{cyan-fg}▌{/cyan-fg}' : ' ';
+  let visibleStart = 0;
+  if (state.selectedIndex >= itemsVisible) {
+    visibleStart = state.selectedIndex - itemsVisible + 1;
+  }
+  const visibleEnd = Math.min(state.listItems.length, visibleStart + itemsVisible);
 
-    lines.push(`${accent} {bold}${title}{/bold}`);
-    lines.push(`${accent}   {cyan-fg}${metaTrunc}{/cyan-fg}`);
+  for (let i = visibleStart; i < visibleEnd; i++) {
+    const item = state.listItems[i];
+    const isSelected = i === state.selectedIndex;
 
-    // Show relevance score if from semantic search
-    if (source.score !== undefined) {
-      const pct = Math.round(source.score * 100);
-      const filled = Math.round(pct / 10);
-      const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
-      lines.push(`${accent}   {cyan-fg}${bar} ${pct}%{/cyan-fg}`);
+    if (item.type === 'header') {
+      renderProjectHeader(item, isSelected, width, lines);
+    } else {
+      renderDocumentItem(item.source, isSelected, width, lines, false);
     }
+  }
+}
 
-    // Spacing between items
-    lines.push('');
+/**
+ * Render a project header row
+ */
+function renderProjectHeader(
+  item: Extract<ListItem, { type: 'header' }>,
+  isSelected: boolean,
+  width: number,
+  lines: string[]
+): void {
+  const icon = item.expanded ? '▼' : '▶';
+  const countStr = `(${item.documentCount})`;
+  const name = truncate(item.displayName, width - 10);
+
+  if (isSelected) {
+    lines.push(`{inverse}{yellow-fg} ${icon} ${name} {cyan-fg}${countStr}{/cyan-fg} {/yellow-fg}{/inverse}`);
+  } else {
+    lines.push(`{yellow-fg} ${icon} ${name}{/yellow-fg} {cyan-fg}${countStr}{/cyan-fg}`);
+  }
+  lines.push('');
+}
+
+/**
+ * Render a document item row
+ */
+function renderDocumentItem(
+  source: SourceItem,
+  isSelected: boolean,
+  width: number,
+  lines: string[],
+  showProject: boolean
+): void {
+  const date = formatDate(source.created_at);
+  const contentType = source.content_type || 'document';
+  const project = source.projects[0] || '';
+
+  // Format content type as a tag
+  const typeTag = `[${contentType}]`;
+
+  // Build metadata string (don't show project in grouped view)
+  const meta = showProject
+    ? `${date}  {yellow-fg}${typeTag}{/yellow-fg}${project ? `  ${project}` : ''}`
+    : `${date}  {yellow-fg}${typeTag}{/yellow-fg}`;
+
+  const indent = showProject ? '' : '  '; // Indent docs under headers
+  const title = truncate(source.title, width - 4 - indent.length);
+  const metaTrunc = truncate(meta, width - 6 - indent.length);
+
+  const accent = isSelected ? '{cyan-fg}▌{/cyan-fg}' : ' ';
+
+  lines.push(`${accent}${indent} {bold}${title}{/bold}`);
+  lines.push(`${accent}${indent}   {cyan-fg}${metaTrunc}{/cyan-fg}`);
+
+  // Show relevance score if from semantic search
+  if (source.score !== undefined) {
+    const pct = Math.round(source.score * 100);
+    const filled = Math.round(pct / 10);
+    const bar = '●'.repeat(filled) + '○'.repeat(10 - filled);
+    lines.push(`${accent}${indent}   {cyan-fg}${bar} ${pct}%{/cyan-fg}`);
   }
 
-  ui.listContent.setContent(lines.join('\n'));
+  lines.push('');
 }
 
 /**
@@ -295,12 +473,53 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
     return;
   }
 
-  const source = state.filtered[state.selectedIndex];
-  if (!source) return;
-
   const lines: string[] = [];
   const previewWidth = (ui.previewContent.width as number) - 2;
 
+  // Handle grouped view
+  if (state.groupByProject && state.listItems.length > 0) {
+    const item = state.listItems[state.selectedIndex];
+
+    if (!item) {
+      ui.previewContent.setContent('{blue-fg}No selection{/blue-fg}');
+      return;
+    }
+
+    if (item.type === 'header') {
+      // Show project info
+      lines.push(`{bold}{yellow-fg}${item.displayName}{/yellow-fg}{/bold}`);
+      lines.push('');
+      lines.push(`{cyan-fg}${item.documentCount} document${item.documentCount !== 1 ? 's' : ''}{/cyan-fg}`);
+      lines.push('');
+      lines.push('{cyan-fg}─────────────────────────────────{/cyan-fg}');
+      lines.push('');
+      if (item.expanded) {
+        lines.push('{blue-fg}Press Space to collapse{/blue-fg}');
+      } else {
+        lines.push('{blue-fg}Press Space to expand{/blue-fg}');
+      }
+      ui.previewContent.setContent(lines.join('\n'));
+      return;
+    }
+
+    // It's a document
+    renderDocumentPreview(item.source, previewWidth, lines);
+    ui.previewContent.setContent(lines.join('\n'));
+    return;
+  }
+
+  // Flat view
+  const source = state.filtered[state.selectedIndex];
+  if (!source) return;
+
+  renderDocumentPreview(source, previewWidth, lines);
+  ui.previewContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Render document preview content
+ */
+function renderDocumentPreview(source: SourceItem, previewWidth: number, lines: string[]): void {
   // Title
   lines.push(`{bold}${truncate(source.title, previewWidth)}{/bold}`);
   lines.push('');
@@ -340,8 +559,6 @@ export function renderPreview(ui: UIComponents, state: BrowserState): void {
 
   lines.push('');
   lines.push('{cyan-fg}Press Enter to view full document{/cyan-fg}');
-
-  ui.previewContent.setContent(lines.join('\n'));
 }
 
 function highlightMatchesInLine(rawLine: string, pattern: string, isCurrentMatch: boolean): string {

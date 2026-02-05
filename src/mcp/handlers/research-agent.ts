@@ -18,6 +18,7 @@ import type { ResearchPackage, Quote, SourceType, Theme } from '../../core/types
 interface ResearchAgentArgs {
   task: string;
   project?: string;
+  content_type?: string;
   include_sources?: boolean;
 }
 
@@ -43,6 +44,10 @@ function createLoreToolsServer(dbPath: string, dataDir: string, archivedProjects
             .enum(['granola', 'claude-code', 'claude-desktop', 'chatgpt', 'markdown', 'document'])
             .optional()
             .describe('Filter by source type (e.g., "granola" for meeting transcripts)'),
+          content_type: z
+            .enum(['interview', 'meeting', 'conversation', 'document', 'note', 'analysis'])
+            .optional()
+            .describe('Filter by content type (e.g., "interview" for user interviews)'),
           project: z.string().optional().describe('Filter to specific project'),
           limit: z.number().optional().describe('Max results (default 10)'),
         },
@@ -53,6 +58,7 @@ function createLoreToolsServer(dbPath: string, dataDir: string, archivedProjects
               limit: args.limit || 10,
               project: args.project,
               source_type: args.source_type as SourceType | undefined,
+              content_type: args.content_type as any,
             });
 
             // Filter out archived projects

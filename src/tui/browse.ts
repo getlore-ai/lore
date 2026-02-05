@@ -14,7 +14,7 @@ import path from 'path';
 
 import type { BrowseOptions, BrowserState } from './browse-types.js';
 import { createUIComponents } from './browse-ui.js';
-import { updateStatus, renderList, renderPreview } from './browse-render.js';
+import { updateStatus, renderList, renderPreview, buildListItems } from './browse-render.js';
 import {
   enterFullView,
   exitFullView,
@@ -47,6 +47,35 @@ import {
   cancelDelete,
   confirmDelete,
   copyCurrentContent,
+  toggleProjectExpand,
+  renderReturnToAskOrResearch,
+  expandCurrentProject,
+  collapseCurrentProject,
+  toggleGroupedView,
+  isDocumentSelected,
+  // Move picker
+  showMovePicker,
+  movePickerDown,
+  movePickerUp,
+  confirmMove,
+  cancelMovePicker,
+  // Edit info
+  enterEditInfo,
+  saveEditInfo,
+  exitEditInfo,
+  // Type picker
+  showTypePicker,
+  typePickerDown,
+  typePickerUp,
+  confirmTypeChange,
+  cancelTypePicker,
+  // Content type filter
+  showContentTypeFilter,
+  contentTypeFilterDown,
+  contentTypeFilterUp,
+  applyContentTypeFilter,
+  cancelContentTypeFilter,
+  clearContentTypeFilter,
 } from './browse-handlers.js';
 import {
   showExtensions,
@@ -57,12 +86,19 @@ import {
   enterAskMode,
   exitAskMode,
   executeAsk,
+  promptForFollowUp,
 } from './browse-handlers-ask.js';
 import {
   enterResearchMode,
   exitResearchMode,
   executeResearch,
+  promptForFollowUpResearch,
 } from './browse-handlers-research.js';
+import {
+  updateAutocomplete,
+  hideAutocomplete,
+  handleAutocompleteKey,
+} from './browse-handlers-autocomplete.js';
 import { getAllSources } from '../core/vector-store.js';
 
 /**
@@ -97,9 +133,38 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     askQuery: '',
     askResponse: '',
     askStreaming: false,
+    askHistory: [],
     researchQuery: '',
     researchRunning: false,
     researchResponse: '',
+    researchHistory: [],
+    // Grouped view (enabled by default)
+    groupByProject: true,
+    expandedProjects: new Set<string>(),
+    listItems: [],
+    // Move picker state
+    movePickerIndex: 0,
+    movePickerProjects: [],
+    moveTargetSource: undefined,
+    // Edit info state
+    editSource: undefined,
+    editTitle: '',
+    editProjects: [],
+    editFieldIndex: 0,
+    // Type picker state
+    typePickerIndex: 0,
+    typePickerSource: undefined,
+    // Content type filter state
+    contentTypeFilterIndex: 0,
+    currentContentType: undefined,
+    // Return mode after picker
+    pickerReturnMode: undefined,
+    // Autocomplete state
+    autocompleteVisible: false,
+    autocompleteOptions: [],
+    autocompleteIndex: 0,
+    autocompleteType: null,
+    autocompleteJustSelected: false,
   };
 
   // Create UI components
@@ -140,13 +205,21 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       hideHelp(state, ui);
     } else if (state.mode === 'project-picker') {
       cancelProjectPicker(state, ui);
+    } else if (state.mode === 'move-picker') {
+      cancelMovePicker(state, ui);
+    } else if (state.mode === 'type-picker') {
+      cancelTypePicker(state, ui);
+    } else if (state.mode === 'content-type-filter') {
+      cancelContentTypeFilter(state, ui);
+    } else if (state.mode === 'edit-info') {
+      exitEditInfo(state, ui);
     } else if (state.mode === 'delete-confirm') {
       cancelDelete(state, ui);
     } else if (state.mode === 'extensions') {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ R Research │ p Projects │ d Delete │ q Quit │ ? Help');
+      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -169,12 +242,18 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   screen.key(['j', 'down'], () => {
     if (state.mode === 'project-picker') {
       projectPickerDown(state, ui);
+    } else if (state.mode === 'move-picker') {
+      movePickerDown(state, ui);
+    } else if (state.mode === 'type-picker') {
+      typePickerDown(state, ui);
+    } else if (state.mode === 'content-type-filter') {
+      contentTypeFilterDown(state, ui);
     } else if (state.mode === 'extensions') {
       if (state.selectedExtensionIndex < state.extensionsList.length - 1) {
         state.selectedExtensionIndex++;
         selectExtension(state, ui);
       }
-    } else if (state.mode !== 'search' && state.mode !== 'help') {
+    } else if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'edit-info') {
       state.gPressed = false;
       moveDown(state, ui);
     }
@@ -183,12 +262,18 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   screen.key(['k', 'up'], () => {
     if (state.mode === 'project-picker') {
       projectPickerUp(state, ui);
+    } else if (state.mode === 'move-picker') {
+      movePickerUp(state, ui);
+    } else if (state.mode === 'type-picker') {
+      typePickerUp(state, ui);
+    } else if (state.mode === 'content-type-filter') {
+      contentTypeFilterUp(state, ui);
     } else if (state.mode === 'extensions') {
       if (state.selectedExtensionIndex > 0) {
         state.selectedExtensionIndex--;
         selectExtension(state, ui);
       }
-    } else if (state.mode !== 'search' && state.mode !== 'help') {
+    } else if (state.mode !== 'search' && state.mode !== 'help' && state.mode !== 'edit-info') {
       state.gPressed = false;
       moveUp(state, ui);
     }
@@ -244,11 +329,58 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
 
   screen.key(['enter'], async () => {
     if (state.mode === 'list') {
-      await enterFullView(state, ui, dbPath, sourcesDir);
+      // In grouped view, Enter on header toggles expand/collapse
+      if (state.groupByProject && state.listItems.length > 0) {
+        const item = state.listItems[state.selectedIndex];
+        if (item?.type === 'header') {
+          toggleProjectExpand(state, ui);
+          return;
+        }
+      }
+      // Enter on document opens full view
+      if (isDocumentSelected(state)) {
+        await enterFullView(state, ui, dbPath, sourcesDir);
+      }
     } else if (state.mode === 'project-picker') {
       await selectProject(state, ui, dbPath, dataDir, sourceType);
+    } else if (state.mode === 'move-picker') {
+      await confirmMove(state, ui, dbPath, dataDir, sourceType);
+    } else if (state.mode === 'type-picker') {
+      await confirmTypeChange(state, ui, dbPath, sourceType);
+    } else if (state.mode === 'content-type-filter') {
+      await applyContentTypeFilter(state, ui, dbPath, dataDir, sourceType);
+    } else if (state.mode === 'edit-info') {
+      await saveEditInfo(state, ui, dbPath, sourceType);
     } else if (state.mode === 'extensions') {
       await toggleExtension(state, ui);
+    }
+  });
+
+  // Space toggles expand/collapse on project headers
+  screen.key(['space'], () => {
+    if (state.mode === 'list' && state.groupByProject) {
+      toggleProjectExpand(state, ui);
+    }
+  });
+
+  // h collapses current project (vim-style: left = collapse)
+  screen.key(['h', 'left'], () => {
+    if (state.mode === 'list' && state.groupByProject) {
+      collapseCurrentProject(state, ui);
+    }
+  });
+
+  // l expands current project (vim-style: right = expand)
+  screen.key(['l', 'right'], () => {
+    if (state.mode === 'list' && state.groupByProject) {
+      expandCurrentProject(state, ui);
+    }
+  });
+
+  // Tab toggles between grouped and flat view
+  screen.key(['tab'], () => {
+    if (state.mode === 'list') {
+      toggleGroupedView(state, ui);
     }
   });
 
@@ -284,6 +416,36 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
+  // Move document to different project
+  screen.key(['m'], () => {
+    if (state.mode === 'list') {
+      // Only allow move on documents, not headers
+      if (isDocumentSelected(state)) {
+        showMovePicker(state, ui, dbPath);
+      }
+    }
+  });
+
+  // Edit document info
+  screen.key(['i'], () => {
+    if (state.mode === 'list') {
+      // Only allow edit on documents, not headers
+      if (isDocumentSelected(state)) {
+        enterEditInfo(state, ui);
+      }
+    }
+  });
+
+  // Change content type
+  screen.key(['t'], () => {
+    if (state.mode === 'list') {
+      // Only allow type change on documents, not headers
+      if (isDocumentSelected(state)) {
+        showTypePicker(state, ui);
+      }
+    }
+  });
+
   // Copy to clipboard (y for yank)
   screen.key(['y'], () => {
     if (state.mode === 'fullview' || state.mode === 'ask' || state.mode === 'research') {
@@ -313,17 +475,28 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
+  // Content type filter
+  screen.key(['c'], () => {
+    if (state.mode === 'list') {
+      showContentTypeFilter(state, ui);
+    } else if (state.mode === 'content-type-filter') {
+      // Toggle behavior
+      cancelContentTypeFilter(state, ui);
+    }
+  });
+
+  screen.key(['C-c'], () => {
+    if (state.mode === 'list') {
+      clearContentTypeFilter(state, ui, dbPath, dataDir, sourceType);
+    }
+  });
+
   screen.key(['a'], () => {
     if (state.mode === 'list') {
       enterAskMode(state, ui);
     } else if (state.mode === 'ask' && !state.askStreaming) {
-      // In ask mode, 'a' starts a new question
-      ui.askInput.setValue('');
-      ui.askInput.show();
-      ui.askPane.setContent('{cyan-fg}Enter your question and press Enter{/cyan-fg}');
-      ui.askInput.focus();
-      ui.askInput.readInput();
-      screen.render();
+      // In ask mode, 'a' refocuses input for follow-up (use /new to clear)
+      promptForFollowUp(state, ui);
     }
   });
 
@@ -331,14 +504,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     if (state.mode === 'list') {
       enterResearchMode(state, ui);
     } else if (state.mode === 'research' && !state.researchRunning) {
-      // In research mode, 'R' starts new research
-      ui.askInput.setValue('');
-      ui.askInput.show();
-      ui.askPane.setLabel(' Research Agent ');
-      ui.askPane.setContent('{cyan-fg}Enter research task and press Enter{/cyan-fg}\n\n{gray-fg}The research agent will iteratively explore sources,\ncross-reference findings, and synthesize results.{/gray-fg}');
-      ui.askInput.focus();
-      ui.askInput.readInput();
-      screen.render();
+      // In research mode, 'R' refocuses input for follow-up (use /new to clear)
+      promptForFollowUpResearch(state, ui);
     }
   });
 
@@ -348,8 +515,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
-  // Delete keybindings
-  screen.key(['d'], () => {
+  // Delete keybindings (Delete key or backspace)
+  screen.key(['delete', 'backspace'], () => {
     if (state.mode === 'list') {
       showDeleteConfirm(state, ui);
     }
@@ -441,19 +608,80 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   // Ask/Research input handlers (shared input component)
   const { askInput } = ui;
   askInput.on('submit', async (value: string) => {
+    // Skip submit if autocomplete just handled the Enter key
+    if (state.autocompleteJustSelected) {
+      state.autocompleteJustSelected = false;
+      // Re-focus and continue input
+      askInput.focus();
+      askInput.readInput();
+      return;
+    }
+
     if (state.mode === 'research') {
       await executeResearch(state, ui, dbPath, dataDir, value);
+    } else if (state.mode === 'edit-info') {
+      // Save the edited title
+      state.editTitle = value;
+      await saveEditInfo(state, ui, dbPath, sourceType);
     } else {
       await executeAsk(state, ui, dbPath, value);
     }
   });
 
   askInput.on('cancel', () => {
+    hideAutocomplete(state, ui);
     if (state.mode === 'research') {
       exitResearchMode(state, ui);
+    } else if (state.mode === 'edit-info') {
+      exitEditInfo(state, ui);
     } else {
       exitAskMode(state, ui);
     }
+  });
+
+  // Autocomplete keypress handler for askInput
+  askInput.on('keypress', async (_ch: string, key: { name: string; full: string }) => {
+    // Only active in ask or research modes (not edit-info)
+    if (state.mode !== 'ask' && state.mode !== 'research') {
+      return;
+    }
+
+    // Check if autocomplete handles this key
+    const acResult = handleAutocompleteKey(state, ui, key.name);
+    if (acResult.handled) {
+      if (acResult.result) {
+        // Set flag to prevent submit handler from firing
+        state.autocompleteJustSelected = true;
+
+        if (acResult.result.type === 'input') {
+          // Just a command prefix, set in textbox
+          askInput.setValue(acResult.result.value);
+          ui.screen.render();
+          // Trigger autocomplete update after setting new value
+          await updateAutocomplete(state, ui, dbPath, acResult.result.value);
+        } else if (acResult.result.type === 'project') {
+          // Directly set project filter - bypass textbox to avoid truncation
+          state.currentProject = acResult.result.value;
+          askInput.setValue('');
+          renderReturnToAskOrResearch(state, ui, state.mode as 'ask' | 'research');
+          ui.screen.render();
+        } else if (acResult.result.type === 'contentType') {
+          // Directly set content type filter - bypass textbox to avoid truncation
+          state.currentContentType = acResult.result.value;
+          askInput.setValue('');
+          renderReturnToAskOrResearch(state, ui, state.mode as 'ask' | 'research');
+          ui.screen.render();
+        }
+      }
+      return;
+    }
+
+    // After any other key, update autocomplete based on current value
+    // Use setImmediate to get the updated value after the keypress is processed
+    setImmediate(async () => {
+      const currentValue = askInput.getValue();
+      await updateAutocomplete(state, ui, dbPath, currentValue);
+    });
   });
 
   // Load data
@@ -464,6 +692,10 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       limit,
     });
     state.filtered = [...state.sources];
+    // Build grouped list items
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+    }
   } catch (error) {
     ui.statusBar.setContent(` Error: ${error}`);
     screen.render();

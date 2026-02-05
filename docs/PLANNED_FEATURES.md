@@ -1136,3 +1136,80 @@ In priority order:
 3. **Agentic research**: Not just retrieval, but synthesis
 4. **Multi-tool sync**: Works across Claude, ChatGPT, Cursor, etc.
 5. **Extension ecosystem**: Domain-specific without bloating core
+
+---
+
+# Part 4: Architectural Considerations
+
+## Git Sync & Data Integrity
+
+### Current Architecture
+
+Lore stores data in two places:
+- **Supabase**: Metadata, summaries, embeddings, content_hash
+- **Local disk** (`LORE_DATA_DIR`): Raw document content in `sources/{id}/content.md`
+
+The local data directory can be a git repo for backup and cross-machine sync.
+
+### The Git Revert Problem
+
+**Scenario 1: Reverting to recover deleted files**
+```
+T1: Files A, B, C exist
+T2: User deletes file B (removed from Supabase + disk + git commit)
+T3: User does git revert to T1
+T4: File B reappears on disk
+T5: Next sync re-indexes B (hash not in Supabase)
+```
+→ This is arguably correct behavior (intentional recovery)
+
+**Scenario 2: Reverting loses newer content**
+```
+T1: Files A, B, C exist (git commit)
+T2: User creates new files D, E, F (indexed in Supabase)
+T3: User does git reset --hard to T1
+T4: Git deletes D, E, F from disk
+T5: Supabase still has records for D, E, F (orphaned)
+T6: Agent tries to read D → file not found error
+```
+→ This is problematic (ghost records in Supabase)
+
+### Why This Matters for Agents
+
+The agent searches and reads local files directly (not just Supabase):
+- Regex search (`searchLocalFiles`) scans raw files on disk
+- `get_source` reads content from `sources/{id}/content.md`
+- Semantic search uses Supabase embeddings but full content comes from disk
+
+So file state on disk directly affects what the agent can access.
+
+### Potential Solutions (Future Work)
+
+**Option A: Supabase as sole source of truth**
+- Store full content in Supabase (not just summary)
+- Local files become optional cache/backup
+- Git can have any history without affecting agent behavior
+- Tradeoff: Larger Supabase storage, potential costs
+
+**Option B: Bidirectional sync reconciliation**
+- On sync, also check Supabase records against disk
+- Delete orphaned Supabase records (files that no longer exist)
+- Delete orphaned disk files (not in Supabase)
+- Tradeoff: Dangerous if disk is temporarily unavailable
+
+**Option C: Tombstone system**
+- When deleting, record content_hash in `deleted_hashes` table
+- On sync: skip files with tombstoned hashes
+- Prevents resurrection of deleted content via git revert
+- Tradeoff: "Deleted means deleted forever" - no git recovery
+
+**Option D: Validate file access at runtime**
+- Before returning any local file result, verify file exists
+- Gracefully handle missing files (return error or skip)
+- Tradeoff: Doesn't fix the root cause, just handles errors
+
+**Current Status:** Not implemented. Users should be aware that `git reset/revert` on the data directory can cause:
+1. Deleted files to be re-indexed (if reverted to before deletion)
+2. Orphaned Supabase records (if reverted to before file creation)
+
+**Recommendation:** For now, avoid destructive git operations on the data directory. Use Lore's delete functionality instead of git for removing content.

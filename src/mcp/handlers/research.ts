@@ -29,6 +29,7 @@ function getOpenAI(): OpenAI {
 interface ResearchArgs {
   task: string;
   project?: string;
+  content_type?: string;
   include_sources?: boolean;
 }
 

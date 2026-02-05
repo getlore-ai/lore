@@ -219,7 +219,7 @@ export function createUIComponents(): UIComponents {
     top: 'center',
     left: 'center',
     width: 50,
-    height: 22,
+    height: 29,
     border: {
       type: 'line',
     },
@@ -235,24 +235,30 @@ export function createUIComponents(): UIComponents {
 {bold}{cyan-fg}Lore Browser Help{/cyan-fg}{/bold}
 
 {bold}List View:{/bold}
-  j/k ↑/↓    Navigate documents
-  Enter      View full document
+  j/k ↑/↓    Navigate
+  Space/Enter  Expand/collapse folder
+  h/l ←/→    Collapse/expand folder
+  Tab        Toggle flat/grouped view
   /          Hybrid search (semantic+keyword)
   :          Regex search (grep files)
   a          Ask a question (AI-powered)
-  p          Switch project filter
-  C-p        Clear project filter (show all)
-  x          Extensions
-  e          Open in $EDITOR
+  R          Research mode (agentic)
+  p          Project picker
+  C-p        Show all projects
+  c          Content type filter
+  C-c        Clear type filter
   s          Sync now (git pull + index)
-  d          Delete document
+  m          Move doc to different project
+  i          Edit document title
+  t          Change content type
+  Del        Delete document or project
 
 {bold}Document View:{/bold}
   j/k        Scroll up/down
   /          Search in document (regex)
   n / N      Next/previous match
   y          Copy to clipboard
-  Esc        Clear search / back to list
+  Esc        Back to list
   e          Open in $EDITOR
 
 {bold}Other:{/bold}
@@ -288,7 +294,7 @@ export function createUIComponents(): UIComponents {
     parent: screen,
     top: 'center',
     left: 'center',
-    width: 50,
+    width: '70%',  // Use percentage to accommodate long project names
     height: 15,
     border: {
       type: 'line',
@@ -392,6 +398,23 @@ export function createUIComponents(): UIComponents {
     mouse: true,
   });
 
+  // Autocomplete dropdown (hidden initially)
+  const autocompleteDropdown = blessed.box({
+    parent: screen,
+    top: 5,
+    left: 1,
+    width: '60%',  // Use percentage to accommodate long project names
+    height: 10,
+    border: { type: 'line' },
+    style: {
+      fg: 'white',
+      bg: 'black',
+      border: { fg: 'yellow' },
+    },
+    hidden: true,
+    tags: true,
+  });
+
   // Footer
   const footer = blessed.box({
     parent: screen,
@@ -399,7 +422,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ d Delete │ q Quit │ ? Help',
+    content: ' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ ? Help',
     tags: true,
     style: {
       fg: 'white',
@@ -427,6 +450,7 @@ export function createUIComponents(): UIComponents {
     docSearchInput,
     askInput,
     askPane,
+    autocompleteDropdown,
     footer,
     projectPicker,
     projectPickerContent,
