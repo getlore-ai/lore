@@ -129,19 +129,28 @@ export function registerProjectsCommand(program: Command, defaultDataDir: string
 
       // Delete each source
       const { rm } = await import('fs/promises');
+      const { deleteFileAndCommit, gitCommitAndPush } = await import('../../core/git.js');
       let deleted = 0;
       for (const source of sources) {
-        await deleteSource(dbPath, source.id);
+        const { sourcePath: originalPath } = await deleteSource(dbPath, source.id);
 
-        // Delete from disk
-        const sourcePath = path.join(dataDir, 'sources', source.id);
+        // Delete from disk (lore-data copy)
+        const loreSourcePath = path.join(dataDir, 'sources', source.id);
         try {
-          await rm(sourcePath, { recursive: true });
+          await rm(loreSourcePath, { recursive: true });
         } catch {
           // File may not exist on disk
         }
+
+        // Delete original source file from sync directory (and commit to its repo)
+        if (originalPath) {
+          await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
+        }
         deleted++;
       }
+
+      // Git commit the lore-data changes
+      await gitCommitAndPush(dataDir, `Delete project: ${projectName} (${deleted} documents)`);
 
       console.log(`\n✓ Deleted project "${projectName}"`);
       console.log(`  Documents deleted: ${deleted}`);

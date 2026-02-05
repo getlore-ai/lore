@@ -190,16 +190,26 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
 
       // Delete from vector store
       const { deleteSource } = await import('../../core/vector-store.js');
-      await deleteSource(dbPath, docId);
+      const { sourcePath: originalPath } = await deleteSource(dbPath, docId);
 
-      // Delete from disk
+      // Delete from disk (lore-data copy)
       const { rm } = await import('fs/promises');
-      const sourcePath = path.join(dataDir, 'sources', docId);
+      const loreSourcePath = path.join(dataDir, 'sources', docId);
       try {
-        await rm(sourcePath, { recursive: true });
+        await rm(loreSourcePath, { recursive: true });
       } catch {
         // File may not exist on disk
       }
+
+      // Delete original source file from sync directory (and commit to its repo)
+      if (originalPath) {
+        const { deleteFileAndCommit } = await import('../../core/git.js');
+        await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
+      }
+
+      // Git commit the lore-data changes
+      const { gitCommitAndPush } = await import('../../core/git.js');
+      await gitCommitAndPush(dataDir, `Delete source: ${source.title.slice(0, 50)}`);
 
       console.log(`\n✓ Deleted: ${source.title}`);
     });

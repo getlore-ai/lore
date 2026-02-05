@@ -17,11 +17,78 @@ import {
   renderList,
   renderPreview,
   updateStatus,
+  buildListItems,
+  getSelectedSource,
 } from './browse-render.js';
-import { getSourceById, searchSources, getProjectStats, getAllSources, deleteSource } from '../core/vector-store.js';
+import { getSourceById, searchSources, getProjectStats, getAllSources, deleteSource, updateSourceProjects, updateSourceTitle, updateSourceContentType } from '../core/vector-store.js';
 import { generateEmbedding } from '../core/embedder.js';
 import { searchLocalFiles } from '../core/local-search.js';
+import { gitCommitAndPush, deleteFileAndCommit } from '../core/git.js';
 import type { SearchMode, SourceType } from '../core/types.js';
+
+/**
+ * Helper to re-render ask/research pane when returning from pickers
+ * Exported so browse.ts can use it for autocomplete direct selection
+ */
+export function renderReturnToAskOrResearch(state: BrowserState, ui: UIComponents, mode: 'ask' | 'research'): void {
+  const filters: string[] = [];
+  if (state.currentProject) filters.push(`project: ${state.currentProject}`);
+  if (state.currentContentType) filters.push(`type: ${state.currentContentType}`);
+  const filterInfo = filters.length > 0
+    ? `{yellow-fg}Scope: ${filters.join(', ')}{/yellow-fg}`
+    : '{blue-fg}No filters{/blue-fg}';
+  const footerNote = filters.length > 0
+    ? `{yellow-fg}${filters.join(', ')}{/yellow-fg}`
+    : '{blue-fg}all sources{/blue-fg}';
+
+  if (mode === 'ask') {
+    const lines = [
+      `${filterInfo}  {blue-fg}│{/blue-fg}  {white-fg}/help{/white-fg} for commands  {blue-fg}│{/blue-fg}  {white-fg}/new{/white-fg} to start fresh`,
+      '',
+    ];
+    if (state.askHistory.length > 0) {
+      for (const msg of state.askHistory) {
+        if (msg.role === 'user') {
+          lines.push(`{cyan-fg}You:{/cyan-fg} ${msg.content}`);
+        } else {
+          const escaped = msg.content.replace(/\{/g, '\\{').replace(/\}/g, '\\}');
+          lines.push(`{green-fg}Assistant:{/green-fg}`);
+          lines.push(escaped);
+        }
+        lines.push('');
+      }
+    } else {
+      lines.push('{blue-fg}Ask a question about your knowledge base...{/blue-fg}');
+    }
+    ui.askPane.setContent(lines.join('\n'));
+    const historyNote = state.askHistory.length > 0 ? `${state.askHistory.length / 2} Q&A  │  ` : '';
+    ui.footer.setContent(` ${historyNote}Enter: Send  │  Esc: Back  │  Scope: ${footerNote}`);
+  } else {
+    const lines = [
+      `${filterInfo}  {blue-fg}│{/blue-fg}  {white-fg}/help{/white-fg} for commands  {blue-fg}│{/blue-fg}  {white-fg}/new{/white-fg} to start fresh`,
+      '',
+    ];
+    if (state.researchHistory.length > 0) {
+      for (const item of state.researchHistory) {
+        lines.push(`{cyan-fg}Research:{/cyan-fg} ${item.query}`);
+        lines.push('');
+        const escaped = item.summary.replace(/\{/g, '\\{').replace(/\}/g, '\\}');
+        lines.push(escaped);
+        lines.push('');
+        lines.push('{blue-fg}───────────────────────────────────────{/blue-fg}');
+        lines.push('');
+      }
+    } else {
+      lines.push('{blue-fg}Enter a research task to begin comprehensive analysis...{/blue-fg}');
+      lines.push('');
+      lines.push('{blue-fg}The research agent will iteratively explore sources,{/blue-fg}');
+      lines.push('{blue-fg}cross-reference findings, and synthesize results.{/blue-fg}');
+    }
+    ui.askPane.setContent(lines.join('\n'));
+    const historyNote = state.researchHistory.length > 0 ? `${state.researchHistory.length} tasks  │  ` : '';
+    ui.footer.setContent(` ${historyNote}Enter: Research  │  Esc: Back  │  Scope: ${footerNote}`);
+  }
+}
 
 /**
  * Load full content for the selected document
@@ -34,7 +101,9 @@ export async function loadFullContent(
 ): Promise<void> {
   if (state.filtered.length === 0) return;
 
-  const source = state.filtered[state.selectedIndex];
+  // Get selected source (handles both grouped and flat view)
+  const source = getSelectedSource(state);
+  if (!source) return;
 
   // Try to load from disk first
   const contentPath = path.join(sourcesDir, source.id, 'content.md');
@@ -128,7 +197,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ R Research │ p Projects │ d Delete │ q Quit │ ? Help');
+  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ ? Help');
   ui.screen.render();
 }
 
@@ -368,6 +437,17 @@ export async function applyFilter(
       );
     }
   }
+
+  // Apply content type filter if set
+  if (state.currentContentType) {
+    state.filtered = state.filtered.filter(s => s.content_type === state.currentContentType);
+  }
+
+  // Rebuild list items if in grouped mode
+  if (state.groupByProject) {
+    state.listItems = buildListItems(state);
+  }
+
   state.selectedIndex = 0;
   updateStatus(ui, state, project, sourceType);
   renderList(ui, state);
@@ -404,7 +484,10 @@ export async function openInEditor(
 ): Promise<void> {
   if (state.filtered.length === 0) return;
 
-  const source = state.filtered[state.selectedIndex];
+  // Get selected source (handles both grouped and flat view)
+  const source = getSelectedSource(state);
+  if (!source) return;
+
   const editorEnv = process.env.EDITOR || 'vi';
 
   // Parse editor command (might include args like "code -w")
@@ -456,7 +539,10 @@ export function moveDown(state: BrowserState, ui: UIComponents): void {
     state.scrollOffset = Math.min(state.scrollOffset + 1, maxScroll);
     renderFullView(ui, state);
   } else if (state.mode === 'list') {
-    if (state.selectedIndex < state.filtered.length - 1) {
+    const maxIndex = state.groupByProject
+      ? state.listItems.length - 1
+      : state.filtered.length - 1;
+    if (state.selectedIndex < maxIndex) {
       state.selectedIndex++;
       renderList(ui, state);
       renderPreview(ui, state);
@@ -489,7 +575,10 @@ export function pageDown(state: BrowserState, ui: UIComponents): void {
     state.scrollOffset = Math.min(state.scrollOffset + pageSize, maxScroll);
     renderFullView(ui, state);
   } else if (state.mode === 'list') {
-    state.selectedIndex = Math.min(state.selectedIndex + Math.floor(pageSize), state.filtered.length - 1);
+    const maxIndex = state.groupByProject
+      ? state.listItems.length - 1
+      : state.filtered.length - 1;
+    state.selectedIndex = Math.min(state.selectedIndex + Math.floor(pageSize), maxIndex);
     renderList(ui, state);
     renderPreview(ui, state);
   }
@@ -517,7 +606,10 @@ export function jumpToEnd(state: BrowserState, ui: UIComponents): void {
     state.scrollOffset = Math.max(0, state.fullContentLines.length - ((ui.fullViewContent.height as number) - 1));
     renderFullView(ui, state);
   } else if (state.mode === 'list') {
-    state.selectedIndex = state.filtered.length - 1;
+    const maxIndex = state.groupByProject
+      ? state.listItems.length - 1
+      : state.filtered.length - 1;
+    state.selectedIndex = maxIndex;
     renderList(ui, state);
     renderPreview(ui, state);
   }
@@ -751,7 +843,6 @@ export async function selectProject(
 
   // Hide picker
   ui.projectPicker.hide();
-  state.mode = 'list';
 
   let newProject: string | undefined;
 
@@ -764,6 +855,37 @@ export async function selectProject(
   }
 
   state.currentProject = newProject;
+
+  // Check if we should return to ask/research mode
+  if (state.pickerReturnMode === 'ask') {
+    state.mode = 'ask';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Ask Lore ');
+    renderReturnToAskOrResearch(state, ui, 'ask');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+    ui.screen.render();
+    return;
+  } else if (state.pickerReturnMode === 'research') {
+    state.mode = 'research';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Research Agent ');
+    renderReturnToAskOrResearch(state, ui, 'research');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+    ui.screen.render();
+    return;
+  }
+
+  state.mode = 'list';
 
   // Reload sources with new project filter
   ui.statusBar.setContent(' Filtering...');
@@ -804,7 +926,34 @@ export async function selectProject(
  */
 export function cancelProjectPicker(state: BrowserState, ui: UIComponents): void {
   ui.projectPicker.hide();
-  state.mode = 'list';
+
+  // Check if we should return to ask/research mode
+  if (state.pickerReturnMode === 'ask') {
+    state.mode = 'ask';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Ask Lore ');
+    renderReturnToAskOrResearch(state, ui, 'ask');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+  } else if (state.pickerReturnMode === 'research') {
+    state.mode = 'research';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Research Agent ');
+    renderReturnToAskOrResearch(state, ui, 'research');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+  } else {
+    state.mode = 'list';
+  }
+
   ui.screen.render();
 }
 
@@ -848,12 +997,24 @@ export async function clearProjectFilter(
 // ============================================================================
 
 /**
- * Show delete confirmation dialog
+ * Show delete confirmation dialog (for document or project)
  */
 export function showDeleteConfirm(state: BrowserState, ui: UIComponents): void {
   if (state.filtered.length === 0) return;
 
-  const source = state.filtered[state.selectedIndex];
+  // Check if we're on a project header (project deletion)
+  if (state.groupByProject && state.listItems.length > 0) {
+    const item = state.listItems[state.selectedIndex];
+    if (item?.type === 'header') {
+      showProjectDeleteConfirm(state, ui, item);
+      return;
+    }
+  }
+
+  // Get selected source (handles both grouped and flat view)
+  const source = getSelectedSource(state);
+  if (!source) return;
+
   const title = source.title.length > 40
     ? source.title.slice(0, 37) + '...'
     : source.title;
@@ -877,6 +1038,33 @@ export function showDeleteConfirm(state: BrowserState, ui: UIComponents): void {
 }
 
 /**
+ * Show delete confirmation for an entire project
+ */
+function showProjectDeleteConfirm(
+  state: BrowserState,
+  ui: UIComponents,
+  header: Extract<import('./browse-types.js').ListItem, { type: 'header' }>
+): void {
+  state.mode = 'delete-confirm';
+
+  const lines = [
+    '',
+    '{bold}{red-fg}Delete Entire Project?{/red-fg}{/bold}',
+    '',
+    `  {bold}{yellow-fg}${header.displayName}{/yellow-fg}{/bold}`,
+    '',
+    `{yellow-fg}This will delete ${header.documentCount} document${header.documentCount !== 1 ? 's' : ''}{/yellow-fg}`,
+    '{yellow-fg}from Supabase and local files.{/yellow-fg}',
+    '',
+    '{blue-fg}  y: confirm delete    n/Esc: cancel{/blue-fg}',
+  ];
+
+  ui.deleteConfirm.setContent(lines.join('\n'));
+  ui.deleteConfirm.show();
+  ui.screen.render();
+}
+
+/**
  * Cancel delete operation
  */
 export function cancelDelete(state: BrowserState, ui: UIComponents): void {
@@ -886,7 +1074,7 @@ export function cancelDelete(state: BrowserState, ui: UIComponents): void {
 }
 
 /**
- * Confirm and execute delete operation
+ * Confirm and execute delete operation (document or project)
  */
 export async function confirmDelete(
   state: BrowserState,
@@ -901,7 +1089,21 @@ export async function confirmDelete(
     return;
   }
 
-  const source = state.filtered[state.selectedIndex];
+  // Check if we're deleting a project
+  if (state.groupByProject && state.listItems.length > 0) {
+    const item = state.listItems[state.selectedIndex];
+    if (item?.type === 'header') {
+      await confirmProjectDelete(state, ui, dbPath, dataDir, item, project, sourceType);
+      return;
+    }
+  }
+
+  // Get selected source (handles both grouped and flat view)
+  const source = getSelectedSource(state);
+  if (!source) {
+    cancelDelete(state, ui);
+    return;
+  }
 
   // Hide dialog and show progress
   ui.deleteConfirm.hide();
@@ -911,47 +1113,49 @@ export async function confirmDelete(
 
   try {
     // 1. Delete from Supabase (this also handles chunks cascade)
-    await deleteSource(dbPath, source.id);
+    const { sourcePath: originalPath } = await deleteSource(dbPath, source.id);
 
     // 2. Delete local files in data directory
     const { rm } = await import('fs/promises');
-    const sourcePath = path.join(dataDir, 'sources', source.id);
+    const loreSourcePath = path.join(dataDir, 'sources', source.id);
     try {
-      await rm(sourcePath, { recursive: true });
+      await rm(loreSourcePath, { recursive: true });
     } catch {
       // File may not exist on disk - that's ok
     }
 
-    // 3. Git commit the deletion (if in a git repo)
-    try {
-      const { execSync } = await import('child_process');
-      // Check if in git repo
-      execSync('git rev-parse --git-dir', { cwd: dataDir, stdio: 'ignore' });
-      // Stage the deletion and commit
-      execSync(`git add -A`, { cwd: dataDir, stdio: 'ignore' });
-      execSync(`git commit -m "Delete source: ${source.title.slice(0, 50)}"`, {
-        cwd: dataDir,
-        stdio: 'ignore',
-      });
-    } catch {
-      // Not a git repo or git commit failed - that's ok
+    // 3. Delete original source file from sync directory (and commit to its repo)
+    if (originalPath) {
+      await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
     }
+
+    // 4. Git commit and push the lore-data changes
+    await gitCommitAndPush(dataDir, `Delete source: ${source.title.slice(0, 50)}`);
 
     // 4. Refresh the source list
     state.sources = await getAllSources(dbPath, {
-      project,
+      project: state.currentProject,
       source_type: sourceType,
       limit: 100,
     });
     state.filtered = [...state.sources];
 
-    // Adjust selection if needed
-    if (state.selectedIndex >= state.filtered.length) {
-      state.selectedIndex = Math.max(0, state.filtered.length - 1);
+    // Rebuild list items if in grouped mode
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+      // Adjust selection if needed
+      if (state.selectedIndex >= state.listItems.length) {
+        state.selectedIndex = Math.max(0, state.listItems.length - 1);
+      }
+    } else {
+      // Adjust selection if needed
+      if (state.selectedIndex >= state.filtered.length) {
+        state.selectedIndex = Math.max(0, state.filtered.length - 1);
+      }
     }
 
     // Update UI
-    updateStatus(ui, state, project, sourceType);
+    updateStatus(ui, state, state.currentProject, sourceType);
     renderList(ui, state);
     renderPreview(ui, state);
 
@@ -960,7 +1164,115 @@ export async function confirmDelete(
 
     // Restore normal status after delay
     setTimeout(() => {
-      updateStatus(ui, state, project, sourceType);
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 2000);
+  } catch (error) {
+    ui.statusBar.setContent(` {red-fg}Delete failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Confirm and execute project deletion (all documents in a project)
+ */
+async function confirmProjectDelete(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string,
+  header: Extract<import('./browse-types.js').ListItem, { type: 'header' }>,
+  project?: string,
+  sourceType?: import('../core/types.js').SourceType
+): Promise<void> {
+  // Hide dialog and show progress
+  ui.deleteConfirm.hide();
+  state.mode = 'list';
+  ui.statusBar.setContent(` {yellow-fg}Deleting ${header.documentCount} documents from "${header.displayName}"...{/yellow-fg}`);
+  ui.screen.render();
+
+  try {
+    // Get all documents in this project
+    const docsToDelete = state.filtered.filter(s => {
+      if (header.projectName === '__unassigned__') {
+        return s.projects.length === 0;
+      }
+      return s.projects.includes(header.projectName);
+    });
+
+    let deleted = 0;
+    const errors: string[] = [];
+
+    const { rm } = await import('fs/promises');
+    for (const source of docsToDelete) {
+      try {
+        // Delete from Supabase
+        const { sourcePath: originalPath } = await deleteSource(dbPath, source.id);
+
+        // Delete local files
+        const loreSourcePath = path.join(dataDir, 'sources', source.id);
+        try {
+          await rm(loreSourcePath, { recursive: true });
+        } catch {
+          // File may not exist on disk
+        }
+
+        // Delete original source file from sync directory (and commit to its repo)
+        if (originalPath) {
+          await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
+        }
+
+        deleted++;
+        ui.statusBar.setContent(` {yellow-fg}Deleting... ${deleted}/${docsToDelete.length}{/yellow-fg}`);
+        ui.screen.render();
+      } catch (err) {
+        errors.push(`${source.title}: ${err}`);
+      }
+    }
+
+    // Git commit and push the deletions
+    await gitCommitAndPush(dataDir, `Delete project: ${header.displayName} (${deleted} documents)`);
+
+    // Remove from expanded set
+    state.expandedProjects.delete(header.projectName);
+
+    // Clear project filter - after deleting a project, show all remaining
+    state.currentProject = undefined;
+
+    // Refresh the source list (no project filter - show all remaining)
+    state.sources = await getAllSources(dbPath, {
+      source_type: sourceType,
+      limit: 100,
+    });
+    state.filtered = [...state.sources];
+
+    // Rebuild list items
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+      if (state.selectedIndex >= state.listItems.length) {
+        state.selectedIndex = Math.max(0, state.listItems.length - 1);
+      }
+    } else {
+      if (state.selectedIndex >= state.filtered.length) {
+        state.selectedIndex = Math.max(0, state.filtered.length - 1);
+      }
+    }
+
+    // Update UI
+    updateStatus(ui, state, state.currentProject, sourceType);
+    renderList(ui, state);
+    renderPreview(ui, state);
+
+    if (errors.length > 0) {
+      ui.statusBar.setContent(` {yellow-fg}Deleted ${deleted} documents, ${errors.length} failed{/yellow-fg}`);
+    } else {
+      ui.statusBar.setContent(` {green-fg}Deleted ${deleted} documents{/green-fg}`);
+    }
+    ui.screen.render();
+
+    // Restore normal status after delay
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
       ui.screen.render();
     }, 2000);
   } catch (error) {
@@ -1058,6 +1370,917 @@ export async function copyCurrentContent(
     ui.statusBar.setContent(` {red-fg}Copy failed: ${error}{/red-fg}`);
     ui.screen.render();
   }
+}
+
+// ============================================================================
+// Move Document to Project
+// ============================================================================
+
+/**
+ * Show move picker to relocate a document to a different project
+ */
+export async function showMovePicker(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string
+): Promise<void> {
+  // Get selected source
+  const source = getSelectedSource(state);
+  if (!source) {
+    ui.statusBar.setContent(' {yellow-fg}No document selected{/yellow-fg}');
+    ui.screen.render();
+    return;
+  }
+
+  state.moveTargetSource = source;
+  ui.statusBar.setContent(' Loading projects...');
+  ui.screen.render();
+
+  try {
+    const stats = await getProjectStats(dbPath);
+
+    // Build projects list (no "All Projects" option - doesn't make sense for move)
+    const projects: ProjectInfo[] = [];
+
+    // Add "New Project..." option at top
+    projects.push({
+      name: '__new__',
+      count: 0,
+      latestActivity: new Date().toISOString(),
+    });
+
+    // Add actual projects
+    for (const stat of stats) {
+      projects.push({
+        name: stat.project,
+        count: stat.source_count,
+        latestActivity: stat.latest_activity,
+      });
+    }
+
+    state.movePickerProjects = projects;
+    state.movePickerIndex = 0;
+
+    // Find current project in list (skip if doc has no project)
+    const currentProj = source.projects[0];
+    if (currentProj) {
+      const idx = projects.findIndex(p => p.name === currentProj);
+      if (idx >= 0) state.movePickerIndex = idx;
+    }
+
+    state.mode = 'move-picker';
+    renderMovePicker(state, ui);
+    ui.projectPicker.show();
+    ui.screen.render();
+  } catch (error) {
+    ui.statusBar.setContent(` {red-fg}Failed to load projects: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Render the move picker UI
+ */
+export function renderMovePicker(state: BrowserState, ui: UIComponents): void {
+  const source = state.moveTargetSource;
+  const currentProject = source?.projects[0] || '(none)';
+
+  const lines: string[] = [];
+  lines.push('{bold}{yellow-fg}Move Document to Project{/yellow-fg}{/bold}');
+  lines.push(`{gray-fg}Current: ${currentProject}{/gray-fg}`);
+  lines.push('');
+
+  for (let i = 0; i < state.movePickerProjects.length; i++) {
+    const p = state.movePickerProjects[i];
+    const isSelected = i === state.movePickerIndex;
+    const isCurrent = p.name === source?.projects[0];
+    const prefix = isSelected ? '{inverse} > ' : '   ';
+    const suffix = isSelected ? ' {/inverse}' : '';
+
+    let displayName: string;
+    let extra = '';
+
+    if (p.name === '__new__') {
+      displayName = '{cyan-fg}[New Project...]{/cyan-fg}';
+    } else {
+      displayName = p.name;
+      const ago = formatRelativeTime(p.latestActivity);
+      extra = ` (${p.count}, ${ago})`;
+      if (isCurrent) {
+        extra += ' {magenta-fg}(current){/magenta-fg}';
+      }
+    }
+
+    lines.push(`${prefix}${displayName}${extra}${suffix}`);
+  }
+
+  lines.push('');
+  lines.push('{blue-fg}j/k: navigate  Enter: move  Esc: cancel{/blue-fg}');
+
+  ui.projectPickerContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Navigate down in move picker
+ */
+export function movePickerDown(state: BrowserState, ui: UIComponents): void {
+  if (state.movePickerIndex < state.movePickerProjects.length - 1) {
+    state.movePickerIndex++;
+    renderMovePicker(state, ui);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Navigate up in move picker
+ */
+export function movePickerUp(state: BrowserState, ui: UIComponents): void {
+  if (state.movePickerIndex > 0) {
+    state.movePickerIndex--;
+    renderMovePicker(state, ui);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Confirm move to selected project
+ */
+export async function confirmMove(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string,
+  sourceType?: SourceType
+): Promise<void> {
+  const source = state.moveTargetSource;
+  if (!source) {
+    cancelMovePicker(state, ui);
+    return;
+  }
+
+  const selected = state.movePickerProjects[state.movePickerIndex];
+
+  // Handle "New Project..." option
+  if (selected.name === '__new__') {
+    // Show input for new project name
+    ui.projectPicker.hide();
+    state.mode = 'list';
+
+    // For now, show a message that they need to type a project name
+    // In the future, we could add a text input modal
+    ui.statusBar.setContent(' {yellow-fg}New project creation coming soon. Use edit (i) to set project name.{/yellow-fg}');
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 2000);
+    return;
+  }
+
+  // Don't move if same project
+  if (source.projects.includes(selected.name)) {
+    ui.projectPicker.hide();
+    state.mode = 'list';
+    ui.statusBar.setContent(' {yellow-fg}Document already in this project{/yellow-fg}');
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 1500);
+    return;
+  }
+
+  ui.projectPicker.hide();
+  ui.statusBar.setContent(` Moving to "${selected.name}"...`);
+  ui.screen.render();
+
+  try {
+    // Update the source's projects array (replace, not add)
+    const success = await updateSourceProjects(dbPath, source.id, [selected.name]);
+
+    if (!success) {
+      throw new Error('Failed to update source');
+    }
+
+    // Update the local source object
+    source.projects = [selected.name];
+
+    // Rebuild list if in grouped mode
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+    }
+
+    state.mode = 'list';
+    renderList(ui, state);
+    renderPreview(ui, state);
+
+    ui.statusBar.setContent(` {green-fg}Moved to "${selected.name}"{/green-fg}`);
+    ui.screen.render();
+
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 1500);
+
+  } catch (error) {
+    state.mode = 'list';
+    ui.statusBar.setContent(` {red-fg}Move failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Cancel move picker
+ */
+export function cancelMovePicker(state: BrowserState, ui: UIComponents): void {
+  ui.projectPicker.hide();
+  state.mode = 'list';
+  state.moveTargetSource = undefined;
+  ui.screen.render();
+}
+
+// ============================================================================
+// Edit Document Info
+// ============================================================================
+
+/**
+ * Enter edit info mode for the selected document
+ */
+export function enterEditInfo(
+  state: BrowserState,
+  ui: UIComponents
+): void {
+  const source = getSelectedSource(state);
+  if (!source) {
+    ui.statusBar.setContent(' {yellow-fg}No document selected{/yellow-fg}');
+    ui.screen.render();
+    return;
+  }
+
+  state.editSource = source;
+  state.editTitle = source.title;
+  state.editProjects = [...source.projects];
+  state.editFieldIndex = 0;
+  state.mode = 'edit-info';
+
+  // Hide list/preview, show edit pane
+  ui.listPane.hide();
+  ui.previewPane.hide();
+
+  // Show the input with current title - update label on input box
+  ui.askInput.setLabel(' Edit Title ');
+  ui.askInput.setValue(source.title);
+  ui.askInput.show();
+  
+  // Show info pane with instructions
+  ui.askPane.setLabel(' Document Info ');
+  ui.askPane.setContent('{cyan-fg}Edit the title above and press Enter to save{/cyan-fg}\n\n{gray-fg}Press Esc to cancel{/gray-fg}');
+  ui.askPane.show();
+
+  ui.footer.setContent(' Enter: Save │ Esc: Cancel');
+  ui.askInput.focus();
+  ui.askInput.readInput();
+  ui.screen.render();
+}
+
+/**
+ * Save edit info changes
+ */
+export async function saveEditInfo(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  sourceType?: SourceType
+): Promise<void> {
+  const source = state.editSource;
+  if (!source) {
+    exitEditInfo(state, ui);
+    return;
+  }
+
+  ui.askPane.setContent('{yellow-fg}Saving...{/yellow-fg}');
+  ui.screen.render();
+
+  try {
+    let updated = false;
+
+    // Update title if changed
+    if (state.editTitle !== source.title && state.editTitle.trim()) {
+      const success = await updateSourceTitle(dbPath, source.id, state.editTitle.trim());
+      if (success) {
+        source.title = state.editTitle.trim();
+        updated = true;
+      }
+    }
+
+    // Update projects if changed
+    const newProjects = state.editProjects.filter(p => p.trim());
+    const projectsChanged = JSON.stringify(newProjects) !== JSON.stringify(source.projects);
+    if (projectsChanged) {
+      const success = await updateSourceProjects(dbPath, source.id, newProjects);
+      if (success) {
+        source.projects = newProjects;
+        updated = true;
+      }
+    }
+
+    exitEditInfo(state, ui);
+
+    // Rebuild list if in grouped mode
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+    }
+
+    renderList(ui, state);
+    renderPreview(ui, state);
+
+    if (updated) {
+      ui.statusBar.setContent(' {green-fg}Document updated{/green-fg}');
+    } else {
+      ui.statusBar.setContent(' {gray-fg}No changes{/gray-fg}');
+    }
+    ui.screen.render();
+
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 1500);
+
+  } catch (error) {
+    exitEditInfo(state, ui);
+    ui.statusBar.setContent(` {red-fg}Save failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Exit edit info mode without saving
+ */
+export function exitEditInfo(state: BrowserState, ui: UIComponents): void {
+  state.mode = 'list';
+  state.editSource = undefined;
+  state.editTitle = '';
+  state.editProjects = [];
+  state.editFieldIndex = 0;
+
+  // Hide and reset ask components
+  ui.askInput.hide();
+  ui.askInput.setValue('');
+  ui.askInput.setLabel(' Ask Lore ');
+  ui.askPane.hide();
+  ui.askPane.setLabel(' Response ');
+
+  ui.listPane.show();
+  ui.previewPane.show();
+
+  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ ? Help');
+  ui.listContent.focus();
+  ui.screen.render();
+}
+
+
+// ============================================================================
+// Edit Content Type (Type Picker)
+// ============================================================================
+
+// Valid content types
+const CONTENT_TYPES = [
+  'interview',
+  'meeting',
+  'conversation',
+  'document',
+  'note',
+  'analysis',
+] as const;
+
+/**
+ * Show type picker to change document content type
+ */
+export function showTypePicker(
+  state: BrowserState,
+  ui: UIComponents
+): void {
+  const source = getSelectedSource(state);
+  if (!source) {
+    ui.statusBar.setContent(' {yellow-fg}No document selected{/yellow-fg}');
+    ui.screen.render();
+    return;
+  }
+
+  state.typePickerSource = source;
+  state.typePickerIndex = 0;
+
+  // Find current type in list
+  const currentIdx = CONTENT_TYPES.indexOf(source.content_type as typeof CONTENT_TYPES[number]);
+  if (currentIdx >= 0) {
+    state.typePickerIndex = currentIdx;
+  }
+
+  state.mode = 'type-picker';
+  renderTypePicker(state, ui);
+  ui.projectPicker.show();
+  ui.screen.render();
+}
+
+/**
+ * Render the type picker UI
+ */
+export function renderTypePicker(state: BrowserState, ui: UIComponents): void {
+  const source = state.typePickerSource;
+  const currentType = source?.content_type || '(unknown)';
+
+  const lines: string[] = [];
+  lines.push('{bold}{yellow-fg}Change Content Type{/yellow-fg}{/bold}');
+  lines.push(`{gray-fg}Current: ${currentType}{/gray-fg}`);
+  lines.push('');
+
+  for (let i = 0; i < CONTENT_TYPES.length; i++) {
+    const type = CONTENT_TYPES[i];
+    const isSelected = i === state.typePickerIndex;
+    const isCurrent = type === source?.content_type;
+    const prefix = isSelected ? '{inverse} > ' : '   ';
+    const suffix = isSelected ? ' {/inverse}' : '';
+
+    let displayName = type;
+    let extra = '';
+    if (isCurrent) {
+      extra = ' {magenta-fg}(current){/magenta-fg}';
+    }
+
+    lines.push(`${prefix}${displayName}${extra}${suffix}`);
+  }
+
+  lines.push('');
+  lines.push('{blue-fg}j/k: navigate  Enter: select  Esc: cancel{/blue-fg}');
+
+  ui.projectPickerContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Navigate down in type picker
+ */
+export function typePickerDown(state: BrowserState, ui: UIComponents): void {
+  if (state.typePickerIndex < CONTENT_TYPES.length - 1) {
+    state.typePickerIndex++;
+    renderTypePicker(state, ui);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Navigate up in type picker
+ */
+export function typePickerUp(state: BrowserState, ui: UIComponents): void {
+  if (state.typePickerIndex > 0) {
+    state.typePickerIndex--;
+    renderTypePicker(state, ui);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Confirm type selection
+ */
+export async function confirmTypeChange(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  sourceType?: SourceType
+): Promise<void> {
+  const source = state.typePickerSource;
+  if (!source) {
+    cancelTypePicker(state, ui);
+    return;
+  }
+
+  const selectedType = CONTENT_TYPES[state.typePickerIndex];
+
+  // Don't update if same type
+  if (selectedType === source.content_type) {
+    ui.projectPicker.hide();
+    state.mode = 'list';
+    ui.statusBar.setContent(' {yellow-fg}No change{/yellow-fg}');
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 1500);
+    return;
+  }
+
+  ui.projectPicker.hide();
+  ui.statusBar.setContent(` Updating type to "${selectedType}"...`);
+  ui.screen.render();
+
+  try {
+    const success = await updateSourceContentType(dbPath, source.id, selectedType);
+
+    if (!success) {
+      throw new Error('Failed to update content type');
+    }
+
+    // Update the local source object
+    (source as any).content_type = selectedType;
+
+    state.mode = 'list';
+    renderList(ui, state);
+    renderPreview(ui, state);
+
+    ui.statusBar.setContent(` {green-fg}Type changed to "${selectedType}"{/green-fg}`);
+    ui.screen.render();
+
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject, sourceType);
+      ui.screen.render();
+    }, 1500);
+
+  } catch (error) {
+    state.mode = 'list';
+    ui.statusBar.setContent(` {red-fg}Update failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Cancel type picker
+ */
+export function cancelTypePicker(state: BrowserState, ui: UIComponents): void {
+  ui.projectPicker.hide();
+  state.mode = 'list';
+  state.typePickerSource = undefined;
+  ui.screen.render();
+}
+
+
+// ============================================================================
+// Content Type Filter (Filter list by content type)
+// ============================================================================
+
+// Content types for filtering (includes "All" option)
+const FILTER_CONTENT_TYPES = [
+  '__all__',
+  'interview',
+  'meeting',
+  'conversation',
+  'document',
+  'note',
+  'analysis',
+] as const;
+
+/**
+ * Show content type filter picker
+ */
+export function showContentTypeFilter(state: BrowserState, ui: UIComponents): void {
+  state.contentTypeFilterIndex = 0;
+
+  // Find current filter in list
+  if (state.currentContentType) {
+    const idx = FILTER_CONTENT_TYPES.indexOf(state.currentContentType as typeof FILTER_CONTENT_TYPES[number]);
+    if (idx >= 0) {
+      state.contentTypeFilterIndex = idx;
+    }
+  }
+
+  state.mode = 'content-type-filter';
+  renderContentTypeFilter(state, ui);
+  ui.projectPicker.show();
+  ui.screen.render();
+}
+
+/**
+ * Render the content type filter UI
+ */
+export function renderContentTypeFilter(state: BrowserState, ui: UIComponents): void {
+  const currentFilter = state.currentContentType || 'All';
+
+  const lines: string[] = [];
+  lines.push('{bold}{yellow-fg}Filter by Content Type{/yellow-fg}{/bold}');
+  lines.push(`{gray-fg}Current: ${currentFilter}{/gray-fg}`);
+  lines.push('');
+
+  for (let i = 0; i < FILTER_CONTENT_TYPES.length; i++) {
+    const type = FILTER_CONTENT_TYPES[i];
+    const isSelected = i === state.contentTypeFilterIndex;
+    const isCurrent = type === state.currentContentType || (type === '__all__' && !state.currentContentType);
+    const prefix = isSelected ? '{inverse} > ' : '   ';
+    const suffix = isSelected ? ' {/inverse}' : '';
+
+    let displayName = type === '__all__' ? '{cyan-fg}[All Types]{/cyan-fg}' : type;
+    let extra = '';
+    if (isCurrent) {
+      extra = ' {magenta-fg}(current){/magenta-fg}';
+    }
+
+    lines.push(`${prefix}${displayName}${extra}${suffix}`);
+  }
+
+  lines.push('');
+  lines.push('{blue-fg}j/k: navigate  Enter: select  Esc: cancel{/blue-fg}');
+
+  ui.projectPickerContent.setContent(lines.join('\n'));
+}
+
+/**
+ * Navigate down in content type filter
+ */
+export function contentTypeFilterDown(state: BrowserState, ui: UIComponents): void {
+  if (state.contentTypeFilterIndex < FILTER_CONTENT_TYPES.length - 1) {
+    state.contentTypeFilterIndex++;
+    renderContentTypeFilter(state, ui);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Navigate up in content type filter
+ */
+export function contentTypeFilterUp(state: BrowserState, ui: UIComponents): void {
+  if (state.contentTypeFilterIndex > 0) {
+    state.contentTypeFilterIndex--;
+    renderContentTypeFilter(state, ui);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Apply content type filter
+ */
+export async function applyContentTypeFilter(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string,
+  sourceType?: SourceType
+): Promise<void> {
+  const selectedType = FILTER_CONTENT_TYPES[state.contentTypeFilterIndex];
+
+  ui.projectPicker.hide();
+
+  const newFilter = selectedType === '__all__' ? undefined : selectedType;
+  state.currentContentType = newFilter;
+
+  // Check if we should return to ask/research mode
+  if (state.pickerReturnMode === 'ask') {
+    state.mode = 'ask';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Ask Lore ');
+    renderReturnToAskOrResearch(state, ui, 'ask');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+    ui.screen.render();
+    return;
+  } else if (state.pickerReturnMode === 'research') {
+    state.mode = 'research';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Research Agent ');
+    renderReturnToAskOrResearch(state, ui, 'research');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+    ui.screen.render();
+    return;
+  }
+
+  state.mode = 'list';
+
+  ui.statusBar.setContent(' Filtering...');
+  ui.screen.render();
+
+  try {
+    // Reload sources with content type filter
+    // Note: getAllSources doesn't support content_type filter directly,
+    // so we filter client-side for now
+    state.sources = await getAllSources(dbPath, {
+      project: state.currentProject,
+      source_type: sourceType,
+      limit: 100,
+    });
+
+    // Apply content type filter client-side
+    if (newFilter) {
+      state.filtered = state.sources.filter(s => s.content_type === newFilter);
+    } else {
+      state.filtered = [...state.sources];
+    }
+
+    state.selectedIndex = 0;
+
+    // Rebuild list items if in grouped mode
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+    }
+
+    updateStatus(ui, state, state.currentProject, sourceType);
+    renderList(ui, state);
+    renderPreview(ui, state);
+    ui.screen.render();
+  } catch (error) {
+    ui.statusBar.setContent(` {red-fg}Filter failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Cancel content type filter picker
+ */
+export function cancelContentTypeFilter(state: BrowserState, ui: UIComponents): void {
+  ui.projectPicker.hide();
+
+  // Check if we should return to ask/research mode
+  if (state.pickerReturnMode === 'ask') {
+    state.mode = 'ask';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Ask Lore ');
+    renderReturnToAskOrResearch(state, ui, 'ask');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+  } else if (state.pickerReturnMode === 'research') {
+    state.mode = 'research';
+    state.pickerReturnMode = undefined;
+    ui.listPane.hide();
+    ui.previewPane.hide();
+    ui.askInput.show();
+    ui.askPane.show();
+    ui.askPane.setLabel(' Research Agent ');
+    renderReturnToAskOrResearch(state, ui, 'research');
+    ui.askInput.focus();
+    ui.askInput.readInput();
+  } else {
+    state.mode = 'list';
+  }
+
+  ui.screen.render();
+}
+
+/**
+ * Clear content type filter
+ */
+export async function clearContentTypeFilter(
+  state: BrowserState,
+  ui: UIComponents,
+  dbPath: string,
+  dataDir: string,
+  sourceType?: SourceType
+): Promise<void> {
+  state.currentContentType = undefined;
+
+  ui.statusBar.setContent(' Clearing filter...');
+  ui.screen.render();
+
+  try {
+    state.sources = await getAllSources(dbPath, {
+      project: state.currentProject,
+      source_type: sourceType,
+      limit: 100,
+    });
+
+    state.filtered = [...state.sources];
+    state.selectedIndex = 0;
+
+    if (state.groupByProject) {
+      state.listItems = buildListItems(state);
+    }
+
+    updateStatus(ui, state, state.currentProject, sourceType);
+    renderList(ui, state);
+    renderPreview(ui, state);
+    ui.screen.render();
+  } catch (error) {
+    ui.statusBar.setContent(` {red-fg}Clear failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+// ============================================================================
+// Project Folders (Collapsible Groups)
+// ============================================================================
+
+/**
+ * Toggle expand/collapse for the currently selected project header
+ */
+export function toggleProjectExpand(state: BrowserState, ui: UIComponents): boolean {
+  if (!state.groupByProject || state.listItems.length === 0) {
+    return false;
+  }
+
+  const item = state.listItems[state.selectedIndex];
+  if (!item || item.type !== 'header') {
+    return false;
+  }
+
+  // Toggle expansion
+  if (state.expandedProjects.has(item.projectName)) {
+    state.expandedProjects.delete(item.projectName);
+  } else {
+    state.expandedProjects.add(item.projectName);
+  }
+
+  // Rebuild list items and re-render
+  state.listItems = buildListItems(state);
+  renderList(ui, state);
+  renderPreview(ui, state);
+  ui.screen.render();
+  return true;
+}
+
+/**
+ * Expand the currently selected project (or the project containing the selected doc)
+ */
+export function expandCurrentProject(state: BrowserState, ui: UIComponents): void {
+  if (!state.groupByProject || state.listItems.length === 0) return;
+
+  const item = state.listItems[state.selectedIndex];
+  if (!item) return;
+
+  const projectName = item.type === 'header' ? item.projectName : item.projectName;
+
+  if (!state.expandedProjects.has(projectName)) {
+    state.expandedProjects.add(projectName);
+    state.listItems = buildListItems(state);
+    renderList(ui, state);
+    renderPreview(ui, state);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Collapse the currently selected project (or the project containing the selected doc)
+ */
+export function collapseCurrentProject(state: BrowserState, ui: UIComponents): void {
+  if (!state.groupByProject || state.listItems.length === 0) return;
+
+  const item = state.listItems[state.selectedIndex];
+  if (!item) return;
+
+  const projectName = item.type === 'header' ? item.projectName : item.projectName;
+
+  if (state.expandedProjects.has(projectName)) {
+    state.expandedProjects.delete(projectName);
+
+    // Find the header for this project and move selection to it
+    state.listItems = buildListItems(state);
+    const headerIdx = state.listItems.findIndex(
+      i => i.type === 'header' && i.projectName === projectName
+    );
+    if (headerIdx >= 0) {
+      state.selectedIndex = headerIdx;
+    }
+
+    renderList(ui, state);
+    renderPreview(ui, state);
+    ui.screen.render();
+  }
+}
+
+/**
+ * Toggle grouped view mode
+ */
+export function toggleGroupedView(state: BrowserState, ui: UIComponents): void {
+  state.groupByProject = !state.groupByProject;
+
+  if (state.groupByProject) {
+    // Switching to grouped view - rebuild list items
+    state.listItems = buildListItems(state);
+    state.selectedIndex = 0;
+  } else {
+    // Switching to flat view
+    state.listItems = [];
+    state.selectedIndex = 0;
+  }
+
+  renderList(ui, state);
+  renderPreview(ui, state);
+  ui.screen.render();
+}
+
+/**
+ * Check if selection is on a document (for Enter key handling)
+ */
+export function isDocumentSelected(state: BrowserState): boolean {
+  if (!state.groupByProject) {
+    return state.filtered.length > 0;
+  }
+
+  const item = state.listItems[state.selectedIndex];
+  return item?.type === 'document';
+}
+
+/**
+ * Get the selected source for full view (handles both modes)
+ */
+export function getSelectedSourceForFullView(state: BrowserState): import('./browse-types.js').SourceItem | null {
+  return getSelectedSource(state);
 }
 
 // ============================================================================

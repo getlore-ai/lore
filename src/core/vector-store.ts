@@ -511,8 +511,19 @@ export async function getSourceById(
 export async function deleteSource(
   _dbPath: string,
   sourceId: string
-): Promise<boolean> {
+): Promise<{ deleted: boolean; contentHash?: string; sourcePath?: string }> {
   const client = getSupabase();
+
+  // Fetch content_hash and source_path before deleting so callers can
+  // record the hash in the blocklist and remove the original file
+  const { data } = await client
+    .from('sources')
+    .select('content_hash, source_path')
+    .eq('id', sourceId)
+    .single();
+
+  const contentHash = data?.content_hash as string | undefined;
+  const sourcePath = data?.source_path as string | undefined;
 
   const { error } = await client
     .from('sources')
@@ -521,6 +532,77 @@ export async function deleteSource(
 
   if (error) {
     console.error('Error deleting source:', error);
+    return { deleted: false };
+  }
+
+  return { deleted: true, contentHash, sourcePath };
+}
+
+
+/**
+ * Update a source's projects array
+ */
+export async function updateSourceProjects(
+  _dbPath: string,
+  sourceId: string,
+  projects: string[]
+): Promise<boolean> {
+  const client = getSupabase();
+
+  const { error } = await client
+    .from('sources')
+    .update({ projects })
+    .eq('id', sourceId);
+
+  if (error) {
+    console.error('Error updating source projects:', error);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Update a source's title
+ */
+export async function updateSourceTitle(
+  _dbPath: string,
+  sourceId: string,
+  title: string
+): Promise<boolean> {
+  const client = getSupabase();
+
+  const { error } = await client
+    .from('sources')
+    .update({ title })
+    .eq('id', sourceId);
+
+  if (error) {
+    console.error('Error updating source title:', error);
+    return false;
+  }
+
+  return true;
+}
+
+
+/**
+ * Update a source's content type
+ */
+export async function updateSourceContentType(
+  _dbPath: string,
+  sourceId: string,
+  contentType: string
+): Promise<boolean> {
+  const client = getSupabase();
+
+  const { error } = await client
+    .from('sources')
+    .update({ content_type: contentType })
+    .eq('id', sourceId);
+
+  if (error) {
+    console.error('Error updating source content type:', error);
     return false;
   }
 

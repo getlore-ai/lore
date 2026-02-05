@@ -114,6 +114,27 @@ export async function gitCommitAndPush(
 }
 
 /**
+ * Delete a file and commit the removal to its git repo (if git-tracked).
+ * No-op if the file doesn't exist.
+ */
+export async function deleteFileAndCommit(
+  filePath: string,
+  commitMessage: string
+): Promise<void> {
+  const { existsSync } = await import('fs');
+  if (!existsSync(filePath)) return;
+
+  const { rm } = await import('fs/promises');
+  const dir = (await import('path')).dirname(filePath);
+
+  await rm(filePath);
+
+  if (await isGitRepo(dir)) {
+    await gitCommitAndPush(dir, commitMessage);
+  }
+}
+
+/**
  * Sync: pull, then push any local changes
  */
 export async function gitSync(dir: string): Promise<GitResult> {
