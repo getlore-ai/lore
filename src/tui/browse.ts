@@ -46,6 +46,7 @@ import {
   showDeleteConfirm,
   cancelDelete,
   confirmDelete,
+  copyCurrentContent,
 } from './browse-handlers.js';
 import {
   showExtensions,
@@ -57,6 +58,11 @@ import {
   exitAskMode,
   executeAsk,
 } from './browse-handlers-ask.js';
+import {
+  enterResearchMode,
+  exitResearchMode,
+  executeResearch,
+} from './browse-handlers-research.js';
 import { getAllSources } from '../core/vector-store.js';
 
 /**
@@ -91,6 +97,9 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     askQuery: '',
     askResponse: '',
     askStreaming: false,
+    researchQuery: '',
+    researchRunning: false,
+    researchResponse: '',
   };
 
   // Create UI components
@@ -137,7 +146,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ d Delete │ q Quit │ ? Help');
+      ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ R Research │ p Projects │ d Delete │ q Quit │ ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -145,6 +154,10 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     } else if (state.mode === 'ask') {
       if (!state.askStreaming) {
         exitAskMode(state, ui);
+      }
+    } else if (state.mode === 'research') {
+      if (!state.researchRunning) {
+        exitResearchMode(state, ui);
       }
     } else if (state.mode === 'list' && state.searchQuery) {
       // Clear search filter
@@ -271,6 +284,13 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
+  // Copy to clipboard (y for yank)
+  screen.key(['y'], () => {
+    if (state.mode === 'fullview' || state.mode === 'ask' || state.mode === 'research') {
+      copyCurrentContent(state, ui);
+    }
+  });
+
   screen.key(['s'], () => {
     if (state.mode === 'list') {
       triggerSync(state, ui, dbPath, dataDir, state.currentProject, sourceType);
@@ -307,6 +327,21 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
+  screen.key(['S-r'], () => {
+    if (state.mode === 'list') {
+      enterResearchMode(state, ui);
+    } else if (state.mode === 'research' && !state.researchRunning) {
+      // In research mode, 'R' starts new research
+      ui.askInput.setValue('');
+      ui.askInput.show();
+      ui.askPane.setLabel(' Research Agent ');
+      ui.askPane.setContent('{cyan-fg}Enter research task and press Enter{/cyan-fg}\n\n{gray-fg}The research agent will iteratively explore sources,\ncross-reference findings, and synthesize results.{/gray-fg}');
+      ui.askInput.focus();
+      ui.askInput.readInput();
+      screen.render();
+    }
+  });
+
   screen.key(['x'], () => {
     if (state.mode === 'list') {
       showExtensions(state, ui);
@@ -329,6 +364,33 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   screen.key(['n'], () => {
     if (state.mode === 'delete-confirm') {
       cancelDelete(state, ui);
+    }
+  });
+
+  // Mouse wheel scrolling (ask/research use blessed's native scrolling via askPane)
+  screen.on('wheeldown', () => {
+    if (state.mode === 'list') {
+      moveDown(state, ui);
+    } else if (state.mode === 'fullview') {
+      moveDown(state, ui);
+      moveDown(state, ui);
+      moveDown(state, ui);
+    } else if (state.mode === 'ask' || state.mode === 'research') {
+      ui.askPane.scroll(3);
+      ui.screen.render();
+    }
+  });
+
+  screen.on('wheelup', () => {
+    if (state.mode === 'list') {
+      moveUp(state, ui);
+    } else if (state.mode === 'fullview') {
+      moveUp(state, ui);
+      moveUp(state, ui);
+      moveUp(state, ui);
+    } else if (state.mode === 'ask' || state.mode === 'research') {
+      ui.askPane.scroll(-3);
+      ui.screen.render();
     }
   });
 
@@ -376,14 +438,22 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     exitDocSearch(state, ui, false);
   });
 
-  // Ask input handlers
+  // Ask/Research input handlers (shared input component)
   const { askInput } = ui;
   askInput.on('submit', async (value: string) => {
-    await executeAsk(state, ui, dbPath, value);
+    if (state.mode === 'research') {
+      await executeResearch(state, ui, dbPath, dataDir, value);
+    } else {
+      await executeAsk(state, ui, dbPath, value);
+    }
   });
 
   askInput.on('cancel', () => {
-    exitAskMode(state, ui);
+    if (state.mode === 'research') {
+      exitResearchMode(state, ui);
+    } else {
+      exitAskMode(state, ui);
+    }
   });
 
   // Load data

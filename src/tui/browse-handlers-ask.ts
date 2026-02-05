@@ -60,7 +60,7 @@ export function exitAskMode(state: BrowserState, ui: UIComponents): void {
   ui.listPane.show();
   ui.previewPane.show();
   
-  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ x Extensions │ q Quit │ ? Help');
+  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ R Research │ p Projects │ x Extensions │ q Quit │ ? Help');
   ui.listContent.focus();
   ui.screen.render();
 }
@@ -97,10 +97,10 @@ export async function executeAsk(
   ui.screen.render();
 
   try {
-    // Search for relevant sources
+    // Search for relevant sources (increased limit for more context)
     const embedding = await generateEmbedding(query);
     const sources = await searchSources(dbPath, embedding, {
-      limit: 10,
+      limit: 20,
       project: state.currentProject || undefined,
       queryText: query,
       mode: 'hybrid',
@@ -114,15 +114,26 @@ export async function executeAsk(
       return;
     }
 
-    // Build context
+    // Build context (expanded to include more quotes and full summaries)
     const sourceContext = sources.map((s, i) => {
       const parts = [`[Source ${i + 1}: ${s.title}]`];
       if (s.summary) parts.push(`Summary: ${s.summary}`);
-      if (s.themes?.length) parts.push(`Themes: ${s.themes.map(t => t.name).join(', ')}`);
+      if (s.themes?.length) {
+        parts.push(`Themes: ${s.themes.map(t => t.name).join(', ')}`);
+        // Include theme summaries if available
+        for (const theme of s.themes.slice(0, 3)) {
+          if (theme.summary) {
+            parts.push(`  ${theme.name}: ${theme.summary}`);
+          }
+        }
+      }
       if (s.quotes?.length) {
         parts.push('Key quotes:');
-        for (const q of s.quotes.slice(0, 3)) {
-          parts.push(`  "${q.text}"`);
+        // Increased from 3 to 8 quotes per source
+        for (const q of s.quotes.slice(0, 8)) {
+          const speaker = q.speaker_name || q.speaker || '';
+          const speakerPrefix = speaker ? `[${speaker}] ` : '';
+          parts.push(`  ${speakerPrefix}"${q.text}"`);
         }
       }
       return parts.join('\n');
@@ -162,14 +173,14 @@ export async function executeAsk(
     state.askStreaming = false;
     state.askResponse = response;
     
-    ui.footer.setContent(' Esc: Back  │  a: New question');
+    ui.footer.setContent(' y: Copy  │  Esc: Back  │  a: New question');
     ui.screen.render();
 
   } catch (error) {
     state.askStreaming = false;
     const errorMsg = error instanceof Error ? error.message : String(error);
     ui.askPane.setContent(`{red-fg}Error: ${errorMsg}{/red-fg}`);
-    ui.footer.setContent(' Esc: Back  │  a: New question');
+    ui.footer.setContent(' y: Copy  │  Esc: Back  │  a: New question');
     ui.screen.render();
   }
 }

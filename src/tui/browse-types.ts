@@ -41,6 +41,7 @@ export type Mode =
   | 'project-picker'
   | 'extensions'
   | 'ask'
+  | 'research'
   | 'delete-confirm';
 
 // Extension info for display
@@ -90,6 +91,10 @@ export interface BrowserState {
   askQuery: string;
   askResponse: string;
   askStreaming: boolean;
+  // Research mode
+  researchQuery: string;
+  researchRunning: boolean;
+  researchResponse: string;
 }
 
 // UI components from blessed

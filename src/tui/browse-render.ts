@@ -242,8 +242,16 @@ export function renderList(ui: UIComponents, state: BrowserState): void {
     return;
   }
 
-  const visibleStart = Math.max(0, state.selectedIndex - Math.floor(height / 2));
-  const visibleEnd = Math.min(state.filtered.length, visibleStart + height);
+  // Each item takes 3 lines (title, meta, spacing) or 4 with score
+  const linesPerItem = 3;
+  const itemsVisible = Math.floor(height / linesPerItem);
+
+  // Keep selected item visible, but maximize items shown
+  let visibleStart = 0;
+  if (state.selectedIndex >= itemsVisible) {
+    visibleStart = state.selectedIndex - itemsVisible + 1;
+  }
+  const visibleEnd = Math.min(state.filtered.length, visibleStart + itemsVisible);
 
   for (let i = visibleStart; i < visibleEnd; i++) {
     const source = state.filtered[i];

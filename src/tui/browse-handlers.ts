@@ -116,6 +116,8 @@ export async function enterFullView(
 
   // Load content and render
   await loadFullContent(state, ui, dbPath, sourcesDir);
+  ui.footer.setContent(' j/k Scroll │ / Search │ y Copy │ e Edit │ Esc Back');
+  ui.screen.render();
 }
 
 /**
@@ -126,7 +128,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ p Projects │ d Delete │ q Quit │ ? Help');
+  ui.footer.setContent(' ↑↓ Navigate │ Enter View │ / Search │ a Ask │ R Research │ p Projects │ d Delete │ q Quit │ ? Help');
   ui.screen.render();
 }
 
@@ -963,6 +965,97 @@ export async function confirmDelete(
     }, 2000);
   } catch (error) {
     ui.statusBar.setContent(` {red-fg}Delete failed: ${error}{/red-fg}`);
+    ui.screen.render();
+  }
+}
+
+// ============================================================================
+// Clipboard Copy
+// ============================================================================
+
+/**
+ * Copy text to system clipboard
+ */
+function copyToClipboard(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const platform = process.platform;
+    let cmd: string;
+    let args: string[];
+
+    if (platform === 'darwin') {
+      cmd = 'pbcopy';
+      args = [];
+    } else if (platform === 'linux') {
+      // Try xclip first, fall back to xsel
+      cmd = 'xclip';
+      args = ['-selection', 'clipboard'];
+    } else if (platform === 'win32') {
+      cmd = 'clip';
+      args = [];
+    } else {
+      reject(new Error(`Unsupported platform: ${platform}`));
+      return;
+    }
+
+    const proc = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
+    proc.stdin?.write(text);
+    proc.stdin?.end();
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Clipboard command failed with code ${code}`));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+/**
+ * Copy current view content to clipboard
+ */
+export async function copyCurrentContent(
+  state: BrowserState,
+  ui: UIComponents
+): Promise<void> {
+  let content: string | null = null;
+  let description = '';
+
+  if (state.mode === 'fullview') {
+    content = state.fullContent;
+    description = 'Document';
+  } else if (state.mode === 'ask' && state.askResponse) {
+    content = state.askResponse;
+    description = 'Response';
+  } else if (state.mode === 'research' && state.researchResponse) {
+    content = state.researchResponse;
+    description = 'Research result';
+  }
+
+  if (!content) {
+    ui.statusBar.setContent(' {yellow-fg}Nothing to copy{/yellow-fg}');
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject);
+      ui.screen.render();
+    }, 1500);
+    return;
+  }
+
+  try {
+    await copyToClipboard(content);
+    ui.statusBar.setContent(` {green-fg}${description} copied to clipboard{/green-fg}`);
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject);
+      ui.screen.render();
+    }, 1500);
+  } catch (error) {
+    ui.statusBar.setContent(` {red-fg}Copy failed: ${error}{/red-fg}`);
     ui.screen.render();
   }
 }

@@ -16,6 +16,7 @@ export function createUIComponents(): UIComponents {
     smartCSR: true,
     title: 'Lore Browser',
     fullUnicode: true,
+    mouse: true,
   });
 
   // Header
@@ -250,6 +251,7 @@ export function createUIComponents(): UIComponents {
   j/k        Scroll up/down
   /          Search in document (regex)
   n / N      Next/previous match
+  y          Copy to clipboard
   Esc        Clear search / back to list
   e          Open in $EDITOR
 
@@ -380,7 +382,7 @@ export function createUIComponents(): UIComponents {
     height: '100%-7',
     label: ' Response ',
     border: { type: 'line' },
-    style: { border: { fg: 'cyan' } },
+    style: { fg: 'white', border: { fg: 'cyan' } },
     hidden: true,
     tags: true,
     scrollable: true,
