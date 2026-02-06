@@ -77,4 +77,4 @@ Same content on different machines produces the same hash — no duplicate proce
 
 ## License
 
-MIT
+Proprietary. All rights reserved.

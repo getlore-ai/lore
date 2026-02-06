@@ -74,10 +74,6 @@ a:hover { color: var(--accent-hover); }
   color: var(--text-secondary); font-size: 0.875rem; font-weight: 500;
 }
 .nav-links a:hover { color: var(--text-primary); }
-.nav-github {
-  padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 6px;
-}
-.nav-github:hover { border-color: var(--border-hover); }
 
 .nav-toggle {
   display: none; background: none; border: none; color: var(--text-secondary);
@@ -303,12 +299,19 @@ td code { white-space: nowrap; }
   border-top: 1px solid var(--border); padding: 3rem 0; margin-top: 1rem;
   text-align: center; color: var(--text-muted); font-size: 0.85rem;
 }
+.footer-logo {
+  font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700;
+  color: var(--text-secondary); margin-bottom: 0.75rem;
+}
+.footer-logo span { color: var(--accent); }
+.footer p { margin-bottom: 1rem; }
 .footer-links {
   display: flex; justify-content: center; gap: 2rem;
-  margin-bottom: 1rem; list-style: none;
+  margin-bottom: 1.5rem; list-style: none;
 }
 .footer-links a { color: var(--text-secondary); font-size: 0.85rem; }
 .footer-links a:hover { color: var(--text-primary); }
+.footer-copy { color: var(--text-muted); font-size: 0.78rem; margin-bottom: 0; }
 
 /* ---- Responsive ---- */
 @media (max-width: 768px) {
