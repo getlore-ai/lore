@@ -364,11 +364,35 @@ export function registerAuthCommands(program: Command): void {
           }
         }
       } else {
-        // Dir exists but no git remote — init and offer remote setup
+        // Dir exists but no git remote — check Supabase first, then offer setup
         console.log(c.dim(`Data directory exists at ${resolvedDataDir}, ensuring git is set up...\n`));
         await initDataRepo(resolvedDataDir);
 
-        if (await isGhAvailable()) {
+        // Check Supabase for a saved repo URL before offering to create a new one
+        let savedUrl: string | null = null;
+        try {
+          savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
+        } catch (err) {
+          console.log(c.dim(`Could not check for existing repo URL: ${err instanceof Error ? err.message : err}`));
+        }
+
+        if (savedUrl) {
+          // Found existing repo — add as remote and pull
+          console.log(c.success(`Found your data repo: ${savedUrl}`));
+          const useIt = await prompt('Add as remote and pull? (y/n)', 'y');
+
+          if (useIt.toLowerCase() === 'y') {
+            try {
+              const { execSync } = await import('child_process');
+              execSync(`git remote add origin ${savedUrl}`, { cwd: resolvedDataDir, stdio: 'pipe' });
+              execSync('git fetch origin', { cwd: resolvedDataDir, stdio: 'pipe' });
+              execSync('git reset --hard origin/main', { cwd: resolvedDataDir, stdio: 'pipe' });
+              console.log(c.success('Synced with existing repo!\n'));
+            } catch {
+              console.log(c.warning('Could not sync. You may need to set up the remote manually.\n'));
+            }
+          }
+        } else if (await isGhAvailable()) {
           const createRepo = await prompt('Create a private GitHub repo for cross-machine sync? (y/n)', 'y');
 
           if (createRepo.toLowerCase() === 'y') {
