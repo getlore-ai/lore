@@ -159,6 +159,44 @@ a:hover { color: var(--accent-hover); }
 .comparison-card p { font-size: 0.95rem; color: var(--text-secondary); font-style: italic; }
 .comparison-card.highlight p { color: var(--text-primary); }
 
+/* ---- Screenshot ---- */
+.screenshot-section { padding-top: 3rem; padding-bottom: 3rem; }
+
+.screenshot-frame {
+  border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.screenshot-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.screenshot-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+}
+.screenshot-dot.red { background: #ff5f57; }
+.screenshot-dot.yellow { background: #febc2e; }
+.screenshot-dot.green { background: #28c840; }
+
+.screenshot-title {
+  font-family: var(--font-mono); font-size: 0.75rem;
+  color: var(--text-muted); margin-left: 8px;
+}
+
+.screenshot-img {
+  width: 100%; display: block;
+}
+
+.screenshot-caption {
+  text-align: center; color: var(--text-muted);
+  font-size: 0.85rem; margin-top: 1rem;
+}
+
 /* ---- Feature Grid ---- */
 .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
 
@@ -240,6 +278,35 @@ pre {
 code { font-family: var(--font-mono); font-size: 0.85em; }
 :not(pre) > code {
   background: var(--bg-tertiary); padding: 0.15em 0.45em; border-radius: 4px;
+}
+
+/* ---- Tabs ---- */
+.tabs { margin: 1.5rem 0 2.5rem; }
+
+.tab-bar {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+.tab {
+  background: none; border: none; color: var(--text-muted);
+  font-family: var(--font-sans); font-size: 0.85rem; font-weight: 500;
+  padding: 0.7rem 1.2rem; cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab:hover { color: var(--text-secondary); }
+.tab.active {
+  color: var(--accent); border-bottom-color: var(--accent);
+}
+
+.tab-panel { display: none; padding-top: 1.25rem; }
+.tab-panel.active { display: block; }
+
+.tab-desc {
+  color: var(--text-secondary); font-size: 0.85rem;
+  margin-bottom: 0.5rem;
 }
 
 /* ---- Tools Grid ---- */

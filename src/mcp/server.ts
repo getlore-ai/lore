@@ -40,7 +40,7 @@ import { bridgeConfigToEnv } from '../core/config.js';
 const execAsync = promisify(exec);
 
 // Configuration from environment
-const LORE_DATA_DIR = expandPath(process.env.LORE_DATA_DIR || './data');
+const LORE_DATA_DIR = expandPath(process.env.LORE_DATA_DIR || '~/.lore');
 const DB_PATH = path.join(LORE_DATA_DIR, 'lore.lance');
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 

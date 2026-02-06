@@ -25,7 +25,7 @@ let supabaseMode: 'service' | 'auth' | null = null;
  * 2. Authenticated user → publishable key + auth session token → RLS applies
  * 3. Neither → throws with helpful message
  */
-async function getSupabase(): Promise<SupabaseClient> {
+export async function getSupabase(): Promise<SupabaseClient> {
   if (supabase) return supabase;
 
   const url = process.env.SUPABASE_URL;
@@ -140,9 +140,15 @@ export async function addSource(
     record.source_path = extras.source_path;
   }
 
-  const { error } = await client.from('sources').upsert(record);
+  const { error } = await client.from('sources').upsert(record, {
+    ignoreDuplicates: true,
+  });
 
   if (error) {
+    // Duplicate content_hash for this user — document already exists, skip silently
+    if (error.code === '23505') {
+      return;
+    }
     console.error('[addSource] Error:', error);
     throw error;
   }

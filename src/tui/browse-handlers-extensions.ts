@@ -19,7 +19,7 @@ export async function showExtensions(state: BrowserState, ui: UIComponents): Pro
   ui.previewPane.show();
   ui.listTitle.setContent(' Extensions');
   ui.previewTitle.setContent(' Extension Details');
-  ui.footer.setContent(' j/k: navigate  Enter: toggle  Esc: back  q: quit');
+  ui.footer.setContent(' j/k: navigate  Enter: toggle  Esc: back');
   ui.statusBar.setContent(' Loading extensions...');
   ui.screen.render();
 

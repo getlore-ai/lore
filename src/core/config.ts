@@ -24,6 +24,7 @@ export interface LoreConfig {
   supabase_anon_key?: string;
   openai_api_key?: string;
   anthropic_api_key?: string;
+  data_dir?: string;
 }
 
 export interface ResolvedConfig {
@@ -31,6 +32,7 @@ export interface ResolvedConfig {
   supabasePublishableKey?: string;
   openaiApiKey?: string;
   anthropicApiKey?: string;
+  dataDir?: string;
 }
 
 // ============================================================================
@@ -86,6 +88,7 @@ export async function loadLoreConfig(): Promise<ResolvedConfig> {
     supabasePublishableKey: process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || file?.supabase_publishable_key || file?.supabase_anon_key || DEFAULT_SUPABASE_PUBLISHABLE_KEY,
     openaiApiKey: process.env.OPENAI_API_KEY || file?.openai_api_key,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || file?.anthropic_api_key,
+    dataDir: process.env.LORE_DATA_DIR || file?.data_dir,
   };
 }
 
@@ -125,5 +128,8 @@ export async function bridgeConfigToEnv(): Promise<void> {
   }
   if (config.anthropicApiKey && !process.env.ANTHROPIC_API_KEY) {
     process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+  }
+  if (config.dataDir && !process.env.LORE_DATA_DIR) {
+    process.env.LORE_DATA_DIR = config.dataDir;
   }
 }

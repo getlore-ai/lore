@@ -33,6 +33,7 @@ import { registerAskCommand } from './cli/commands/ask.js';
 import { registerAuthCommands } from './cli/commands/auth.js';
 import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
 import { bridgeConfigToEnv } from './core/config.js';
+import { expandPath } from './sync/config.js';
 
 // Load .env files silently (without the v17 logging)
 function loadEnvFile(filePath: string, override = false): void {
@@ -62,7 +63,7 @@ try {
 }
 
 // Default data directory
-const DEFAULT_DATA_DIR = process.env.LORE_DATA_DIR || './data';
+const DEFAULT_DATA_DIR = expandPath(process.env.LORE_DATA_DIR || '~/.lore');
 
 // Create program
 const program = new Command();
@@ -94,6 +95,17 @@ try {
 } catch (error) {
   console.error('[extensions] Failed to load extensions:', error);
 }
+
+// Global error handler — show friendly messages instead of stack traces
+process.on('uncaughtException', (error) => {
+  console.error(`\nError: ${error.message}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  console.error(`\nError: ${message}`);
+  process.exit(1);
+});
 
 // Parse and run
 program.parse();

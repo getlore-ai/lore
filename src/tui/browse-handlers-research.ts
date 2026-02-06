@@ -145,7 +145,7 @@ export function exitResearchMode(state: BrowserState, ui: UIComponents): void {
   ui.listPane.show();
   ui.previewPane.show();
 
-  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ ? Help');
+  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ Esc Quit │ ? Help');
   ui.listContent.focus();
   ui.screen.render();
 }

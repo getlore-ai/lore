@@ -181,21 +181,24 @@ export function registerAuthCommands(program: Command): void {
     .command('setup')
     .description('Guided setup wizard (config, login, init)')
     .action(async () => {
-      const { saveLoreConfig, getLoreConfigPath, loadLoreConfig } = await import('../../core/config.js');
+      const { saveLoreConfig, getLoreConfigPath } = await import('../../core/config.js');
       const { sendOTP, verifyOTP, sessionFromMagicLink, isAuthenticated, loadAuthSession } = await import('../../core/auth.js');
       const { bridgeConfigToEnv } = await import('../../core/config.js');
 
       console.log(`\n${c.title('Lore Setup Wizard')}`);
       console.log(`${c.dim('=')}`.repeat(40) + '\n');
 
-      // ── Step 1: API Keys ─────────────────────────────────────────────
-      console.log(c.bold('Step 1: API Keys\n'));
+      // ── Step 1: Configuration ───────────────────────────────────────
+      console.log(c.bold('Step 1: Configuration\n'));
 
-      const existing = await loadLoreConfig();
-      const openaiApiKey = await prompt('OpenAI API Key (for embeddings)', existing.openaiApiKey || '');
-      const anthropicApiKey = await prompt('Anthropic API Key (for sync & research)', existing.anthropicApiKey || '');
+      const { expandPath } = await import('../../sync/config.js');
+      const defaultDataDir = process.env.LORE_DATA_DIR || '~/.lore';
+      const dataDir = await prompt('Data directory', defaultDataDir);
+      const openaiApiKey = await prompt('OpenAI API Key (for embeddings)');
+      const anthropicApiKey = await prompt('Anthropic API Key (for sync & research)');
 
       await saveLoreConfig({
+        ...(dataDir ? { data_dir: expandPath(dataDir) } : {}),
         ...(openaiApiKey ? { openai_api_key: openaiApiKey } : {}),
         ...(anthropicApiKey ? { anthropic_api_key: anthropicApiKey } : {}),
       });
@@ -254,43 +257,151 @@ export function registerAuthCommands(program: Command): void {
         console.log(c.success(`Logged in as ${session.user.email}\n`));
       }
 
-      // ── Step 3: Claim existing data ────────────────────────────────────
-      console.log(c.bold('Step 3: Claim existing data\n'));
+      // ── Step 3: Data Repository ────────────────────────────────────────
+      console.log(c.bold('Step 3: Data Repository\n'));
 
-      const session = await loadAuthSession();
-      if (session) {
-        const claimData = await prompt(
-          'Claim any unclaimed data in the database? (y/n)',
-          'n'
-        );
+      const { existsSync } = await import('fs');
+      const { initDataRepo, isGhAvailable, createGithubRepo, getGitRemoteUrl, isGitRepo } = await import('../../core/data-repo.js');
+      const { getUserSetting, setUserSetting, SETTING_DATA_REPO_URL } = await import('../../core/user-settings.js');
 
-        if (claimData.toLowerCase() === 'y') {
-          try {
-            const { getDatabase } = await import('../../core/vector-store.js');
-            const client = await getDatabase('');
+      const resolvedDataDir = expandPath(dataDir || '~/.lore');
 
-            // Call the SECURITY DEFINER RPC that bypasses RLS to claim NULL rows
-            const { data, error } = await client.rpc('claim_unclaimed_data');
+      const dirExists = existsSync(resolvedDataDir);
+      const hasGitRemote = dirExists && isGitRepo(resolvedDataDir) && !!getGitRemoteUrl(resolvedDataDir);
 
-            if (error) {
-              throw error;
+      if (dirExists && hasGitRemote) {
+        // Already fully set up
+        const remoteUrl = getGitRemoteUrl(resolvedDataDir)!;
+        console.log(c.success(`Data repo already set up at ${resolvedDataDir}`));
+        console.log(c.dim(`Remote: ${remoteUrl}\n`));
+
+        // Save URL to Supabase if not already saved
+        try {
+          const savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
+          if (!savedUrl) {
+            await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
+            console.log(c.dim('Saved repo URL to your account for cross-machine discovery.\n'));
+          }
+        } catch {
+          // Non-fatal — user_settings table may not exist yet
+        }
+      } else if (!dirExists) {
+        // Check Supabase for saved repo URL (Machine B scenario)
+        let savedUrl: string | null = null;
+        try {
+          savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
+        } catch {
+          // Non-fatal
+        }
+
+        if (savedUrl) {
+          // Machine B: clone existing repo
+          console.log(c.success(`Found your data repo URL: ${savedUrl}`));
+          const cloneIt = await prompt('Clone it to ' + resolvedDataDir + '? (y/n)', 'y');
+
+          if (cloneIt.toLowerCase() === 'y') {
+            try {
+              const { execSync } = await import('child_process');
+              execSync(`git clone ${savedUrl} ${resolvedDataDir}`, { stdio: 'inherit' });
+              console.log(c.success('Cloned successfully!\n'));
+            } catch {
+              console.log(c.warning('Clone failed. You can clone manually later.\n'));
             }
-
-            const row = data?.[0] || { sources_claimed: 0, chunks_claimed: 0 };
-            console.log(
-              c.success(
-                `Claimed ${row.sources_claimed} sources and ${row.chunks_claimed} chunks.\n`
-              )
-            );
-          } catch (error) {
-            console.log(
-              c.warning(
-                'Could not claim data automatically. Make sure the migration has been applied.\n'
-              )
-            );
+          } else {
+            console.log(c.dim('Skipped. You can clone manually later.\n'));
           }
         } else {
-          console.log(c.dim('Skipped.\n'));
+          // Machine A: create fresh repo
+          console.log(c.dim(`Creating data repository at ${resolvedDataDir}...\n`));
+          await initDataRepo(resolvedDataDir);
+          console.log(c.success('Created data repository.\n'));
+
+          // Try to set up GitHub remote
+          if (await isGhAvailable()) {
+            const createRepo = await prompt('Create a private GitHub repo for cross-machine sync? (y/n)', 'y');
+
+            if (createRepo.toLowerCase() === 'y') {
+              const repoName = await prompt('Repository name', 'lore-data');
+              const url = await createGithubRepo(resolvedDataDir, repoName);
+
+              if (url) {
+                console.log(c.success(`Created and pushed to ${url}\n`));
+                try {
+                  await setUserSetting(SETTING_DATA_REPO_URL, url);
+                  console.log(c.dim('Saved repo URL for cross-machine discovery.\n'));
+                } catch {
+                  // Non-fatal
+                }
+              } else {
+                console.log(c.warning('GitHub repo creation failed. You can set up a remote manually.\n'));
+              }
+            }
+          } else {
+            const remoteUrl = await prompt('Git remote URL for cross-machine sync (or press Enter to skip)');
+
+            if (remoteUrl) {
+              try {
+                const { execSync } = await import('child_process');
+                execSync(`git remote add origin ${remoteUrl}`, { cwd: resolvedDataDir, stdio: 'pipe' });
+                execSync('git push -u origin main', { cwd: resolvedDataDir, stdio: 'pipe' });
+                console.log(c.success(`Remote added and pushed.\n`));
+                try {
+                  await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
+                } catch {
+                  // Non-fatal
+                }
+              } catch {
+                console.log(c.warning('Could not push to remote. You can push manually later.\n'));
+              }
+            } else {
+              console.log(c.dim('Skipped remote setup. You can add one later with:\n'));
+              console.log(c.dim(`  cd ${resolvedDataDir} && git remote add origin <url> && git push -u origin main\n`));
+            }
+          }
+        }
+      } else {
+        // Dir exists but no git remote — init and offer remote setup
+        console.log(c.dim(`Data directory exists at ${resolvedDataDir}, ensuring git is set up...\n`));
+        await initDataRepo(resolvedDataDir);
+
+        if (await isGhAvailable()) {
+          const createRepo = await prompt('Create a private GitHub repo for cross-machine sync? (y/n)', 'y');
+
+          if (createRepo.toLowerCase() === 'y') {
+            const repoName = await prompt('Repository name', 'lore-data');
+            const url = await createGithubRepo(resolvedDataDir, repoName);
+
+            if (url) {
+              console.log(c.success(`Created and pushed to ${url}\n`));
+              try {
+                await setUserSetting(SETTING_DATA_REPO_URL, url);
+              } catch {
+                // Non-fatal
+              }
+            } else {
+              console.log(c.warning('GitHub repo creation failed.\n'));
+            }
+          }
+        } else {
+          const remoteUrl = await prompt('Git remote URL for cross-machine sync (or press Enter to skip)');
+
+          if (remoteUrl) {
+            try {
+              const { execSync } = await import('child_process');
+              execSync(`git remote add origin ${remoteUrl}`, { cwd: resolvedDataDir, stdio: 'pipe' });
+              execSync('git push -u origin main', { cwd: resolvedDataDir, stdio: 'pipe' });
+              console.log(c.success(`Remote added and pushed.\n`));
+              try {
+                await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
+              } catch {
+                // Non-fatal
+              }
+            } catch {
+              console.log(c.warning('Could not push to remote. You can push manually later.\n'));
+            }
+          } else {
+            console.log(c.dim('Skipped remote setup.\n'));
+          }
         }
       }
 

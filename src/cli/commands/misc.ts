@@ -6,7 +6,6 @@
 
 import type { Command } from 'commander';
 import path from 'path';
-import { mkdir, writeFile } from 'fs/promises';
 
 export function registerMiscCommands(program: Command, defaultDataDir: string): void {
   // Browse command (TUI)
@@ -128,9 +127,10 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
   program
     .command('init')
     .description('Initialize a new Lore data repository')
-    .argument('[path]', 'Path for the data repository', '~/lore-data')
+    .argument('[path]', 'Path for the data repository', '~/.lore')
     .option('--remote <url>', 'Git remote URL for cross-machine sync')
     .action(async (targetPath, options) => {
+      const { initDataRepo, getGitRemoteUrl } = await import('../../core/data-repo.js');
       const { execSync } = await import('child_process');
 
       // Expand ~ to home directory
@@ -140,50 +140,12 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
       console.log(`=========`);
       console.log(`Creating data repository at: ${expandedPath}\n`);
 
-      // Create directory structure
-      await mkdir(expandedPath, { recursive: true });
-      await mkdir(path.join(expandedPath, 'sources'), { recursive: true });
-      await mkdir(path.join(expandedPath, 'retained'), { recursive: true });
+      await initDataRepo(expandedPath);
+      console.log('✓ Created data repository');
 
-      // Create .gitignore
-      const gitignore = `# Environment files
-.env
-.env.local
-`;
-      await writeFile(path.join(expandedPath, '.gitignore'), gitignore);
-
-      // Create README
-      const readme = `# Lore Data Repository
-
-Your personal knowledge repository for Lore.
-
-## Structure
-
-- \`sources/\` - Ingested documents
-- \`retained/\` - Explicitly saved insights
-
-Vector embeddings are stored in Supabase (cloud) for multi-machine access.
-
-## Usage
-
-Set \`LORE_DATA_DIR=${expandedPath}\` in your environment or MCP config.
-`;
-      await writeFile(path.join(expandedPath, 'README.md'), readme);
-
-      console.log('✓ Created directory structure');
-
-      // Initialize git
-      try {
-        execSync('git init', { cwd: expandedPath, stdio: 'pipe' });
-        console.log('✓ Initialized git repository');
-
-        // Add and commit
-        execSync('git add .', { cwd: expandedPath, stdio: 'pipe' });
-        execSync('git commit -m "Initial lore data repository"', { cwd: expandedPath, stdio: 'pipe' });
-        console.log('✓ Created initial commit');
-
-        // Add remote if provided
-        if (options.remote) {
+      // Add remote if provided
+      if (options.remote) {
+        try {
           execSync(`git remote add origin ${options.remote}`, { cwd: expandedPath, stdio: 'pipe' });
           console.log(`✓ Added remote: ${options.remote}`);
 
@@ -193,9 +155,13 @@ Set \`LORE_DATA_DIR=${expandedPath}\` in your environment or MCP config.
           } catch {
             console.log('⚠ Could not push to remote (you may need to push manually)');
           }
+        } catch {
+          // Remote may already exist
+          const existing = getGitRemoteUrl(expandedPath);
+          if (existing) {
+            console.log(`✓ Remote already set: ${existing}`);
+          }
         }
-      } catch (error) {
-        console.log('⚠ Git initialization failed (git may not be installed)');
       }
 
       console.log(`
@@ -209,6 +175,8 @@ Done! To use this data repository:
 
 3. Add sync sources:
    lore sync add --name "My Notes" --path ~/notes --glob "**/*.md" -p myproject
+
+Tip: Run 'lore setup' for the full guided experience (config + login + data repo).
 `);
     });
 

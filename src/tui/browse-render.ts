@@ -649,7 +649,7 @@ function buildScrollbarContent(
  */
 export function renderFullView(ui: UIComponents, state: BrowserState): void {
   // Update title header with document info
-  const source = state.filtered[state.selectedIndex];
+  const source = getSelectedSource(state);
   if (source) {
     const date = formatDate(source.created_at);
     const type = source.content_type || source.source_type;
@@ -707,7 +707,7 @@ export function renderFullView(ui: UIComponents, state: BrowserState): void {
   const lastVisibleLine = Math.min(state.scrollOffset + height, totalLines);
   const positionInfo = totalLines > height ? `{cyan-fg}${currentLine}-${lastVisibleLine}/${totalLines}{/cyan-fg} ` : '';
 
-  let footerText = ` ${positionInfo}j/k: scroll  /: search  e: editor  Esc: back  q: quit`;
+  let footerText = ` ${positionInfo}j/k: scroll  /: search  e: editor  Esc: back`;
   if (state.docSearchPattern && state.docSearchMatches.length > 0) {
     footerText = ` ${positionInfo}[${state.docSearchCurrentIdx + 1}/${state.docSearchMatches.length}] n/N: next/prev  /: new search  Esc: clear`;
   } else if (state.docSearchPattern && state.docSearchMatches.length === 0) {

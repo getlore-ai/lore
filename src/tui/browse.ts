@@ -172,14 +172,6 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
   const { screen, helpPane, searchInput, regexInput, docSearchInput, listContent } = ui;
 
   // Key bindings
-  screen.key(['q'], () => {
-    if (state.mode === 'help') {
-      hideHelp(state, ui);
-    } else {
-      screen.destroy();
-      process.exit(0);
-    }
-  });
 
   screen.key(['?'], () => {
     if (state.mode === 'help') {
@@ -219,7 +211,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       state.mode = 'list';
       ui.listTitle.setContent(' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ ? Help');
+      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ Esc Quit │ ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -236,6 +228,10 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       // Clear search filter
       applyFilter(state, ui, '', 'hybrid', dbPath, dataDir, state.currentProject, sourceType);
       screen.render();
+    } else if (state.mode === 'list') {
+      // Quit from main list
+      screen.destroy();
+      process.exit(0);
     }
   });
 

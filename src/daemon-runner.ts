@@ -18,7 +18,7 @@ const STATUS_FILE = path.join(CONFIG_DIR, 'daemon.status.json');
 const LOG_FILE = path.join(CONFIG_DIR, 'daemon.log');
 
 // Get data directory from command line arg
-const dataDir = process.argv[2] || process.env.LORE_DATA_DIR || './data';
+const dataDir = process.argv[2] || process.env.LORE_DATA_DIR || '~/.lore';
 const dbPath = path.join(dataDir, 'lore.lance');
 
 interface DaemonStatus {

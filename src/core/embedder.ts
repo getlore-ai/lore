@@ -13,7 +13,9 @@ function getOpenAI(): OpenAI {
   if (!openaiClient) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
+      throw new Error(
+        'OPENAI_API_KEY is not configured. Run "lore setup" to set your API keys.'
+      );
     }
     openaiClient = new OpenAI({ apiKey });
   }
