@@ -35,6 +35,7 @@ import { indexExists, getAllSources } from '../core/vector-store.js';
 import { expandPath } from '../sync/config.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
 import { getExtensionsDir } from '../extensions/config.js';
+import { bridgeConfigToEnv } from '../core/config.js';
 
 const execAsync = promisify(exec);
 
@@ -133,6 +134,13 @@ async function syncCheck(): Promise<void> {
 }
 
 async function main() {
+  // Bridge config.json values into process.env (env vars take precedence)
+  try {
+    await bridgeConfigToEnv();
+  } catch {
+    // Config not set up yet — fine
+  }
+
   // Check if index exists
   const hasIndex = await indexExists(DB_PATH);
   if (!hasIndex) {

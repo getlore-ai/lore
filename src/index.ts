@@ -30,7 +30,9 @@ import { registerProjectsCommand } from './cli/commands/projects.js';
 import { registerExtensionCommands } from './cli/commands/extensions.js';
 import { registerPendingCommand } from './cli/commands/pending.js';
 import { registerAskCommand } from './cli/commands/ask.js';
+import { registerAuthCommands } from './cli/commands/auth.js';
 import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
+import { bridgeConfigToEnv } from './core/config.js';
 
 // Load .env files silently (without the v17 logging)
 function loadEnvFile(filePath: string, override = false): void {
@@ -52,6 +54,13 @@ function loadEnvFile(filePath: string, override = false): void {
 loadEnvFile('.env');
 loadEnvFile('.env.local', true);
 
+// Bridge config.json values into process.env (env vars take precedence)
+try {
+  await bridgeConfigToEnv();
+} catch {
+  // Config not set up yet — fine, user may be running `lore setup`
+}
+
 // Default data directory
 const DEFAULT_DATA_DIR = process.env.LORE_DATA_DIR || './data';
 
@@ -72,6 +81,7 @@ registerMiscCommands(program, DEFAULT_DATA_DIR);
 registerExtensionCommands(program);
 registerPendingCommand(program, DEFAULT_DATA_DIR);
 registerAskCommand(program, DEFAULT_DATA_DIR);
+registerAuthCommands(program);
 
 // Load extension registry and register extension commands
 try {

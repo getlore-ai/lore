@@ -11,11 +11,10 @@ import { readFile, readdir, stat } from 'fs/promises';
 import { createHash } from 'crypto';
 import path from 'path';
 import { existsSync } from 'fs';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 import type { SyncSource } from './config.js';
 import { expandPath } from './config.js';
-import { getSourcePathMappings } from '../core/vector-store.js';
+import { getSourcePathMappings, getExistingContentHashes } from '../core/vector-store.js';
 
 // ============================================================================
 // Types
@@ -120,56 +119,13 @@ async function discoverFilesRecursive(
 }
 
 // ============================================================================
-// Supabase Deduplication
+// Supabase Deduplication (delegates to vector-store)
 // ============================================================================
-
-let supabase: SupabaseClient | null = null;
-
-function getSupabase(): SupabaseClient {
-  if (!supabase) {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
-
-    if (!url || !key) {
-      throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY (or SUPABASE_ANON_KEY) are required');
-    }
-
-    supabase = createClient(url, key);
-  }
-  return supabase;
-}
 
 export async function checkExistingHashes(
   hashes: string[]
 ): Promise<Set<string>> {
-  if (hashes.length === 0) return new Set();
-
-  const client = getSupabase();
-  const existing = new Set<string>();
-
-  // Query in batches to avoid hitting limits
-  const batchSize = 100;
-  for (let i = 0; i < hashes.length; i += batchSize) {
-    const batch = hashes.slice(i, i + batchSize);
-
-    const { data, error } = await client
-      .from('sources')
-      .select('content_hash')
-      .in('content_hash', batch);
-
-    if (error) {
-      console.error('[discover] Error checking existing hashes:', error);
-      continue;
-    }
-
-    for (const row of data || []) {
-      if (row.content_hash) {
-        existing.add(row.content_hash);
-      }
-    }
-  }
-
-  return existing;
+  return getExistingContentHashes('', hashes);
 }
 
 // ============================================================================

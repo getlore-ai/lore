@@ -13,7 +13,9 @@ import { emojiReplacements } from './browse-types.js';
 import type { SourceType } from '../core/types.js';
 
 // Daemon status file path
-const STATUS_FILE = path.join(os.homedir(), '.config', 'lore', 'daemon.status.json');
+const CONFIG_DIR = path.join(os.homedir(), '.config', 'lore');
+const STATUS_FILE = path.join(CONFIG_DIR, 'daemon.status.json');
+const AUTH_FILE = path.join(CONFIG_DIR, 'auth.json');
 
 interface DaemonStatus {
   pid: number;
@@ -51,6 +53,26 @@ function getDaemonStatus(): { running: boolean; lastSync?: string } {
     }
   } catch {
     return { running: false };
+  }
+}
+
+/**
+ * Get the currently signed-in user's email (if any)
+ */
+function getAuthUser(): string | null {
+  if (process.env.SUPABASE_SERVICE_KEY) {
+    return '[service key]';
+  }
+
+  if (!existsSync(AUTH_FILE)) {
+    return null;
+  }
+
+  try {
+    const auth = JSON.parse(readFileSync(AUTH_FILE, 'utf-8'));
+    return auth?.user?.email || null;
+  } catch {
+    return null;
   }
 }
 
@@ -225,7 +247,11 @@ export function updateStatus(
     daemonInfo = ' · [daemon off]';
   }
 
-  ui.statusBar.setContent(` ${count} ${label}${count !== 1 ? 's' : ''}${groupInfo}${projectInfo}${contentTypeInfo}${typeInfo}${searchInfo}${daemonInfo}`);
+  // Show signed-in user
+  const authUser = getAuthUser();
+  const userInfo = authUser ? ` · ${authUser}` : ' · [not signed in]';
+
+  ui.statusBar.setContent(` ${count} ${label}${count !== 1 ? 's' : ''}${groupInfo}${projectInfo}${contentTypeInfo}${typeInfo}${searchInfo}${daemonInfo}${userInfo}`);
 }
 
 /**
