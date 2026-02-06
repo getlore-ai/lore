@@ -263,6 +263,10 @@ export function registerAuthCommands(program: Command): void {
       const { existsSync } = await import('fs');
       const { initDataRepo, isGhAvailable, createGithubRepo, getGitRemoteUrl, isGitRepo } = await import('../../core/data-repo.js');
       const { getUserSetting, setUserSetting, SETTING_DATA_REPO_URL } = await import('../../core/user-settings.js');
+      const { resetDatabaseConnection } = await import('../../core/vector-store.js');
+
+      // Reset Supabase client so it picks up the fresh auth session from Step 2
+      resetDatabaseConnection();
 
       const resolvedDataDir = expandPath(dataDir || '~/.lore');
 
@@ -282,16 +286,16 @@ export function registerAuthCommands(program: Command): void {
             await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
             console.log(c.dim('Saved repo URL to your account for cross-machine discovery.\n'));
           }
-        } catch {
-          // Non-fatal — user_settings table may not exist yet
+        } catch (err) {
+          console.log(c.dim(`Note: Could not sync repo URL to account: ${err instanceof Error ? err.message : err}`));
         }
       } else if (!dirExists) {
         // Check Supabase for saved repo URL (Machine B scenario)
         let savedUrl: string | null = null;
         try {
           savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
-        } catch {
-          // Non-fatal
+        } catch (err) {
+          console.log(c.dim(`Could not check for existing repo URL: ${err instanceof Error ? err.message : err}`));
         }
 
         if (savedUrl) {
