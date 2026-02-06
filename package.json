@@ -1,6 +1,6 @@
 {
   "name": "@mishkinf/lore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Research knowledge repository with semantic search, citations, and project lineage tracking",
   "type": "module",
   "main": "dist/index.js",
