@@ -1,6 +1,6 @@
 # Lore
 
-> The lore behind your projects. — [getlore.ai](https://getlore.ai)
+> The lore behind your projects. — [getlore.ai](https://getlore.ai) · [npm](https://www.npmjs.com/package/@getlore/cli)
 
 Every project accumulates lore — the decisions, conversations, research, and context that explain why things are the way they are. Most of it gets lost between chat threads and forgotten docs. Lore keeps it searchable and citable.
 
