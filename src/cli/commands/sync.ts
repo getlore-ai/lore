@@ -24,6 +24,90 @@ const PID_FILE = path.join(CONFIG_DIR, 'daemon.pid');
 const STATUS_FILE = path.join(CONFIG_DIR, 'daemon.status.json');
 const LOG_FILE = path.join(CONFIG_DIR, 'daemon.log');
 
+// launchd (macOS) constants
+const LAUNCHD_LABEL = 'com.lore.daemon';
+const LAUNCHD_PLIST_PATH = path.join(os.homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
+
+function isMacOS(): boolean {
+  return process.platform === 'darwin';
+}
+
+function generatePlist(dataDir: string): string {
+  const nodePath = process.execPath;
+  const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${nodePath}</string>
+    <string>${scriptPath}</string>
+    <string>${dataDir}</string>
+  </array>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${LOG_FILE}</string>
+  <key>StandardErrorPath</key>
+  <string>${LOG_FILE}</string>
+</dict>
+</plist>`;
+}
+
+function isLaunchdInstalled(): boolean {
+  return isMacOS() && existsSync(LAUNCHD_PLIST_PATH);
+}
+
+function installLaunchdAgent(dataDir: string): { pid: number } | null {
+  const plistDir = path.dirname(LAUNCHD_PLIST_PATH);
+  if (!existsSync(plistDir)) {
+    // LaunchAgents dir should exist, but just in case
+    spawnSync('mkdir', ['-p', plistDir]);
+  }
+
+  writeFileSync(LAUNCHD_PLIST_PATH, generatePlist(dataDir));
+
+  // Unload first in case an old version is loaded
+  spawnSync('launchctl', ['unload', LAUNCHD_PLIST_PATH], { stdio: 'ignore' });
+
+  const result = spawnSync('launchctl', ['load', LAUNCHD_PLIST_PATH], { stdio: 'pipe' });
+  if (result.status !== 0) {
+    const stderr = result.stderr?.toString().trim();
+    if (stderr) console.error(`launchctl load error: ${stderr}`);
+    return null;
+  }
+
+  // launchctl load starts the process (RunAtLoad=true). Wait for PID file.
+  // The daemon-runner writes PID_FILE on startup.
+  for (let i = 0; i < 20; i++) {
+    spawnSync('sleep', ['0.25']);
+    if (existsSync(PID_FILE)) {
+      try {
+        const pid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+        process.kill(pid, 0); // verify alive
+        return { pid };
+      } catch {
+        // PID file exists but process not ready yet, keep waiting
+      }
+    }
+  }
+
+  return null;
+}
+
+function uninstallLaunchdAgent(): void {
+  if (!existsSync(LAUNCHD_PLIST_PATH)) return;
+
+  spawnSync('launchctl', ['unload', LAUNCHD_PLIST_PATH], { stdio: 'ignore' });
+  try { unlinkSync(LAUNCHD_PLIST_PATH); } catch {}
+}
+
 export interface DaemonStatus {
   pid: number;
   started_at: string;
@@ -174,52 +258,21 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
     .description('Start background sync daemon')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (options) => {
-      await ensureConfigDir();
+      const result = await startDaemonProcess(options.dataDir);
 
-      const existingPid = getPid();
-      if (existingPid) {
-        console.log(`Daemon already running (PID: ${existingPid})`);
+      if (!result) {
+        console.error('Failed to start daemon - check logs with: lore sync logs');
+        return;
+      }
+
+      if (result.alreadyRunning) {
+        console.log(`Daemon already running (PID: ${result.pid})`);
         console.log(`Use "lore sync status" to check status`);
         console.log(`Use "lore sync stop" to stop it`);
         return;
       }
 
-      // Use import.meta.url to find daemon-runner.js correctly even via npm link
-      // From dist/cli/commands/sync.js -> dist/daemon-runner.js
-      const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
-      const nodePath = process.execPath;
-
-      // Write a temporary shell script to start the daemon
-      // This avoids issues with Node.js spawn and process detachment on macOS
-      const tmpScript = path.join(os.tmpdir(), `lore-daemon-start-${Date.now()}.sh`);
-      const scriptContent = `#!/bin/bash
-nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
-`;
-      writeFileSync(tmpScript, scriptContent, { mode: 0o755 });
-
-      // Execute the script synchronously
-      spawnSync('/bin/bash', [tmpScript], {
-        stdio: 'ignore',
-      });
-
-      // Clean up temp script
-      try { unlinkSync(tmpScript); } catch {}
-
-      // Wait for daemon to start and write PID file
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Read the PID that daemon wrote
-      let daemonPid: number | null = null;
-      try {
-        daemonPid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
-        // Verify process is running
-        process.kill(daemonPid, 0);
-      } catch {
-        console.error('Failed to start daemon - check logs with: lore sync logs');
-        return;
-      }
-
-      console.log(`Daemon started (PID: ${daemonPid})`);
+      console.log(`Daemon started (PID: ${result.pid})`);
       console.log(`Log file: ${LOG_FILE}`);
       console.log(`Use "lore sync logs" to view activity`);
     });
@@ -229,6 +282,11 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
     .command('stop')
     .description('Stop background sync daemon')
     .action(async () => {
+      // Uninstall launchd agent so the daemon doesn't restart on login
+      if (isLaunchdInstalled()) {
+        uninstallLaunchdAgent();
+      }
+
       const pid = getPid();
       if (!pid) {
         console.log('Daemon is not running');
@@ -250,6 +308,11 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
     .description('Restart background sync daemon')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (options) => {
+      // Uninstall launchd agent so it doesn't auto-restart during our restart
+      if (isLaunchdInstalled()) {
+        uninstallLaunchdAgent();
+      }
+
       const pid = getPid();
       if (pid) {
         try {
@@ -262,41 +325,15 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
         }
       }
 
-      await ensureConfigDir();
+      // startDaemonProcess will reinstall launchd with fresh config on macOS
+      const result = await startDaemonProcess(options.dataDir);
 
-      // Use import.meta.url to find daemon-runner.js correctly even via npm link
-      const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
-      const nodePath = process.execPath;
-
-      // Write a temporary shell script to start the daemon
-      const tmpScript = path.join(os.tmpdir(), `lore-daemon-start-${Date.now()}.sh`);
-      const scriptContent = `#!/bin/bash
-nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
-`;
-      writeFileSync(tmpScript, scriptContent, { mode: 0o755 });
-
-      // Execute the script synchronously
-      spawnSync('/bin/bash', [tmpScript], {
-        stdio: 'ignore',
-      });
-
-      // Clean up temp script
-      try { unlinkSync(tmpScript); } catch {}
-
-      // Wait for daemon to start and write PID file
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Read the PID that daemon wrote
-      let daemonPid: number | null = null;
-      try {
-        daemonPid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
-        process.kill(daemonPid, 0);
-      } catch {
+      if (!result) {
         console.error('Failed to restart daemon - check logs with: lore sync logs');
         return;
       }
 
-      console.log(`Daemon restarted (PID: ${daemonPid})`);
+      console.log(`Daemon restarted (PID: ${result.pid})`);
     });
 
   // Daemon status
@@ -313,12 +350,14 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
 
       if (!pid) {
         console.log('Daemon: NOT RUNNING');
+        console.log(`Auto-start: ${isLaunchdInstalled() ? 'enabled (launchd)' : 'not configured'}`);
         console.log('');
         console.log('Start with: lore sync start');
         return;
       }
 
       console.log(`Daemon: RUNNING (PID: ${pid})`);
+      console.log(`Auto-start: ${isLaunchdInstalled() ? 'enabled (launchd)' : 'not configured'}`);
 
       if (status) {
         const started = new Date(status.started_at);
@@ -965,6 +1004,56 @@ nohup "${nodePath}" "${scriptPath}" "${options.dataDir}" > /dev/null 2>&1 &
         process.exit(1);
       }
     });
+}
+
+// ============================================================================
+// Exported helpers
+// ============================================================================
+
+/**
+ * Start the background sync daemon process.
+ * Returns { pid } on success, null on failure.
+ * If already running, returns the existing PID.
+ */
+export async function startDaemonProcess(dataDir: string): Promise<{ pid: number; alreadyRunning: boolean } | null> {
+  await ensureConfigDir();
+
+  const existingPid = getPid();
+  if (existingPid) {
+    return { pid: existingPid, alreadyRunning: true };
+  }
+
+  // macOS: use launchd for persistence across reboots
+  if (isMacOS()) {
+    const result = installLaunchdAgent(dataDir);
+    if (result) {
+      return { pid: result.pid, alreadyRunning: false };
+    }
+    return null;
+  }
+
+  // Non-macOS: use nohup fallback
+  const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
+  const nodePath = process.execPath;
+
+  const tmpScript = path.join(os.tmpdir(), `lore-daemon-start-${Date.now()}.sh`);
+  const scriptContent = `#!/bin/bash\nnohup "${nodePath}" "${scriptPath}" "${dataDir}" > /dev/null 2>&1 &\n`;
+  writeFileSync(tmpScript, scriptContent, { mode: 0o755 });
+
+  spawnSync('/bin/bash', [tmpScript], { stdio: 'ignore' });
+
+  try { unlinkSync(tmpScript); } catch {}
+
+  // Wait for daemon to start and write PID file
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  try {
+    const daemonPid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+    process.kill(daemonPid, 0); // Verify running
+    return { pid: daemonPid, alreadyRunning: false };
+  } catch {
+    return null;
+  }
 }
 
 // Export for daemon-runner and browse

@@ -88,6 +88,10 @@ async function runSync(gitPull: boolean = true): Promise<{
 async function main(): Promise<void> {
   await mkdir(CONFIG_DIR, { recursive: true });
 
+  // Bridge config.json → process.env (critical for launchd which has no shell env)
+  const { bridgeConfigToEnv } = await import('./core/config.js');
+  await bridgeConfigToEnv();
+
   // Write PID file immediately so parent knows we started
   writeFileSync(PID_FILE, String(process.pid));
 

@@ -8,6 +8,7 @@
  */
 
 import type { Command } from 'commander';
+import path from 'path';
 import { colors, c } from '../colors.js';
 
 // ============================================================================
@@ -433,12 +434,69 @@ export function registerAuthCommands(program: Command): void {
         }
       }
 
+      // ── Step 4: Seed Document ─────────────────────────────────────────
+      console.log(c.bold('Step 4: Welcome Document\n'));
+
+      try {
+        const { getAllSources } = await import('../../core/vector-store.js');
+        const dbPath = path.join(resolvedDataDir, 'lore.lance');
+        const existing = await getAllSources(dbPath, { limit: 1 });
+
+        if (existing.length > 0) {
+          console.log(c.success('You already have documents indexed — skipping welcome doc.\n'));
+        } else {
+          const { handleIngest } = await import('../../mcp/handlers/ingest.js');
+          const { WELCOME_DOC_CONTENT } = await import('../../core/data-repo.js');
+
+          console.log(c.dim('Indexing a welcome document so you can try search right away...'));
+          await handleIngest(dbPath, resolvedDataDir, {
+            content: WELCOME_DOC_CONTENT,
+            title: 'Getting Started with Lore',
+            project: 'lore',
+            source_type: 'document',
+            tags: ['getting-started', 'guide'],
+          }, { autoPush: true, hookContext: { mode: 'cli' } });
+
+          console.log(c.success('Indexed! Try: lore search "getting started"\n'));
+        }
+      } catch (err) {
+        console.log(c.warning(`Skipped — ${err instanceof Error ? err.message : 'could not index welcome document'}`));
+        console.log(c.dim('You can add documents later with lore sync\n'));
+      }
+
+      // ── Step 5: Background Daemon ──────────────────────────────────────
+      console.log(c.bold('Step 5: Background Daemon\n'));
+
+      const startDaemon = await prompt('Start background sync daemon? (y/n)', 'y');
+
+      if (startDaemon.toLowerCase() === 'y') {
+        try {
+          const { startDaemonProcess } = await import('./sync.js');
+          const result = await startDaemonProcess(resolvedDataDir);
+
+          if (!result) {
+            console.log(c.warning('Could not start daemon. You can start it later with: lore sync start\n'));
+          } else if (result.alreadyRunning) {
+            console.log(c.success(`Daemon already running (PID: ${result.pid})\n`));
+          } else {
+            console.log(c.success(`Daemon started (PID: ${result.pid}). Watches for new files and auto-indexes.\n`));
+          }
+        } catch (err) {
+          console.log(c.warning(`Could not start daemon: ${err instanceof Error ? err.message : err}`));
+          console.log(c.dim('You can start it later with: lore sync start\n'));
+        }
+      } else {
+        console.log(c.dim('You can start it later with: lore sync start\n'));
+      }
+
       // ── Done ───────────────────────────────────────────────────────────
-      console.log(c.title('Setup complete!'));
-      console.log(c.dim('Next steps:'));
-      console.log(c.list('lore sync sources add — add a sync source'));
-      console.log(c.list('lore sync — sync your documents'));
-      console.log(c.list('lore search "query" — search your knowledge base'));
+      console.log(c.title('Setup complete!\n'));
+      console.log('Try these commands:');
+      console.log(c.list('lore search "getting started"  — search your knowledge base'));
+      console.log(c.list('lore browse                    — interactive terminal browser'));
+      console.log(c.list('lore sync add                  — add a sync source directory'));
+      console.log(c.list('lore sync                      — sync documents now'));
+      console.log(c.list('lore sync status               — check daemon status'));
       console.log('');
     });
 }

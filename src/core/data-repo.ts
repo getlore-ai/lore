@@ -65,6 +65,42 @@ Vector embeddings are stored in Supabase (cloud) for multi-machine access.
 }
 
 // ============================================================================
+// Welcome Document (seeded during setup)
+// ============================================================================
+
+export const WELCOME_DOC_CONTENT = `# Getting Started with Lore
+
+Welcome to Lore — your research knowledge repository.
+
+## What is Lore?
+
+Lore preserves your original sources (meeting notes, interviews, documents) and makes them searchable with full citations. Unlike a memory system, Lore keeps the original context so you can always trace back to the source.
+
+## Quick Start
+
+- **Search**: Run \`lore search "your query"\` to find relevant documents
+- **Sync**: Run \`lore sync\` to discover and index new files from your sync sources
+- **Browse**: Run \`lore browse\` to explore your knowledge base in the terminal
+- **Research**: Use the \`research\` MCP tool for deep, multi-step research with citations
+
+## Adding Documents
+
+1. **Sync sources**: Run \`lore sync add\` to watch a directory for new files
+2. **Direct ingest**: Use the \`ingest\` MCP tool to add documents from any agent
+3. **Manual sync**: Run \`lore sync\` after adding files to your data directory
+
+## Background Daemon
+
+Run \`lore sync start\` to launch a background daemon that watches for new files and auto-indexes them. Check status with \`lore sync status\`.
+
+## Tips
+
+- Lore extracts metadata using AI at sync time, so your documents are enriched automatically
+- Use projects to organize related documents together
+- The research tool can cross-reference multiple sources and synthesize findings with citations
+`;
+
+// ============================================================================
 // GitHub CLI helpers
 // ============================================================================
 
