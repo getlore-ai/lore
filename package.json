@@ -1,0 +1,71 @@
+{
+  "name": "@getlore/cli",
+  "version": "0.5.2",
+  "description": "Research knowledge repository with semantic search, citations, and project lineage tracking",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "lore": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "plugins",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "mcp": "node dist/mcp/server.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "knowledge-base",
+    "research",
+    "mcp",
+    "model-context-protocol",
+    "semantic-search",
+    "citations",
+    "project-management",
+    "ai-agents",
+    "claude"
+  ],
+  "author": "Mishkin Faustini",
+  "homepage": "https://getlore.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getlore-ai/lore.git"
+  },
+  "bugs": {
+    "url": "https://github.com/getlore-ai/lore/issues"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.22",
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@supabase/supabase-js": "^2.93.2",
+    "apache-arrow": "^18.1.0",
+    "blessed": "^0.1.81",
+    "chokidar": "^5.0.0",
+    "commander": "^12.1.0",
+    "dotenv": "^17.2.3",
+    "openai": "^4.77.0",
+    "pdf-parse": "^2.4.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.27",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

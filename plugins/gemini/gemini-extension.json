@@ -1,0 +1,11 @@
+{
+  "name": "lore",
+  "version": "1.0.0",
+  "description": "Research knowledge repository — semantic search, citations, and agent-driven ingestion from any source",
+  "mcpServers": {
+    "lore": {
+      "command": "npx",
+      "args": ["-y", "@getlore/cli", "mcp"]
+    }
+  }
+}

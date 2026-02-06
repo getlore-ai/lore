@@ -1,0 +1,9 @@
+# Lore Data Repository
+# This file should be in your lore-data directory
+
+# Vector database (binary, rebuilt with `lore sync`)
+lore.lance/
+
+# Environment files (if any)
+.env
+.env.local
