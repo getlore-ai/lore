@@ -2,6 +2,8 @@
 
 > The lore behind your projects.
 
+Every project accumulates lore — the decisions, conversations, research, and context that explain why things are the way they are. Most of it gets lost between chat threads and forgotten docs. Lore keeps it searchable and citable.
+
 A research knowledge repository with **semantic search** and **citations**. Unlike memory systems that store processed facts, Lore preserves your original sources and lets you cite exactly what was said, by whom, and when.
 
 ## Quick Start
