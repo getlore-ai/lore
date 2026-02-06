@@ -31,14 +31,23 @@ lore search "user pain points"
 
 ## MCP Configuration
 
-Add to your Claude Code or Claude Desktop MCP config:
+**One-click install:**
+
+[![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en-US/install-mcp?name=lore&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIkBnZXRsb3JlL2NsaSIsIm1jcCJdfQ%3D%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=lore&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40getlore%2Fcli%22%2C%22mcp%22%5D%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=lore&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40getlore%2Fcli%22%2C%22mcp%22%5D%7D&quality=insiders)
+[![Install in Goose](https://img.shields.io/badge/Goose-Install_Extension-F97316?style=flat-square&logoColor=white)](goose://extension?cmd=npx&arg=-y&arg=%40getlore%2Fcli&arg=mcp&timeout=300&id=lore-mcp&name=Lore&description=Research%20knowledge%20repository%20with%20semantic%20search%20and%20citations)
+
+After installing, run `npx @getlore/cli setup` to configure API keys and sign in.
+
+**Manual config** — add to your MCP client config (`.mcp.json`, `.cursor/mcp.json`, etc.):
 
 ```json
 {
   "mcpServers": {
     "lore": {
-      "command": "lore",
-      "args": ["mcp"]
+      "command": "npx",
+      "args": ["-y", "@getlore/cli", "mcp"]
     }
   }
 }
