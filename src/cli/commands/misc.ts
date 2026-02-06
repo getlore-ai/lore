@@ -212,9 +212,9 @@ Done! To use this data repository:
 `);
     });
 
-  // Serve command (MCP server)
+  // MCP server command
   program
-    .command('serve')
+    .command('mcp')
     .description('Start the MCP server')
     .option('-w, --watch', 'Watch extensions and auto-reload')
     .option('--sandbox', 'Run extension tools in worker thread sandbox')

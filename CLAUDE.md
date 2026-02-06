@@ -61,23 +61,30 @@ WORKING CONTEXT (research packages, project summaries for agents)
 src/
 ├── core/              # Shared infrastructure
 │   ├── types.ts       # Full data model with Citation type
+│   ├── config.ts      # Centralized config (~/.config/lore/config.json)
+│   ├── auth.ts        # Supabase Auth session management (OTP login)
 │   ├── embedder.ts    # OpenAI embeddings
-│   ├── vector-store.ts # Supabase + pgvector (with content_hash dedup)
+│   ├── vector-store.ts # Supabase + pgvector (auth-aware, RLS-compatible)
 │   └── insight-extractor.ts # Summary generation
-├── sync/              # Universal sync system (NEW)
+├── sync/              # Universal sync system
 │   ├── config.ts      # Sync source configuration (~/.config/lore/sync-sources.json)
 │   ├── discover.ts    # Phase 1: File discovery + hash deduplication
 │   ├── processors.ts  # Format preprocessors (JSONL, JSON, etc.)
 │   └── process.ts     # Phase 2: Claude metadata extraction
+├── cli/commands/      # CLI command modules
+│   ├── auth.ts        # login, logout, whoami, setup commands
+│   ├── sync.ts        # Sync/daemon/watch/sources commands
+│   ├── search.ts      # Search command
+│   └── ...            # docs, projects, ask, etc.
 ├── ingest/            # Legacy source adapters (deprecated, use sync)
 │   ├── granola.ts     # Granola meeting exports
 │   ├── claude-code.ts # Claude Code conversations
 │   └── markdown.ts    # Any markdown documents
 ├── mcp/
-│   ├── server.ts      # MCP server entry
+│   ├── server.ts      # MCP server entry (with config bridging)
 │   ├── tools.ts       # Tool definitions (Zod schemas)
 │   └── handlers/      # Handler implementations
-└── index.ts           # CLI with sync, sources, search commands
+└── index.ts           # CLI entry (config bridging + command registration)
 ```
 
 ## Relationship to granola-extractor
@@ -100,33 +107,46 @@ npm run build         # Compile TypeScript
 npm run dev           # Run with tsx
 npm run mcp           # Start MCP server
 
-# Environment
+# Environment variables (can also be set via `lore setup` → config.json)
 OPENAI_API_KEY=...              # Required for embeddings
 ANTHROPIC_API_KEY=...           # Required for research agent
 SUPABASE_URL=...                # Supabase project URL
-SUPABASE_ANON_KEY=...           # Supabase anon/service key
+SUPABASE_PUBLISHABLE_KEY=...    # Supabase publishable key (has defaults, usually not needed)
+SUPABASE_SERVICE_KEY=...        # Service key (bypasses RLS, env-only, never stored)
 LORE_DATA_DIR=~/lore-data       # Data directory for raw documents (git-synced)
 LORE_AUTO_GIT_PULL=true         # Auto git pull every 5 min (default: true)
 LORE_AUTO_INDEX=true            # Auto-index new sources (default: true, costs API calls)
 ```
+
+### Configuration Resolution
+
+Keys can be provided via env vars OR `~/.config/lore/config.json` (created by `lore setup`).
+Resolution order: `process.env` > `config.json` > error.
+Service key (`SUPABASE_SERVICE_KEY`) is env-only and never stored in config.
 
 ## Code vs Data Separation
 
 **Lore (this repo)** = reusable tool, shareable
 **Data directory** = your personal knowledge, separate location
 **Supabase** = cloud vector index, shared across all machines
+**Config directory** = `~/.config/lore/` (machine-specific, not in any repo)
 
 The `LORE_DATA_DIR` should point to a separate directory (its own git repo for cross-machine sync of raw documents). Vector embeddings are stored in Supabase for multi-agent, multi-machine access.
 
 ```
+~/.config/lore/           # Machine-specific config (NOT in any repo)
+├── config.json           # API keys, Supabase URL (created by `lore setup`)
+├── auth.json             # Auth session token (created by `lore login`)
+└── sync-sources.json     # Sync source directories
+
 ~/lore-data/              # Your data repo (separate git repo)
 ├── sources/              # Ingested documents (git-tracked)
 ├── retained/             # Explicitly saved insights (git-tracked)
 └── archived-projects.json
 
 Supabase (cloud):         # Vector index - shared across all machines
-├── sources table         # Document metadata + embeddings
-└── chunks table          # Quotes/chunks + embeddings
+├── sources table         # Document metadata + embeddings + user_id (RLS)
+└── chunks table          # Quotes/chunks + embeddings + user_id (RLS)
 ```
 
 ## Implementation Status
@@ -134,32 +154,39 @@ Supabase (cloud):         # Vector index - shared across all machines
 All core features are implemented:
 
 - **Universal Sync**: Two-phase sync with content hash deduplication
-- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`
+- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `login`, `logout`, `whoami`, `setup`
 - **MCP Tools**: All 9 tools fully functional
 - **LLM-powered Research**: Uses Claude for extraction and research
 - **Multi-machine Support**: Content hash dedup works across machines
+- **Multi-tenant Auth**: Supabase Auth (email OTP) with RLS data isolation
 
 ## Usage
 
 ```bash
-# Configure sync sources (one-time setup)
-lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
-lore sources add --name "Research Notes" --path ~/research --glob "**/*.{md,pdf}" --project research
+# First-time setup (config + login in one wizard)
+lore setup
 
-# List configured sources
-lore sources list
+# Or configure manually:
+lore login --email user@example.com
+lore whoami
+
+# Configure sync sources
+lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
 
 # Sync all sources (two-phase: discovery then processing)
 lore sync
-
-# Dry run - see what would be synced
-lore sync --dry-run
 
 # Search
 lore search "user pain points"
 
 # Start MCP server
 lore mcp
+
+# Auth commands
+lore login            # Sign in with email OTP
+lore logout           # Clear session
+lore whoami           # Show current user/status
+lore setup            # Guided wizard (config + login + claim data)
 ```
 
 ## Universal Sync (Two-Phase)
@@ -244,11 +271,12 @@ research("What authentication approach should we use?")
 
 1. **Hybrid MCP approach**: Simple tools for direct queries + agentic tool for complex research
 2. **Universal sync**: Claude extracts metadata at ingest time, replacing bespoke adapters
-3. **Content hash deduplication**: Same file = same hash, works across machines
+3. **Content hash deduplication**: Same file = same hash, works per-user across machines
 4. **Two-phase sync**: Discovery is free (no LLM), processing only for new files
 5. **Citations are first-class**: Every Quote has a Citation linking to source
 6. **Projects organize knowledge**: All sources associate with projects
-7. **Config is machine-specific**: `~/.config/lore/sync-sources.json` not in data repo
+7. **Config is machine-specific**: `~/.config/lore/` not in data repo
+8. **Multi-tenant via RLS**: Postgres Row Level Security isolates user data; service key bypasses for admin/migration use
 
 ## Knowledge Evolution & Conflicts
 
@@ -265,6 +293,19 @@ This approach ensures:
 - Historical context remains accessible (`include_archived: true`)
 - No silent data loss from AI reasoning errors
 - Transparent, traceable reasoning
+
+## Authentication & Multi-Tenancy
+
+Lore supports **Supabase Auth with email OTP** for multi-tenant data isolation:
+
+- **Auth flow**: `lore login` → enter email → receive OTP code → verify → session saved to `~/.config/lore/auth.json`
+- **Session management**: Auto-refreshes tokens when near expiry (5-minute buffer)
+- **Data isolation**: Postgres RLS policies on `sources` and `chunks` tables, scoped by `user_id`
+- **Three client modes**:
+  1. **Service key** (`SUPABASE_SERVICE_KEY` env var) — bypasses RLS, for admin/migration
+  2. **Authenticated user** — publishable key + Bearer token, RLS applies
+  3. **No auth** — throws helpful "run lore login" error
+- **Existing data migration**: `lore setup` includes a "claim unclaimed data" step
 
 ## Non-Goals (Current Phase)
 

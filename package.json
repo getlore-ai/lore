@@ -1,5 +1,5 @@
 {
-  "name": "lore",
+  "name": "@mishkinf/lore",
   "version": "0.1.0",
   "description": "Research knowledge repository with semantic search, citations, and project lineage tracking",
   "type": "module",
@@ -7,11 +7,20 @@
   "bin": {
     "lore": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "mcp": "node dist/mcp/server.js"
+    "mcp": "node dist/mcp/server.js",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "knowledge-base",

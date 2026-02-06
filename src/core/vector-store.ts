@@ -14,21 +14,55 @@ import type {
   ContentType,
   SearchMode,
 } from './types.js';
+import { getValidSession } from './auth.js';
 
 let supabase: SupabaseClient | null = null;
+let supabaseMode: 'service' | 'auth' | null = null;
 
-function getSupabase(): SupabaseClient {
-  if (!supabase) {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
+/**
+ * Get an authenticated Supabase client. Three modes:
+ * 1. Service key (env var set) → bypasses RLS, backward compatible
+ * 2. Authenticated user → publishable key + auth session token → RLS applies
+ * 3. Neither → throws with helpful message
+ */
+async function getSupabase(): Promise<SupabaseClient> {
+  if (supabase) return supabase;
 
-    if (!url || !key) {
-      throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY (or SUPABASE_ANON_KEY) are required');
-    }
+  const url = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-    supabase = createClient(url, key);
+  if (!url) {
+    throw new Error('SUPABASE_URL is required. Run \'lore setup\' to configure.');
   }
-  return supabase;
+
+  // Mode 1: Service key (bypasses RLS)
+  if (serviceKey) {
+    supabase = createClient(url, serviceKey);
+    supabaseMode = 'service';
+    return supabase;
+  }
+
+  // Mode 2: Authenticated user (RLS applies)
+  if (publishableKey) {
+    const session = await getValidSession();
+    if (session) {
+      supabase = createClient(url, publishableKey, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        },
+      });
+      supabaseMode = 'auth';
+      return supabase;
+    }
+  }
+
+  // Mode 3: No auth
+  throw new Error(
+    'Not authenticated. Run \'lore login\' to sign in, or set SUPABASE_SERVICE_KEY for service mode.'
+  );
 }
 
 // ============================================================================
@@ -38,7 +72,7 @@ function getSupabase(): SupabaseClient {
 export async function indexExists(_dbPath: string): Promise<boolean> {
   // With Supabase, the index always "exists" if we can connect
   try {
-    const client = getSupabase();
+    const client = await getSupabase();
     const { error } = await client.from('sources').select('id').limit(1);
     return !error;
   } catch {
@@ -54,15 +88,17 @@ export async function initializeTables(_dbPath: string): Promise<void> {
 export function resetDatabaseConnection(): void {
   // Reset the client to force reconnection
   supabase = null;
+  supabaseMode = null;
 }
 
 export async function closeDatabase(): Promise<void> {
   supabase = null;
+  supabaseMode = null;
 }
 
 // For compatibility - Supabase doesn't use a local path
 export async function getDatabase(_dbPath: string): Promise<SupabaseClient> {
-  return getSupabase();
+  return await getSupabase();
 }
 
 // ============================================================================
@@ -78,7 +114,7 @@ export async function addSource(
     source_path?: string;
   }
 ): Promise<void> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const record: Record<string, unknown> = {
     id: source.id,
@@ -123,7 +159,7 @@ export async function storeSources(
     };
   }>
 ): Promise<void> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const records = sources.map(({ source, vector, extras }) => {
     const record: Record<string, unknown> = {
@@ -168,7 +204,7 @@ export async function findSourceByPath(
   _dbPath: string,
   sourcePath: string
 ): Promise<{ id: string; content_hash: string } | null> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const { data, error } = await client
     .from('sources')
@@ -193,7 +229,7 @@ export async function getSourcePathMappings(
 ): Promise<Map<string, { id: string; content_hash: string }>> {
   if (paths.length === 0) return new Map();
 
-  const client = getSupabase();
+  const client = await getSupabase();
   const mappings = new Map<string, { id: string; content_hash: string }>();
 
   // Query in batches
@@ -232,7 +268,7 @@ export async function checkContentHashExists(
   _dbPath: string,
   contentHash: string
 ): Promise<boolean> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const { data, error } = await client
     .from('sources')
@@ -254,7 +290,7 @@ export async function getExistingContentHashes(
 ): Promise<Set<string>> {
   if (hashes.length === 0) return new Set();
 
-  const client = getSupabase();
+  const client = await getSupabase();
   const existing = new Set<string>();
 
   // Query in batches to avoid limits
@@ -333,7 +369,7 @@ export async function searchSources(
     queryText = '',
     rrf_k = 60,
   } = options;
-  const client = getSupabase();
+  const client = await getSupabase();
 
   // For backward compatibility: use legacy search if no query text or semantic-only
   if (mode === 'semantic' || !queryText) {
@@ -429,7 +465,7 @@ export async function getAllSources(
   }>
 > {
   const { project, source_type, limit } = options;
-  const client = getSupabase();
+  const client = await getSupabase();
 
   let query = client
     .from('sources')
@@ -481,7 +517,7 @@ export async function getSourceById(
   themes: Theme[];
   quotes: Quote[];
 } | null> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const { data, error } = await client
     .from('sources')
@@ -512,7 +548,7 @@ export async function deleteSource(
   _dbPath: string,
   sourceId: string
 ): Promise<{ deleted: boolean; contentHash?: string; sourcePath?: string }> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   // Fetch content_hash and source_path before deleting so callers can
   // record the hash in the blocklist and remove the original file
@@ -547,7 +583,7 @@ export async function updateSourceProjects(
   sourceId: string,
   projects: string[]
 ): Promise<boolean> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const { error } = await client
     .from('sources')
@@ -570,7 +606,7 @@ export async function updateSourceTitle(
   sourceId: string,
   title: string
 ): Promise<boolean> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const { error } = await client
     .from('sources')
@@ -594,7 +630,7 @@ export async function updateSourceContentType(
   sourceId: string,
   contentType: string
 ): Promise<boolean> {
-  const client = getSupabase();
+  const client = await getSupabase();
 
   const { error } = await client
     .from('sources')
@@ -617,7 +653,7 @@ export async function getThemeStats(
   _dbPath: string,
   project?: string
 ): Promise<Map<string, { source_count: number; quote_count: number }>> {
-  const client = getSupabase();
+  const client = await getSupabase();
   const stats = new Map<string, { source_count: number; quote_count: number }>();
 
   let query = client.from('sources').select('themes_json, quotes_json, projects');
@@ -656,7 +692,7 @@ export async function getProjectStats(
     latest_activity: string;
   }>
 > {
-  const client = getSupabase();
+  const client = await getSupabase();
   const projectMap = new Map<
     string,
     { source_count: number; quote_count: number; latest_activity: string }
