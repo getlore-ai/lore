@@ -212,9 +212,11 @@ ClawHub had a major security incident in Jan/Feb 2026 — 400+ malicious skills 
 
 ## Checklist
 
-- [x] **Claude Code** — Self-hosted marketplace repo: `getlore-ai/claude-code-marketplace`
-- [x] **Gemini CLI** — Submitted to Extensions Gallery via GitHub issue: https://github.com/google-gemini/gemini-cli/issues/18488
-- [x] **Codex CLI** — Submitted PR to openai/skills catalog: https://github.com/openai/skills/pull/119
-- [x] **OpenClaw** — Published to ClawHub: `lore@1.0.0`
-- [x] **All** — Added install instructions to README.md
-- [ ] **All** — Bump version in plugin manifests when publishing updates
+For each release, update and publish to all platforms:
+
+- [ ] **Claude Code** — Update marketplace repo: `getlore-ai/claude-code-marketplace`
+- [ ] **Gemini CLI** — Extension installs from public repo (no action unless format changes)
+- [ ] **Codex CLI** — Update skill in `openai/skills` if SKILL.md changes
+- [ ] **OpenClaw** — Publish new version: `npx clawhub publish <path> --slug lore --version <ver>`
+- [ ] **All** — Bump version in plugin manifests
+- [ ] **All** — Publish npm: `npm publish`
