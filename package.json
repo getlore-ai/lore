@@ -44,7 +44,7 @@
   "bugs": {
     "url": "https://github.com/getlore-ai/lore/issues"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },

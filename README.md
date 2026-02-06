@@ -127,4 +127,4 @@ lore skills install openclaw
 
 ## License
 
-Proprietary. All rights reserved.
+MIT
