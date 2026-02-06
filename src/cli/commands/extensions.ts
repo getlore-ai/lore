@@ -39,7 +39,7 @@ function resolveExtensionPath(inputPath: string): string {
   return path.resolve(inputPath);
 }
 
-export function registerExtensionCommands(program: Command): void {
+export function registerExtensionCommands(program: Command, defaultDataDir?: string): Command {
   const extension = program
     .command('extension')
     .description('Manage Lore extensions');
@@ -232,4 +232,6 @@ export function registerExtensionCommands(program: Command): void {
       await addExtensionToConfig(packageName, ext.version, false);
       console.log(`✓ Disabled ${packageName}`);
     });
+
+  return extension;
 }

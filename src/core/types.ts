@@ -11,14 +11,9 @@
 // Source Types - Where knowledge comes from
 // ============================================================================
 
-export type SourceType =
-  | 'granola'        // Meeting transcripts from Granola app
-  | 'claude-code'    // Claude Code conversation exports
-  | 'claude-desktop' // Claude Desktop exports
-  | 'chatgpt'        // ChatGPT conversation exports
-  | 'markdown'       // Markdown documents/notes
-  | 'document'       // Other documents (PDFs, etc.)
-  | 'retained';      // Explicitly retained via MCP
+// Free-form string — agents pass whatever describes the content
+// Common values: meeting, interview, document, slack, email, github-issue, notion, notes, analysis
+export type SourceType = string;
 
 // ============================================================================
 // Search Modes - How to search the knowledge base
@@ -183,6 +178,8 @@ export interface SourceRecord {
   quotes_json: string;            // JSON stringified Quote[]
   has_full_content: boolean;
   vector: number[];
+  source_url?: string;            // Original URL for citation linking
+  source_name?: string;           // Human-readable origin label
 }
 
 export interface ChunkRecord {
@@ -284,4 +281,6 @@ export interface IngestArgs {
   source_type: SourceType;
   project?: string;
   tags?: string[];
+  source_url?: string;
+  source_name?: string;
 }

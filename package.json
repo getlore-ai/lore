@@ -1,5 +1,5 @@
 {
-  "name": "@mishkinf/lore",
+  "name": "@getlore/cli",
   "version": "0.1.5",
   "description": "Research knowledge repository with semantic search, citations, and project lineage tracking",
   "type": "module",
@@ -9,6 +9,8 @@
   },
   "files": [
     "dist",
+    "plugins",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -33,6 +35,15 @@
     "ai-agents",
     "claude"
   ],
+  "author": "Mishkin Faustini",
+  "homepage": "https://getlore.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/getlore-ai/lore.git"
+  },
+  "bugs": {
+    "url": "https://github.com/getlore-ai/lore/issues"
+  },
   "license": "UNLICENSED",
   "engines": {
     "node": ">=18"

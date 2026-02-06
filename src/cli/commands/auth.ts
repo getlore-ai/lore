@@ -1,10 +1,10 @@
 /**
  * Auth Commands
  *
- * lore login  — interactive OTP flow
- * lore logout — clear session
- * lore whoami — show current user/status
- * lore setup  — guided wizard (config + login + init + first sync source)
+ * lore auth login  — interactive OTP flow
+ * lore auth logout — clear session
+ * lore auth whoami — show current user/status
+ * lore setup       — guided wizard (config + login + init + first sync source)
  */
 
 import type { Command } from 'commander';
@@ -36,8 +36,12 @@ async function prompt(question: string, defaultValue?: string): Promise<string> 
 // ============================================================================
 
 export function registerAuthCommands(program: Command): void {
-  // ── lore login ──────────────────────────────────────────────────────────
-  program
+  const authCmd = program
+    .command('auth')
+    .description('Authentication commands (login, logout, whoami)');
+
+  // ── lore auth login ──────────────────────────────────────────────────────
+  authCmd
     .command('login')
     .description('Sign in with email (OTP)')
     .option('-e, --email <email>', 'Email address')
@@ -130,8 +134,8 @@ export function registerAuthCommands(program: Command): void {
       console.log(c.success(`Logged in as ${session.user.email}`));
     });
 
-  // ── lore logout ─────────────────────────────────────────────────────────
-  program
+  // ── lore auth logout ─────────────────────────────────────────────────────
+  authCmd
     .command('logout')
     .description('Sign out and clear session')
     .action(async () => {
@@ -144,8 +148,8 @@ export function registerAuthCommands(program: Command): void {
       console.log(c.success('Logged out.'));
     });
 
-  // ── lore whoami ─────────────────────────────────────────────────────────
-  program
+  // ── lore auth whoami ─────────────────────────────────────────────────────
+  authCmd
     .command('whoami')
     .description('Show current authentication status')
     .action(async () => {
@@ -489,6 +493,25 @@ export function registerAuthCommands(program: Command): void {
         console.log(c.dim('You can start it later with: lore sync start\n'));
       }
 
+      // ── Step 6: Agent Skills ──────────────────────────────────────────
+      console.log(c.bold('Step 6: Agent Skills\n'));
+      console.log(c.dim('Lore works best when your AI agents know how to use it.'));
+      console.log(c.dim('Install instruction files so agents automatically search and ingest into Lore.\n'));
+
+      try {
+        const { interactiveSkillInstall } = await import('./skills.js');
+        const installed = await interactiveSkillInstall();
+
+        if (installed.length > 0) {
+          console.log(c.success(`\nInstalled skills: ${installed.join(', ')}\n`));
+        } else {
+          console.log(c.dim('\nSkipped. You can install later with: lore skills install <name>\n'));
+        }
+      } catch (err) {
+        console.log(c.warning(`Could not install skills: ${err instanceof Error ? err.message : err}`));
+        console.log(c.dim('You can install later with: lore skills install <name>\n'));
+      }
+
       // ── Done ───────────────────────────────────────────────────────────
       console.log(c.title('Setup complete!\n'));
       console.log('Try these commands:');
@@ -496,7 +519,7 @@ export function registerAuthCommands(program: Command): void {
       console.log(c.list('lore browse                    — interactive terminal browser'));
       console.log(c.list('lore sync add                  — add a sync source directory'));
       console.log(c.list('lore sync                      — sync documents now'));
-      console.log(c.list('lore sync status               — check daemon status'));
+      console.log(c.list('lore skills list               — see available agent skills'));
       console.log('');
     });
 }

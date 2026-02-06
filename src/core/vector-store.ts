@@ -112,6 +112,8 @@ export async function addSource(
   extras?: {
     content_hash?: string;
     source_path?: string;
+    source_url?: string;
+    source_name?: string;
   }
 ): Promise<void> {
   const client = await getSupabase();
@@ -139,6 +141,12 @@ export async function addSource(
   if (extras?.source_path) {
     record.source_path = extras.source_path;
   }
+  if (extras?.source_url) {
+    record.source_url = extras.source_url;
+  }
+  if (extras?.source_name) {
+    record.source_name = extras.source_name;
+  }
 
   const { error } = await client.from('sources').upsert(record, {
     ignoreDuplicates: true,
@@ -162,6 +170,8 @@ export async function storeSources(
     extras?: {
       content_hash?: string;
       source_path?: string;
+      source_url?: string;
+      source_name?: string;
     };
   }>
 ): Promise<void> {
@@ -189,6 +199,12 @@ export async function storeSources(
     }
     if (extras?.source_path) {
       record.source_path = extras.source_path;
+    }
+    if (extras?.source_url) {
+      record.source_url = extras.source_url;
+    }
+    if (extras?.source_name) {
+      record.source_name = extras.source_name;
     }
 
     return record;
@@ -522,6 +538,8 @@ export async function getSourceById(
   summary: string;
   themes: Theme[];
   quotes: Quote[];
+  source_url?: string;
+  source_name?: string;
 } | null> {
   const client = await getSupabase();
 
@@ -547,6 +565,8 @@ export async function getSourceById(
     summary: data.summary,
     themes: data.themes_json || [],
     quotes: data.quotes_json || [],
+    source_url: data.source_url || undefined,
+    source_name: data.source_name || undefined,
   };
 }
 

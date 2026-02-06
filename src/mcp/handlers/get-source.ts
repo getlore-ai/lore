@@ -35,6 +35,8 @@ export async function handleGetSource(
     summary: source.summary,
     themes: source.themes,
     quotes: source.quotes,
+    source_url: source.source_url || undefined,
+    source_name: source.source_name || undefined,
   };
 
   // Include full content if requested

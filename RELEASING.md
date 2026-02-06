@@ -57,10 +57,10 @@ git push && git push --tags
 
 ```bash
 # Check the published version
-npm view @mishkinf/lore version
+npm view @getlore/cli version
 
 # Test install
-npx @mishkinf/lore --version
+npx @getlore/cli --version
 ```
 
 ## What Gets Published
@@ -69,8 +69,10 @@ Only these files are included (controlled by `files` in `package.json`):
 
 ```
 dist/           # Compiled JavaScript
+plugins/        # Agent platform plugins (Claude Code, Gemini, Codex)
+skills/         # Agent skill files (OpenClaw, generic)
 README.md       # Package readme
-LICENSE         # MIT license
+LICENSE         # License
 package.json    # Auto-included
 ```
 

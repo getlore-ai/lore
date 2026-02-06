@@ -5,6 +5,9 @@
  * Two categories:
  * 1. Simple tools - Direct database queries, cheap and fast
  * 2. Agentic tools - Use Claude Agent SDK for complex research
+ *
+ * Descriptions are written for agent consumption. Agents without a skill file
+ * should understand Lore purely from these tool descriptions.
  */
 
 import { z } from 'zod';
@@ -68,9 +71,9 @@ const SearchSchema = z.object({
   query: z.string().describe('Search query'),
   project: z.string().optional().describe('Filter to specific project'),
   source_type: z
-    .enum(['granola', 'claude-code', 'claude-desktop', 'chatgpt', 'markdown', 'document'])
+    .string()
     .optional()
-    .describe('Filter by source type'),
+    .describe('Filter by source type (matches the source_type passed during ingest, e.g. "meeting", "slack", "github-issue")'),
   content_type: z
     .enum(['interview', 'meeting', 'conversation', 'document', 'note', 'analysis'])
     .optional()
@@ -94,9 +97,9 @@ const GetSourceSchema = z.object({
 const ListSourcesSchema = z.object({
   project: z.string().optional().describe('Filter to specific project'),
   source_type: z
-    .enum(['granola', 'claude-code', 'claude-desktop', 'chatgpt', 'markdown', 'document'])
+    .string()
     .optional()
-    .describe('Filter by source type'),
+    .describe('Filter by source type (matches the source_type passed during ingest, e.g. "meeting", "slack", "github-issue")'),
   limit: z.number().optional().describe('Max results (default 20)'),
 });
 
@@ -139,15 +142,23 @@ const IngestSchema = z.object({
   title: z.string().describe('Title for the document'),
   project: z.string().describe('Project this document belongs to'),
   source_type: z
-    .enum(['meeting', 'interview', 'document', 'notes', 'analysis', 'conversation'])
+    .string()
     .optional()
-    .describe('Type of source (default: document)'),
+    .describe('Content category. Use one of these canonical values: meeting, interview, document, notes, analysis, conversation, article, slack, email, github-issue, github-pr, notion, spec, rfc, transcript, pdf, image, video, audio. Defaults to "document". Variants are auto-normalized (e.g. "Slack Thread" → "slack", "blog post" → "article").'),
   date: z.string().optional().describe('Date of the document (ISO format, defaults to now)'),
   participants: z
     .array(z.string())
     .optional()
     .describe('People involved (for meetings/interviews)'),
   tags: z.array(z.string()).optional().describe('Optional tags for categorization'),
+  source_url: z
+    .string()
+    .optional()
+    .describe('Original URL for citation linking (e.g., Slack permalink, Notion page URL, GitHub issue URL). Stored for traceability.'),
+  source_name: z
+    .string()
+    .optional()
+    .describe('Human-readable origin label (e.g., "Slack #product-team", "GitHub issue #42", "Notion: Sprint Planning")'),
 });
 
 // ============================================================================
@@ -201,62 +212,42 @@ export const toolDefinitions = [
   // Simple tools
   {
     name: 'search',
-    description: `Search across all sources in the knowledge repository. Returns summaries with relevant quotes and themes. Use this for quick lookups.
+    description: `Search the Lore knowledge base. Returns source summaries with relevance scores, matching quotes, and themes.
 
-SEARCH MODES:
-- semantic: Vector similarity for conceptual queries ("pain points", "user frustrations")
-- keyword: Full-text search for exact terms ("TS-01", "OAuth", specific names)
-- hybrid: Combines semantic + keyword using RRF fusion (default, best of both)
-- regex: Pattern matching in local files ("OAuth.*config", "function\\s+\\w+")
+SEARCH MODES (pick based on your query):
+- hybrid (default): Best for most queries. Combines vector similarity + full-text search via RRF fusion.
+- semantic: Vector similarity only. Use for conceptual queries ("pain points", "user frustrations") where exact terms don't matter.
+- keyword: Full-text search only. Use for exact terms, identifiers, or proper nouns ("TS-01", "OAuth", specific names).
+- regex: Pattern matching in local files. Use for code patterns or complex text matching ("OAuth.*config").
 
-USE THIS WHEN:
-- Looking up specific known information
-- Single-topic queries with expected direct answers
-- Quick context gathering before a conversation
-- You know roughly what you're looking for
+WHEN TO USE THIS TOOL:
+- Quick lookups of specific information
+- Finding sources related to a topic
+- Gathering context before answering a question
+- Any query where you expect 1-3 relevant sources to answer it
 
-USE 'research' INSTEAD WHEN:
-- Question requires cross-referencing multiple sources
-- Need synthesis or pattern detection across sources
-- Looking for conflicts or evolution of thinking over time
-- Building a comprehensive research package
-- Query is open-ended like "what do we know about X"`,
+USE 'research' INSTEAD when the question requires cross-referencing multiple sources, detecting patterns across documents, or synthesizing findings with citations. 'research' costs more API calls — avoid it for simple lookups.`,
     inputSchema: zodToJsonSchema(SearchSchema),
   },
   {
     name: 'get_source',
-    description: `Get full details of a specific source document including all quotes, themes, and optionally the complete original content. Use for deep-diving into a specific source.
+    description: `Retrieve full details of a specific source document by ID. Returns metadata, summary, quotes, themes, and optionally the complete original content.
 
-IMPORTANT: Set include_content=true to get the full raw transcript/document text. By default only metadata and summary are returned.
+Set include_content=true to get the full raw text (transcript, document body, etc.). By default only metadata and summary are returned.
 
-USE THIS WHEN:
-- You have a source_id from search results and need full content
-- Deep-diving into a specific document
-- Need the complete original text for detailed analysis
-
-USE 'search' FIRST when you don't have a source_id yet.`,
+USE THIS AFTER 'search' returns a relevant source_id and you need the full document for detailed analysis or quoting.`,
     inputSchema: zodToJsonSchema(GetSourceSchema),
   },
   {
     name: 'list_sources',
-    description: `List all sources in the repository, optionally filtered by project or type. Returns summaries sorted by date.
+    description: `List all sources in the knowledge base, optionally filtered by project or type. Returns summaries sorted by date (newest first).
 
-USE THIS WHEN:
-- Browsing what exists in a project
-- Need to see all sources chronologically
-- Understanding the scope of available knowledge
-
-USE 'search' INSTEAD when you have a specific query in mind.`,
+Use this to browse what exists in a project, understand the scope of available knowledge, or check if content has already been ingested before calling 'ingest'.`,
     inputSchema: zodToJsonSchema(ListSourcesSchema),
   },
   {
     name: 'list_projects',
-    description: `List all projects with their source counts and latest activity.
-
-USE THIS WHEN:
-- Starting a conversation to understand what knowledge exists
-- User asks "what projects do you know about"
-- Need to validate a project name before searching`,
+    description: `List all projects with source counts and latest activity dates. Use this to discover what knowledge domains exist before searching or ingesting content.`,
     inputSchema: {
       type: 'object',
       properties: {},
@@ -264,90 +255,76 @@ USE THIS WHEN:
   },
   {
     name: 'retain',
-    description: `Save an insight, decision, requirement, or note to the knowledge repository. Use this to explicitly capture important learnings from conversations.
+    description: `Save a discrete insight, decision, requirement, or note to the knowledge base. These are short, synthesized pieces of knowledge — NOT full documents.
 
-USE THIS WHEN:
-- User explicitly asks to save/remember something
-- A key decision is made that should be preserved
-- Capturing an insight that emerged from discussion
-- User says "remember this" or "save this for later"
+Examples of what to retain:
+- A decision: "We chose JWT over session cookies because of mobile app requirements"
+- An insight: "3 out of 5 users mentioned export speed as their top frustration"
+- A requirement: "Must support SSO for enterprise customers"
 
-DO NOT USE for raw meeting notes or documents - use 'ingest' instead.`,
+USE 'ingest' INSTEAD for full documents, meeting notes, transcripts, or any content longer than a few paragraphs.`,
     inputSchema: zodToJsonSchema(RetainSchema),
   },
 
   // Agentic tool
   {
     name: 'research',
-    description: `Comprehensive research across the knowledge repository. Uses an internal agent to search, cross-reference, and synthesize findings into a research package with citations. More thorough than simple search but takes longer. Use for complex questions that need multiple sources.
+    description: `Run a comprehensive research query across the knowledge base. An internal agent iteratively searches, reads sources, cross-references findings, and synthesizes a research package with full citations.
 
-USE THIS WHEN:
-- Question spans multiple sources or needs synthesis
-- Looking for patterns, conflicts, or evolution of thinking
-- Need a research package with citations for delegation
-- Open-ended queries like "what do we know about X"
-- User explicitly asks for "research" or "comprehensive analysis"
-- Need to detect contradictions between sources
+Returns: summary, key findings, supporting quotes with citations, conflicts detected between sources, and suggested follow-up queries.
 
-USE 'search' INSTEAD WHEN:
-- Simple lookup of specific known information
-- Quick context gathering
-- You expect a single source to answer the question
+WHEN TO USE:
+- Questions that span multiple sources ("What do we know about authentication?")
+- Detecting patterns or contradictions across documents
+- Building a cited research package for decision-making
+- Open-ended exploration of a topic
 
-COST: Slower and uses more API calls than simple search. Don't use for simple lookups.`,
+COST: This tool makes multiple LLM calls internally (typically 3-8 search + read cycles). For simple lookups, use 'search' instead — it's 10x cheaper and faster.`,
     inputSchema: zodToJsonSchema(ResearchSchema),
   },
 
   // Ingest tool
   {
     name: 'ingest',
-    description: `Ingest a document directly into the knowledge repository. Use this when you have document content (meeting notes, interview transcript, analysis, etc.) that should be added to Lore. The document will be saved, indexed, and immediately searchable.
+    description: `Push content into the Lore knowledge base. This is the primary way to add documents from external systems (Slack threads, Notion pages, GitHub issues, meeting notes, emails, etc.).
 
-USE THIS WHEN:
-- User shares meeting notes, interview transcripts, or documents
-- Adding analysis or summaries to the knowledge base
-- User says "add this to lore" or "save this document"
+IDEMPOTENT: Content is deduplicated by SHA256 hash. Calling ingest with identical content returns {deduplicated: true} immediately — no LLM calls, no disk writes. Safe to call repeatedly.
 
-USE 'retain' INSTEAD for saving discrete insights, decisions, or notes (not full documents).`,
+WHAT HAPPENS:
+1. Content hash checked for deduplication
+2. Document saved to disk
+3. LLM extracts summary, themes, and key quotes
+4. Embedding generated for semantic search
+5. Indexed in Supabase for instant retrieval
+
+BEST PRACTICES:
+- Always pass source_url when available (enables citation linking back to the original)
+- Use source_name for human-readable origin context (e.g., "Slack #product-team")
+- source_type is a free-form hint — use whatever describes the content (slack, email, notion, github-issue, etc.)
+- Use 'retain' instead for short discrete insights/decisions (not full documents)`,
     inputSchema: zodToJsonSchema(IngestSchema),
   },
 
   // Sync tool
   {
     name: 'sync',
-    description: `Sync the knowledge repository using a two-phase approach:
+    description: `Sync the knowledge base from configured source directories. Two-phase process:
 
-PHASE 1 - Discovery (free, no LLM calls):
-- Scans all configured source directories
-- Computes content hashes for deduplication
-- Checks which files already exist in Supabase
+Phase 1 (Discovery — free, no LLM calls): Scans configured directories, computes content hashes, identifies new files.
+Phase 2 (Processing — only new files): Extracts metadata via LLM, generates embeddings, stores in Supabase.
 
-PHASE 2 - Processing (only for NEW files):
-- Claude extracts metadata (title, summary, date, content_type)
-- Generates embeddings for semantic search
-- Stores in Supabase and local data directory
+Use this when source directories have been updated externally, or to refresh the index after manual file changes. Source directories are configured via 'lore sources add' CLI command.
 
-Configure source directories with 'lore sources add' CLI command.
-
-USE THIS WHEN:
-- User says content was added externally
-- Starting a session and want fresh data
-- After adding new files to watched directories
-- User asks to "sync", "update", or "refresh" the knowledge base`,
+Note: For pushing content from agents, use 'ingest' instead — it's the direct path.`,
     inputSchema: zodToJsonSchema(SyncSchema),
   },
 
   // Project management
   {
     name: 'archive_project',
-    description: `Archive a project and all its sources. Archived projects are excluded from search by default but preserved for historical reference. Use when a project is completed, abandoned, or superseded by a new approach. This is a human-triggered curation action.
+    description: `Archive a project and exclude its sources from default search results. Archived sources are preserved for historical reference and can be included with include_archived=true in search.
 
-USE THIS WHEN:
-- User explicitly asks to archive a project
-- Project is completed or abandoned
-- Project was superseded by a new approach
-
-NEVER archive without explicit user request - this is a curation action.`,
+Only use when explicitly requested — this is a curation action, not an automatic cleanup.`,
     inputSchema: zodToJsonSchema(ArchiveProjectSchema),
   },
 ];

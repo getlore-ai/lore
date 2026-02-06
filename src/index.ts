@@ -31,6 +31,7 @@ import { registerExtensionCommands } from './cli/commands/extensions.js';
 import { registerPendingCommand } from './cli/commands/pending.js';
 import { registerAskCommand } from './cli/commands/ask.js';
 import { registerAuthCommands } from './cli/commands/auth.js';
+import { registerSkillsCommand } from './cli/commands/skills.js';
 import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
 import { bridgeConfigToEnv } from './core/config.js';
 import { expandPath } from './sync/config.js';
@@ -79,12 +80,15 @@ registerSearchCommand(program, DEFAULT_DATA_DIR);
 registerDocsCommand(program, DEFAULT_DATA_DIR);
 registerProjectsCommand(program, DEFAULT_DATA_DIR);
 registerMiscCommands(program, DEFAULT_DATA_DIR);
-registerExtensionCommands(program);
-registerPendingCommand(program, DEFAULT_DATA_DIR);
 registerAskCommand(program, DEFAULT_DATA_DIR);
 registerAuthCommands(program);
+registerSkillsCommand(program);
 
-// Load extension registry and register extension commands
+// Extension system — hidden from top-level help for now
+const extensionCmd = registerExtensionCommands(program);
+(extensionCmd as unknown as { _hidden: boolean })._hidden = true;
+registerPendingCommand(extensionCmd, DEFAULT_DATA_DIR);
+
 try {
   const extensionRegistry = await getExtensionRegistry({
     logger: (message) => console.error(message),
@@ -92,8 +96,8 @@ try {
   extensionRegistry.registerCommands(program, {
     defaultDataDir: DEFAULT_DATA_DIR,
   });
-} catch (error) {
-  console.error('[extensions] Failed to load extensions:', error);
+} catch {
+  // Extensions not loaded — fine for initial release
 }
 
 // Global error handler — show friendly messages instead of stack traces

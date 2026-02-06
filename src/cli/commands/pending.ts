@@ -25,8 +25,8 @@ function formatProposalSummary(entry: {
   return `${entry.id}  ${entry.status}  ${entry.extensionName}  ${entry.change.type}  ${date}`;
 }
 
-export function registerPendingCommand(program: Command, defaultDataDir: string): void {
-  const pending = program
+export function registerPendingCommand(extensionCmd: Command, defaultDataDir: string): void {
+  const pending = extensionCmd
     .command('pending')
     .description('Review and approve extension write proposals');
 

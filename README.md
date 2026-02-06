@@ -7,7 +7,7 @@ A research knowledge repository with **semantic search** and **citations**. Unli
 ## Quick Start
 
 ```bash
-npm install -g @mishkinf/lore
+npm install -g @getlore/cli
 
 # Setup (API keys + login)
 lore setup

@@ -1,0 +1,10 @@
+{
+  "name": "lore",
+  "description": "Research knowledge repository — semantic search, citations, and agent-driven ingestion from any source",
+  "version": "1.0.0",
+  "author": {
+    "name": "Mishkin Faustini"
+  },
+  "repository": "https://github.com/getlore-ai/lore",
+  "keywords": ["knowledge-base", "research", "citations", "semantic-search", "mcp"]
+}
