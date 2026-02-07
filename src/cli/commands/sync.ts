@@ -234,7 +234,7 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
           console.log(`  ... and ${result.processing.titles.length - 10} more`);
         }
         if (result.processing.errors > 0) {
-          console.log(`  Errors: ${result.processing.errors}`);
+          console.log(`  ⚠ ${result.processing.errors} file(s) failed to process (check logs above)`);
         }
       }
 
@@ -243,6 +243,10 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
         console.log(`  Sources on disk: ${result.sources_found}`);
         console.log(`  Newly indexed: ${result.sources_indexed}`);
         console.log(`  Already indexed: ${result.already_indexed}`);
+      }
+
+      if (result.reconciled > 0) {
+        console.log(`\nReconciled ${result.reconciled} source(s) missing local content`);
       }
 
       if (result.git_pushed) {

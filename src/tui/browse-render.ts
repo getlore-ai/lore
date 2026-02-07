@@ -337,7 +337,7 @@ export function getSelectedSource(state: BrowserState): SourceItem | null {
  */
 export function renderList(ui: UIComponents, state: BrowserState): void {
   const width = (ui.listContent.width as number) - 2;
-  const height = (ui.listContent.height as number) - 1;
+  const height = ui.listContent.height as number;
   const lines: string[] = [];
 
   if (state.filtered.length === 0) {
@@ -386,9 +386,13 @@ function renderFlatList(
   if (state.selectedIndex >= itemsVisible) {
     visibleStart = state.selectedIndex - itemsVisible + 1;
   }
-  const visibleEnd = Math.min(state.filtered.length, visibleStart + itemsVisible);
 
-  for (let i = visibleStart; i < visibleEnd; i++) {
+  // Render items until we fill the viewport
+  let linesUsed = 0;
+  for (let i = visibleStart; i < state.filtered.length; i++) {
+    if (linesUsed + linesPerItem > height) break;
+    linesUsed += linesPerItem;
+
     const source = state.filtered[i];
     const isSelected = i === state.selectedIndex;
     renderDocumentItem(source, isSelected, width, lines, true);
@@ -405,17 +409,29 @@ function renderGroupedList(
   height: number,
   lines: string[]
 ): void {
-  // Calculate lines per item (headers take 2, docs take 3)
-  const avgLinesPerItem = 2.5;
-  const itemsVisible = Math.floor(height / avgLinesPerItem);
+  // Calculate line height for each item type
+  const itemLineHeight = (i: number) => state.listItems[i]?.type === 'header' ? 2 : 3;
 
+  // Find visibleStart: scroll so selectedIndex is visible
   let visibleStart = 0;
-  if (state.selectedIndex >= itemsVisible) {
-    visibleStart = state.selectedIndex - itemsVisible + 1;
+  // Count lines from visibleStart to selectedIndex (inclusive)
+  let linesFromStartToSelected = 0;
+  for (let i = 0; i <= state.selectedIndex; i++) {
+    linesFromStartToSelected += itemLineHeight(i);
   }
-  const visibleEnd = Math.min(state.listItems.length, visibleStart + itemsVisible);
+  // If selectedIndex doesn't fit, scroll forward
+  while (linesFromStartToSelected > height && visibleStart < state.selectedIndex) {
+    linesFromStartToSelected -= itemLineHeight(visibleStart);
+    visibleStart++;
+  }
 
-  for (let i = visibleStart; i < visibleEnd; i++) {
+  // Render items until we fill the viewport
+  let linesUsed = 0;
+  for (let i = visibleStart; i < state.listItems.length; i++) {
+    const h = itemLineHeight(i);
+    if (linesUsed + h > height) break;
+    linesUsed += h;
+
     const item = state.listItems[i];
     const isSelected = i === state.selectedIndex;
 
@@ -458,7 +474,7 @@ function renderDocumentItem(
   lines: string[],
   showProject: boolean
 ): void {
-  const date = formatDate(source.created_at);
+  const date = formatDate(source.indexed_at || source.created_at);
   const contentType = source.content_type || 'document';
   const project = source.projects[0] || '';
 

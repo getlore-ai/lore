@@ -30,6 +30,7 @@ import { getExtensionRegistry } from '../extensions/registry.js';
 export interface ExtractedMetadata {
   title: string;
   summary: string;
+  description?: string;  // Detailed text description (used for images)
   date: string | null;
   participants: string[];
   content_type: ContentType;
@@ -93,16 +94,30 @@ export async function extractMetadata(
   options: {
     model?: string;
     image?: { base64: string; mediaType: ImageMediaType };
+    fileMetadata?: { filename: string; sizeBytes: number; createdAt: string; modifiedAt: string; exif?: Record<string, unknown> };
   } = {}
 ): Promise<ExtractedMetadata> {
-  const { model = 'claude-sonnet-4-20250514', image } = options;
+  const { model = 'claude-sonnet-4-20250514', image, fileMetadata } = options;
   const client = getAnthropic();
 
   // Build message content based on whether we have an image or text
   let messageContent: Anthropic.MessageCreateParams['messages'][0]['content'];
 
   if (image) {
-    // Image analysis with Claude Vision
+    // Image analysis with Claude Vision — extract metadata AND a detailed text description
+    const imagePrompt = `Analyze this image and return ONLY valid JSON with these fields:
+
+{
+  "title": "A descriptive title for this image",
+  "summary": "2-4 sentences capturing the key takeaway or purpose of this image",
+  "description": "A comprehensive text description of everything in this image. Include all text, data, labels, numbers, charts, diagrams, and visual elements. Transcribe any visible text verbatim. For charts/graphs, describe the data points and trends. For screenshots, describe the UI elements and content. Be thorough — this description replaces the image in a text-only knowledge base.",
+  "date": "ISO date string (YYYY-MM-DD) if mentioned, otherwise null",
+  "participants": ["list", "of", "names"] if people are mentioned, otherwise [],
+  "content_type": "one of: interview|meeting|conversation|document|note|analysis"
+}
+
+Be specific and thorough in the description. Include ALL visible text, numbers, and data.`;
+
     messageContent = [
       {
         type: 'image' as const,
@@ -114,7 +129,7 @@ export async function extractMetadata(
       },
       {
         type: 'text' as const,
-        text: `${EXTRACTION_PROMPT}\n\nFile: ${path.basename(filePath)}\n\nAnalyze this image and extract metadata. Describe what's in the image in detail in the summary.`,
+        text: `${imagePrompt}\n\nFile: ${path.basename(filePath)}${fileMetadata ? `\nFile size: ${(fileMetadata.sizeBytes / 1024).toFixed(0)} KB\nFile created: ${fileMetadata.createdAt}\nFile modified: ${fileMetadata.modifiedAt}${fileMetadata.exif ? `\nEXIF data: ${JSON.stringify(fileMetadata.exif)}` : ''}` : ''}`,
       },
     ];
   } else {
@@ -129,7 +144,7 @@ export async function extractMetadata(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 1000,
+    max_tokens: image ? 4000 : 1000,
     messages: [
       {
         role: 'user',
@@ -158,6 +173,7 @@ export async function extractMetadata(
     return {
       title: parsed.title || path.basename(filePath),
       summary: parsed.summary || 'No summary available',
+      description: parsed.description || undefined,
       date: parsed.date || null,
       participants: Array.isArray(parsed.participants) ? parsed.participants : [],
       content_type: validateContentType(parsed.content_type),
@@ -211,9 +227,12 @@ async function storeSourceToDisk(
   // Create source directory
   await mkdir(sourceDir, { recursive: true });
 
-  // Copy original file
-  const originalExt = path.extname(file.absolutePath);
-  await copyFile(file.absolutePath, path.join(sourceDir, `original${originalExt}`));
+  // Copy original file (skip binary formats — knowledge store is text-based)
+  const originalExt = path.extname(file.absolutePath).toLowerCase();
+  const binaryExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.ico', '.svg'];
+  if (!binaryExts.includes(originalExt)) {
+    await copyFile(file.absolutePath, path.join(sourceDir, `original${originalExt}`));
+  }
 
   // Save processed content
   await writeFile(path.join(sourceDir, 'content.md'), processedContent);
@@ -329,28 +348,61 @@ export async function processFiles(
         const metadata = await extractMetadata(
           processed.text,
           file.absolutePath,
-          { model, image: processed.image }
+          { model, image: processed.image, fileMetadata: processed.fileMetadata }
         );
 
-        // For images, use the summary as the text content
-        const contentText = processed.image
-          ? `# ${metadata.title}\n\n${metadata.summary}`
-          : processed.text;
+        // For images, use the detailed description as the text content
+        let contentText: string;
+        if (processed.image) {
+          const lines = [
+            `# ${metadata.title}`,
+            '',
+            metadata.description || metadata.summary,
+            '',
+            '---',
+            '',
+            `*Original file: ${path.basename(file.absolutePath)}*`,
+            `*Synced from: ${file.sourceName}*`,
+            metadata.date ? `*Date: ${metadata.date}*` : '',
+          ];
+          // Append EXIF metadata if available
+          const exif = processed.fileMetadata?.exif;
+          if (exif && Object.keys(exif).length > 0) {
+            lines.push('');
+            lines.push('## Image Metadata');
+            for (const [key, value] of Object.entries(exif)) {
+              if (value != null && value !== '') {
+                const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
+                lines.push(`- **${label}:** ${Array.isArray(value) ? value.join(', ') : String(value)}`);
+              }
+            }
+          }
+          contentText = lines.filter(Boolean).join('\n');
+        } else {
+          contentText = processed.text;
+        }
 
         // 3. Use existing ID for edits, generate new ID for new files
         const sourceId = file.existingId || generateSourceId();
 
-        // 4. Index in Supabase FIRST (may fail on duplicate content_hash)
-        await indexSource(sourceId, file, metadata, dbPath);
+        // 4. Store to disk FIRST — ensures content.md always exists
+        //    If this fails, we skip Supabase so the file stays "new" for retry.
+        try {
+          await storeSourceToDisk(sourceId, file, metadata, contentText, dataDir);
+        } catch (diskError) {
+          console.error(`[process] Disk write failed for ${file.relativePath}: ${diskError}`);
+          throw new Error(`Disk write failed for ${file.relativePath}: ${diskError}`);
+        }
 
-        // 5. Store source to disk ONLY if Supabase succeeded
-        await storeSourceToDisk(
-          sourceId,
-          file,
-          metadata,
-          contentText,
-          dataDir
-        );
+        // 5. Index in Supabase — if this fails, disk content still exists
+        //    and legacy sync will pick it up on the next run.
+        try {
+          await indexSource(sourceId, file, metadata, dbPath);
+        } catch (supabaseError) {
+          console.error(`[process] Supabase index failed for ${file.relativePath}: ${supabaseError}`);
+          console.error(`[process] Content saved to disk — will be indexed on next sync via legacy path`);
+          // Don't re-throw: disk write succeeded, source is safe
+        }
 
         if (extensionRegistry && hookContext) {
           await extensionRegistry.runHook('onSourceCreated', {
@@ -390,9 +442,11 @@ export async function processFiles(
           batchResult.value.metadata.title
         );
       } else {
+        const errorMsg = batchResult.reason?.message || String(batchResult.reason);
+        console.error(`[process] Failed to process ${file.relativePath}: ${errorMsg}`);
         result.errors.push({
           file,
-          error: batchResult.reason?.message || String(batchResult.reason),
+          error: errorMsg,
         });
         onProgress?.(
           result.processed.length + result.errors.length,

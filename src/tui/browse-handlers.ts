@@ -105,47 +105,86 @@ export async function loadFullContent(
   const source = getSelectedSource(state);
   if (!source) return;
 
-  // Try to load from disk first
-  const contentPath = path.join(sourcesDir, source.id, 'content.md');
+  // Try to load from disk first (content.md, then original file)
+  const sourceDir = path.join(sourcesDir, source.id);
+  const contentPath = path.join(sourceDir, 'content.md');
 
   try {
     const { readFile } = await import('fs/promises');
     state.fullContent = await readFile(contentPath, 'utf-8');
   } catch {
-    // Fall back to database source details
-    const details = await getSourceById(dbPath, source.id) as SourceDetails | null;
-    if (details) {
-      state.fullContent = [
-        `# ${details.title}`,
-        '',
-        `**Type:** ${details.source_type} · ${details.content_type}`,
-        `**Date:** ${formatDate(details.created_at)}`,
-        `**Projects:** ${details.projects.join(', ') || '(none)'}`,
-        '',
-        '## Summary',
-        details.summary,
-        '',
-      ].join('\n');
-
-      if (details.themes && details.themes.length > 0) {
-        state.fullContent += '## Themes\n';
-        for (const theme of details.themes) {
-          state.fullContent += `- **${theme.name}**`;
-          if (theme.summary) state.fullContent += `: ${theme.summary}`;
-          state.fullContent += '\n';
-        }
-        state.fullContent += '\n';
-      }
-
-      if (details.quotes && details.quotes.length > 0) {
-        state.fullContent += '## Key Quotes\n';
-        for (const quote of details.quotes.slice(0, 10)) {
-          const speaker = quote.speaker === 'user' ? '[You]' : `[${quote.speaker_name || 'Participant'}]`;
-          state.fullContent += `> ${speaker} "${quote.text}"\n\n`;
+    // content.md not found — try to find and read an original text file
+    let foundOriginal = false;
+    try {
+      const { readFile, readdir } = await import('fs/promises');
+      const files = await readdir(sourceDir);
+      const originalFile = files.find(f => f.startsWith('original.'));
+      if (originalFile) {
+        const textExts = ['.md', '.txt', '.json', '.jsonl', '.csv', '.xml', '.yaml', '.yml', '.html', '.log'];
+        const ext = path.extname(originalFile).toLowerCase();
+        if (textExts.includes(ext)) {
+          state.fullContent = await readFile(path.join(sourceDir, originalFile), 'utf-8');
+          foundOriginal = true;
         }
       }
-    } else {
-      state.fullContent = `Could not load content for ${source.title}`;
+    } catch {
+      // Source directory doesn't exist locally — fall through to DB
+    }
+
+    if (!foundOriginal) {
+      // Try reading from source_path (original file in sync directory)
+      const details = await getSourceById(dbPath, source.id) as (SourceDetails & { source_path?: string }) | null;
+
+      if (details?.source_path) {
+        try {
+          const { readFile } = await import('fs/promises');
+          const ext = path.extname(details.source_path).toLowerCase();
+          const textExts = ['.md', '.txt', '.json', '.jsonl', '.csv', '.xml', '.yaml', '.yml', '.html', '.log'];
+          if (textExts.includes(ext)) {
+            state.fullContent = await readFile(details.source_path, 'utf-8');
+            foundOriginal = true;
+          }
+        } catch {
+          // source_path file doesn't exist or can't be read
+        }
+      }
+
+      if (!foundOriginal) {
+        // Final fallback: database summary view
+        if (details) {
+          state.fullContent = [
+            `# ${details.title}`,
+            '',
+            `**Type:** ${details.source_type} · ${details.content_type}`,
+            `**Date:** ${formatDate(details.created_at)}`,
+            `**Projects:** ${details.projects.join(', ') || '(none)'}`,
+            '',
+            '## Summary',
+            details.summary,
+            '',
+          ].join('\n');
+
+          if (details.themes && details.themes.length > 0) {
+            state.fullContent += '## Themes\n';
+            for (const theme of details.themes) {
+              state.fullContent += `- **${theme.name}**`;
+              if (theme.summary) state.fullContent += `: ${theme.summary}`;
+              state.fullContent += '\n';
+            }
+            state.fullContent += '\n';
+          }
+
+          if (details.quotes && details.quotes.length > 0) {
+            state.fullContent += '## Key Quotes\n';
+            for (const quote of details.quotes.slice(0, 10)) {
+              const speaker = quote.speaker === 'user' ? '[You]' : `[${quote.speaker_name || 'Participant'}]`;
+              state.fullContent += `> ${speaker} "${quote.text}"\n\n`;
+            }
+          }
+        } else {
+          state.fullContent = `Could not load content for ${source.title}`;
+        }
+      }
     }
   }
 
@@ -420,6 +459,7 @@ export async function applyFilter(
           content_type: r.content_type,
           projects: r.projects,
           created_at: r.created_at,
+          indexed_at: r.created_at,
           summary: r.summary,
           score: r.score,
         }));

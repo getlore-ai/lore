@@ -62,13 +62,43 @@ export async function gitPull(dir: string): Promise<GitResult> {
       return { success: false, error: 'No remote configured' };
     }
 
-    // Stash any local changes
-    await execAsync('git stash', { cwd: dir }).catch(() => {});
+    // Stash any local changes before pulling
+    let didStash = false;
+    if (await hasChanges(dir)) {
+      try {
+        const { stdout: stashOut } = await execAsync('git stash', { cwd: dir });
+        didStash = !stashOut.includes('No local changes');
+      } catch (stashErr) {
+        console.error(`[git] Stash failed: ${stashErr}`);
+      }
+    }
 
     // Pull with rebase
-    const { stdout } = await execAsync('git pull --rebase', { cwd: dir });
+    let pullOutput: string;
+    try {
+      const { stdout } = await execAsync('git pull --rebase', { cwd: dir });
+      pullOutput = stdout;
+    } catch (pullErr) {
+      // Restore stashed changes before returning error
+      if (didStash) {
+        await execAsync('git stash pop', { cwd: dir }).catch((popErr) => {
+          console.error(`[git] Stash pop failed after pull error: ${popErr}`);
+        });
+      }
+      throw pullErr;
+    }
 
-    const pulled = !stdout.includes('Already up to date');
+    // Restore stashed changes after successful pull
+    if (didStash) {
+      try {
+        await execAsync('git stash pop', { cwd: dir });
+      } catch (popErr) {
+        console.error(`[git] Stash pop failed (possible conflict): ${popErr}`);
+        // Don't fail the pull — stashed content is still in `git stash list`
+      }
+    }
+
+    const pulled = !pullOutput.includes('Already up to date');
     return {
       success: true,
       message: pulled ? 'Pulled new changes' : 'Already up to date'

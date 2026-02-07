@@ -12,13 +12,14 @@
  *   - Store in Supabase + local data dir
  */
 
-import { readdir, readFile } from 'fs/promises';
+import { readdir, readFile, mkdir, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 
 import {
   getAllSources,
   addSource,
+  getSourcesWithPaths,
   resetDatabaseConnection,
 } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
@@ -66,6 +67,9 @@ interface SyncResult {
     errors: number;
     titles: string[];
   };
+
+  // Local content reconciliation
+  reconciled: number;
 }
 
 // ============================================================================
@@ -202,6 +206,72 @@ async function legacyDiskSync(
 }
 
 // ============================================================================
+// Local Content Reconciliation
+// ============================================================================
+
+/**
+ * Ensures every source in Supabase with a source_path has a local
+ * ~/.lore/sources/{id}/content.md file. This handles:
+ * - Sources indexed before storeSourceToDisk was implemented
+ * - Sources from other machines (in shared Supabase but no local content)
+ * - Any edge case where Supabase write succeeded but disk write failed
+ *
+ * Cost: One Supabase query + local filesystem checks. No LLM calls.
+ */
+async function reconcileLocalContent(dataDir: string): Promise<number> {
+  const sourcesDir = path.join(dataDir, 'sources');
+  const textExts = ['.md', '.txt', '.json', '.jsonl', '.csv', '.xml', '.yaml', '.yml', '.html', '.log'];
+
+  // Get all sources that have a source_path in Supabase
+  const sourcesWithPaths = await getSourcesWithPaths('');
+  if (sourcesWithPaths.length === 0) return 0;
+
+  let reconciled = 0;
+
+  for (const source of sourcesWithPaths) {
+    const sourceDir = path.join(sourcesDir, source.id);
+    const contentPath = path.join(sourceDir, 'content.md');
+
+    // Skip if content.md already exists
+    if (existsSync(contentPath)) continue;
+
+    // Try to create content.md from the original source_path
+    let content: string | null = null;
+
+    if (existsSync(source.source_path)) {
+      const ext = path.extname(source.source_path).toLowerCase();
+      if (textExts.includes(ext)) {
+        try {
+          content = await readFile(source.source_path, 'utf-8');
+        } catch {
+          // File can't be read — fall through to summary
+        }
+      }
+    }
+
+    // If we couldn't read the original file, use the summary from Supabase
+    if (!content) {
+      content = [
+        `# ${source.title}`,
+        '',
+        source.summary,
+      ].join('\n');
+    }
+
+    // Create the source directory and content.md
+    try {
+      await mkdir(sourceDir, { recursive: true });
+      await writeFile(contentPath, content);
+      reconciled++;
+    } catch {
+      // Skip on write failure — will retry on next sync
+    }
+  }
+
+  return reconciled;
+}
+
+// ============================================================================
 // Universal Sync (new system)
 // ============================================================================
 
@@ -293,6 +363,7 @@ export async function handleSync(
     sources_found: 0,
     sources_indexed: 0,
     already_indexed: 0,
+    reconciled: 0,
   };
 
   // 1. Git pull
@@ -327,11 +398,14 @@ export async function handleSync(
     result.sources_found = legacyResult.sources_found;
     result.sources_indexed = legacyResult.sources_indexed;
     result.already_indexed = legacyResult.already_indexed;
+
+    // Reconcile: ensure every Supabase source has local content.md
+    result.reconciled = await reconcileLocalContent(dataDir);
   }
 
   // 3. Git push
   if (doPush && !dryRun) {
-    const totalNew = (result.processing?.processed || 0) + result.sources_indexed;
+    const totalNew = (result.processing?.processed || 0) + result.sources_indexed + result.reconciled;
     if (totalNew > 0) {
       const pushResult = await gitCommitAndPush(
         dataDir,

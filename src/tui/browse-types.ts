@@ -13,6 +13,7 @@ export interface SourceItem {
   content_type: ContentType;
   projects: string[];
   created_at: string;
+  indexed_at: string;
   summary: string;
   score?: number;  // Similarity score from semantic search
 }

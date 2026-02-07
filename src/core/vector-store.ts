@@ -474,6 +474,7 @@ export async function getAllSources(
     project?: string;
     source_type?: SourceType;
     limit?: number;
+    sort_by?: 'indexed_at' | 'created_at';
   } = {}
 ): Promise<
   Array<{
@@ -483,16 +484,17 @@ export async function getAllSources(
     content_type: ContentType;
     projects: string[];
     created_at: string;
+    indexed_at: string;
     summary: string;
   }>
 > {
-  const { project, source_type, limit } = options;
+  const { project, source_type, limit, sort_by = 'indexed_at' } = options;
   const client = await getSupabase();
 
   let query = client
     .from('sources')
-    .select('id, title, source_type, content_type, projects, created_at, summary')
-    .order('created_at', { ascending: false });
+    .select('id, title, source_type, content_type, projects, created_at, indexed_at, summary')
+    .order(sort_by, { ascending: false });
 
   if (source_type) {
     query = query.eq('source_type', source_type);
@@ -520,8 +522,45 @@ export async function getAllSources(
     content_type: row.content_type as ContentType,
     projects: row.projects,
     created_at: row.created_at,
+    indexed_at: row.indexed_at || row.created_at,
     summary: row.summary,
   }));
+}
+
+/**
+ * Get all sources that have a source_path set.
+ * Used by reconciliation to ensure local content.md files exist.
+ */
+export async function getSourcesWithPaths(
+  _dbPath: string
+): Promise<
+  Array<{
+    id: string;
+    title: string;
+    summary: string;
+    source_path: string;
+  }>
+> {
+  const client = await getSupabase();
+
+  const { data, error } = await client
+    .from('sources')
+    .select('id, title, summary, source_path')
+    .not('source_path', 'is', null);
+
+  if (error) {
+    console.error('Error getting sources with paths:', error);
+    return [];
+  }
+
+  return (data || [])
+    .filter((row) => row.source_path)
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      summary: row.summary || '',
+      source_path: row.source_path,
+    }));
 }
 
 export async function getSourceById(
@@ -540,6 +579,7 @@ export async function getSourceById(
   quotes: Quote[];
   source_url?: string;
   source_name?: string;
+  source_path?: string;
 } | null> {
   const client = await getSupabase();
 
@@ -567,6 +607,7 @@ export async function getSourceById(
     quotes: data.quotes_json || [],
     source_url: data.source_url || undefined,
     source_name: data.source_name || undefined,
+    source_path: data.source_path || undefined,
   };
 }
 

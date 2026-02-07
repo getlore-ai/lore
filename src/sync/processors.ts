@@ -5,7 +5,7 @@
  * All processing is IN MEMORY ONLY - original files are never modified.
  */
 
-import { readFile } from 'fs/promises';
+import { readFile, stat } from 'fs/promises';
 import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -49,6 +49,14 @@ export interface ProcessedContent {
   image?: {
     base64: string;
     mediaType: ImageMediaType;
+  };
+  // File-level metadata extracted from the filesystem
+  fileMetadata?: {
+    filename: string;
+    sizeBytes: number;
+    createdAt: string;
+    modifiedAt: string;
+    exif?: Record<string, unknown>;
   };
 }
 
@@ -280,12 +288,89 @@ async function processImage(filePath: string): Promise<ProcessedContent> {
   const buffer = await readFile(filePath);
   const base64 = buffer.toString('base64');
 
+  // Extract file-level metadata
+  const fileStat = await stat(filePath);
+  const filename = path.basename(filePath);
+
+  // Try to parse date from common filename patterns (e.g. WhatsApp, screenshots)
+  let dateFromFilename: string | undefined;
+  const whatsappMatch = filename.match(/(\d{4}-\d{2}-\d{2})/);
+  if (whatsappMatch) {
+    dateFromFilename = whatsappMatch[1];
+  }
+
+  // Extract EXIF metadata (GPS, camera, date, etc.)
+  let exifData: Record<string, unknown> | undefined;
+  try {
+    const exifr = await import('exifr');
+    const raw = await exifr.default.parse(buffer, {
+      // Request all available tags
+      tiff: true,
+      exif: true,
+      gps: true,
+      icc: false,      // Skip color profile (not useful for knowledge)
+      iptc: true,       // Keywords, captions, copyright
+      xmp: true,        // Extended metadata
+    });
+    if (raw) {
+      // Extract the most useful fields
+      exifData = {};
+      // Camera info
+      if (raw.Make) exifData.cameraMake = raw.Make;
+      if (raw.Model) exifData.cameraModel = raw.Model;
+      if (raw.LensModel) exifData.lens = raw.LensModel;
+      // Date
+      if (raw.DateTimeOriginal) exifData.dateTaken = raw.DateTimeOriginal instanceof Date ? raw.DateTimeOriginal.toISOString() : String(raw.DateTimeOriginal);
+      if (raw.CreateDate) exifData.dateCreated = raw.CreateDate instanceof Date ? raw.CreateDate.toISOString() : String(raw.CreateDate);
+      // GPS
+      if (raw.latitude != null && raw.longitude != null) {
+        exifData.gpsLatitude = raw.latitude;
+        exifData.gpsLongitude = raw.longitude;
+      }
+      if (raw.GPSAltitude != null) exifData.gpsAltitude = raw.GPSAltitude;
+      // Image dimensions
+      if (raw.ImageWidth) exifData.width = raw.ImageWidth;
+      if (raw.ImageHeight) exifData.height = raw.ImageHeight;
+      if (raw.ExifImageWidth) exifData.width = raw.ExifImageWidth;
+      if (raw.ExifImageHeight) exifData.height = raw.ExifImageHeight;
+      // Software / source
+      if (raw.Software) exifData.software = raw.Software;
+      if (raw.Artist) exifData.artist = raw.Artist;
+      if (raw.Copyright) exifData.copyright = raw.Copyright;
+      // IPTC/XMP tags
+      if (raw.Keywords) exifData.keywords = raw.Keywords;
+      if (raw.Description) exifData.description = raw.Description;
+      if (raw.Caption) exifData.caption = raw.Caption;
+      if (raw.Subject) exifData.subject = raw.Subject;
+      if (raw.Title) exifData.title = raw.Title;
+      // Use EXIF date if no filename date
+      if (!dateFromFilename && exifData.dateTaken) {
+        const d = new Date(exifData.dateTaken as string);
+        if (!isNaN(d.getTime())) {
+          dateFromFilename = d.toISOString().split('T')[0];
+        }
+      }
+      // Drop empty objects
+      if (Object.keys(exifData).length === 0) exifData = undefined;
+    }
+  } catch (exifError) {
+    console.error(`[processors] EXIF extraction failed for ${path.basename(filePath)}: ${exifError}`);
+  }
+
   return {
     text: '', // Will be filled by Claude vision
     format: 'image',
+    metadata: dateFromFilename ? { date: dateFromFilename } : undefined,
     image: {
       base64,
       mediaType,
+    },
+    fileMetadata: {
+      filename,
+      sizeBytes: fileStat.size,
+      createdAt: fileStat.birthtime.toISOString(),
+      modifiedAt: fileStat.mtime.toISOString(),
+      ...(exifData ? { exif: exifData } : {}),
     },
   };
 }
