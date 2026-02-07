@@ -82,7 +82,7 @@
   - [x] Store with content_hash for cross-machine deduplication
 - [x] Format preprocessors (Markdown, JSONL, JSON)
 - [x] Machine-specific config (`~/.config/lore/sync-sources.json`)
-- [x] CLI: `lore sources list/add/enable/disable/remove`
+- [x] CLI: `lore sync list/add/enable/disable/remove`
 
 ## Phase 5: Project Management ✅
 

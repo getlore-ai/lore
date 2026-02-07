@@ -302,7 +302,7 @@ BEST PRACTICES:
 Phase 1 (Discovery — free, no LLM calls): Scans configured directories, computes content hashes, identifies new files.
 Phase 2 (Processing — only new files): Extracts metadata via LLM, generates embeddings, stores in Supabase.
 
-Use this when source directories have been updated externally, or to refresh the index after manual file changes. Source directories are configured via 'lore sources add' CLI command.
+Use this when source directories have been updated externally, or to refresh the index after manual file changes. Source directories are configured via 'lore sync add' CLI command.
 
 Note: For pushing content from agents, use 'ingest' instead — it's the direct path.`,
     inputSchema: zodToJsonSchema(SyncSchema),

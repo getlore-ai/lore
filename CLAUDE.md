@@ -171,7 +171,7 @@ lore auth login --email user@example.com
 lore auth whoami
 
 # Configure sync sources
-lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
+lore sync add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
 
 # Sync all sources (two-phase: discovery then processing)
 lore sync
