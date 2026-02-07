@@ -60,6 +60,7 @@ export function createUIComponents(): UIComponents {
       type: 'line',
     },
     style: {
+      bg: 'black',
       border: {
         fg: 'blue',
       },
@@ -112,6 +113,7 @@ export function createUIComponents(): UIComponents {
       type: 'line',
     },
     style: {
+      bg: 'black',
       border: {
         fg: 'blue',
       },
@@ -160,6 +162,7 @@ export function createUIComponents(): UIComponents {
       type: 'line',
     },
     style: {
+      bg: 'black',
       border: {
         fg: 'blue',
       },
@@ -374,7 +377,7 @@ export function createUIComponents(): UIComponents {
     height: 3,
     label: ' Ask Lore ',
     border: { type: 'line' },
-    style: { border: { fg: 'cyan' }, focus: { border: { fg: 'green' } } },
+    style: { bg: 'black', fg: 'white', border: { fg: 'cyan' }, focus: { border: { fg: 'green' } } },
     hidden: true,
     inputOnFocus: true,
   });
@@ -388,7 +391,7 @@ export function createUIComponents(): UIComponents {
     height: '100%-7',
     label: ' Response ',
     border: { type: 'line' },
-    style: { fg: 'white', border: { fg: 'cyan' } },
+    style: { fg: 'white', bg: 'black', border: { fg: 'cyan' } },
     hidden: true,
     tags: true,
     scrollable: true,

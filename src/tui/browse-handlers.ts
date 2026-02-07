@@ -1218,7 +1218,7 @@ export async function confirmDelete(
     renderList(ui, state);
     renderPreview(ui, state);
 
-    ui.statusBar.setContent(` {green-fg}Deleted successfully{/green-fg}`);
+    ui.statusBar.setContent(` {black-fg}{bold}Deleted successfully{/bold}{/black-fg}`);
     ui.screen.render();
 
     // Restore normal status after delay
@@ -1325,9 +1325,9 @@ async function confirmProjectDelete(
     renderPreview(ui, state);
 
     if (errors.length > 0) {
-      ui.statusBar.setContent(` {yellow-fg}Deleted ${deleted} documents, ${errors.length} failed{/yellow-fg}`);
+      ui.statusBar.setContent(` {black-fg}{bold}Deleted ${deleted} documents, ${errors.length} failed{/bold}{/black-fg}`);
     } else {
-      ui.statusBar.setContent(` {green-fg}Deleted ${deleted} documents{/green-fg}`);
+      ui.statusBar.setContent(` {black-fg}{bold}Deleted ${deleted} documents{/bold}{/black-fg}`);
     }
     ui.screen.render();
 
