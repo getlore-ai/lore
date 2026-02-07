@@ -53,7 +53,8 @@ WORKING CONTEXT (research packages, project summaries for agents)
 | `ingest` | Simple | Add a document directly (meeting notes, interviews, etc.) |
 | `sync` | Simple | Refresh index (git pull + index new sources) |
 | `archive_project` | Simple | Archive a project (human-triggered curation) |
-| `research` | Agentic | Comprehensive research with conflict-aware synthesis |
+| `research` | Agentic | Start async research job, returns job_id for polling |
+| `research_status` | Simple | Poll for research results (long-polls up to 20s) |
 
 ## Project Structure
 
@@ -155,7 +156,7 @@ All core features are implemented:
 
 - **Universal Sync**: Two-phase sync with content hash deduplication
 - **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `login`, `logout`, `whoami`, `setup`
-- **MCP Tools**: All 9 tools fully functional
+- **MCP Tools**: All 10 tools fully functional
 - **LLM-powered Research**: Uses Claude for extraction and research
 - **Multi-machine Support**: Content hash dedup works across machines
 - **Multi-tenant Auth**: Supabase Auth (email OTP) with RLS data isolation
