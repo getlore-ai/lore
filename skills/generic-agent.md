@@ -101,7 +101,7 @@ Runs an internal agent that iteratively searches, reads, and synthesizes finding
 }
 ```
 
-**Cost warning**: Makes 3-8 internal LLM calls. Use `search` for simple lookups.
+**Async**: Returns a `job_id` immediately. Poll `research_status` for results (typically 2-8 minutes). Makes 10-30 internal LLM calls. Use `search` for simple lookups.
 
 ### `sync` — Refresh from source directories
 Scans configured directories for new files. Use `ingest` for agent-pushed content instead.
