@@ -19,7 +19,7 @@ Lore subsumes and extends granola-extractor's functionality:
 | Standalone MCP | Unified MCP |
 | No project organization | Project-first |
 | No lineage tracking | Full lineage |
-| No explicit retention | `retain` tool |
+| No explicit retention | `ingest` tool |
 
 ## Reused Code
 

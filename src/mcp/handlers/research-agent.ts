@@ -42,9 +42,9 @@ function createLoreToolsServer(dbPath: string, dataDir: string, archivedProjects
         {
           query: z.string().describe('Semantic search query - describe what you\'re looking for'),
           source_type: z
-            .enum(['granola', 'claude-code', 'claude-desktop', 'chatgpt', 'markdown', 'document'])
+            .string()
             .optional()
-            .describe('Filter by source type (e.g., "granola" for meeting transcripts)'),
+            .describe('Filter by source type (e.g., "meeting", "slack", "document")'),
           content_type: z
             .enum(['interview', 'meeting', 'conversation', 'document', 'note', 'analysis'])
             .optional()
@@ -118,6 +118,9 @@ ${quotes}`;
               .map((q: Quote) => `- [${q.speaker || 'unknown'}] "${q.text}"`)
               .join('\n');
 
+            const sourceUrlLine = source.source_url ? `\n**Source URL:** ${source.source_url}` : '';
+            const sourceNameLine = source.source_name ? `\n**Source:** ${source.source_name}` : '';
+
             return {
               content: [
                 {
@@ -126,7 +129,7 @@ ${quotes}`;
 
 **Type:** ${source.source_type} / ${source.content_type}
 **Created:** ${source.created_at}
-**Projects:** ${source.projects.join(', ') || 'none'}
+**Projects:** ${source.projects.join(', ') || 'none'}${sourceUrlLine}${sourceNameLine}
 
 ## Summary
 ${source.summary}
@@ -153,9 +156,9 @@ ${quotes || 'No quotes extracted'}`,
         'List all sources in the repository. Use this to understand what knowledge is available before searching.',
         {
           source_type: z
-            .enum(['granola', 'claude-code', 'claude-desktop', 'chatgpt', 'markdown', 'document'])
+            .string()
             .optional()
-            .describe('Filter by source type'),
+            .describe('Filter by source type (e.g., "meeting", "slack", "document")'),
           project: z.string().optional().describe('Filter to specific project'),
           limit: z.number().optional().describe('Max results (default 20)'),
         },

@@ -49,8 +49,7 @@ WORKING CONTEXT (research packages, project summaries for agents)
 | `get_source` | Simple | Full source with original content |
 | `list_sources` | Simple | Browse by project/type |
 | `list_projects` | Simple | Project overview |
-| `retain` | Simple | Explicitly save insights (push-based) |
-| `ingest` | Simple | Add a document directly (meeting notes, interviews, etc.) |
+| `ingest` | Simple | Add content — documents, insights, decisions |
 | `sync` | Simple | Refresh index (git pull + index new sources) |
 | `archive_project` | Simple | Archive a project (human-triggered curation) |
 | `research` | Agentic | Start async research job, returns job_id for polling |
@@ -152,7 +151,7 @@ Supabase (cloud):         # Vector index - shared across all machines
 
 ## Implementation Status
 
-All core features are implemented:
+All 9 MCP tools and core features are implemented:
 
 - **Universal Sync**: Two-phase sync with content hash deduplication
 - **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `login`, `logout`, `whoami`, `setup`

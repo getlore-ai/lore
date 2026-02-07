@@ -129,7 +129,7 @@ export function createProposeFunction(
     // Enforce permissions
     const perms = permissions || {};
     
-    if (change.type === 'create_source' || change.type === 'retain_insight') {
+    if (change.type === 'create_source') {
       if (!perms.proposeCreate) {
         throw new Error(`Extension "${extensionName}" does not have permission to propose creating documents. Add permissions.proposeCreate = true to the extension.`);
       }

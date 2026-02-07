@@ -103,19 +103,6 @@ const ListSourcesSchema = z.object({
   limit: z.number().optional().describe('Max results (default 20)'),
 });
 
-const RetainSchema = z.object({
-  content: z.string().describe('The insight, decision, or note to retain'),
-  project: z.string().describe('Project this belongs to'),
-  type: z
-    .enum(['insight', 'decision', 'requirement', 'note'])
-    .describe('Type of knowledge being retained'),
-  source_context: z
-    .string()
-    .optional()
-    .describe('Where this came from (e.g., "user interview with Sarah")'),
-  tags: z.array(z.string()).optional().describe('Optional tags for categorization'),
-});
-
 // ============================================================================
 // Agentic Research Tool
 // ============================================================================
@@ -139,7 +126,7 @@ const ResearchSchema = z.object({
 
 const IngestSchema = z.object({
   content: z.string().describe('The document content to ingest'),
-  title: z.string().describe('Title for the document'),
+  title: z.string().optional().describe('Title for the document. Auto-generated from content if not provided.'),
   project: z.string().describe('Project this document belongs to'),
   source_type: z
     .string()
@@ -253,19 +240,6 @@ Use this to browse what exists in a project, understand the scope of available k
       properties: {},
     },
   },
-  {
-    name: 'retain',
-    description: `Save a discrete insight, decision, requirement, or note to the knowledge base. These are short, synthesized pieces of knowledge — NOT full documents.
-
-Examples of what to retain:
-- A decision: "We chose JWT over session cookies because of mobile app requirements"
-- An insight: "3 out of 5 users mentioned export speed as their top frustration"
-- A requirement: "Must support SSO for enterprise customers"
-
-USE 'ingest' INSTEAD for full documents, meeting notes, transcripts, or any content longer than a few paragraphs.`,
-    inputSchema: zodToJsonSchema(RetainSchema),
-  },
-
   // Agentic tool
   {
     name: 'research',
@@ -308,7 +282,7 @@ IDEMPOTENT: Content is deduplicated by SHA256 hash. Calling ingest with identica
 WHAT HAPPENS:
 1. Content hash checked for deduplication
 2. Document saved to disk
-3. LLM extracts summary, themes, and key quotes
+3. LLM extracts summary, themes, and key quotes (skipped for short content ≤500 chars)
 4. Embedding generated for semantic search
 5. Indexed in Supabase for instant retrieval
 
@@ -316,7 +290,7 @@ BEST PRACTICES:
 - Always pass source_url when available (enables citation linking back to the original)
 - Use source_name for human-readable origin context (e.g., "Slack #product-team")
 - source_type is a free-form hint — use whatever describes the content (slack, email, notion, github-issue, etc.)
-- Use 'retain' instead for short discrete insights/decisions (not full documents)`,
+- For short insights, decisions, or notes — just pass the content. Title and source_type are optional.`,
     inputSchema: zodToJsonSchema(IngestSchema),
   },
 

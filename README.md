@@ -26,7 +26,7 @@ lore search "user pain points"
 
 - **Hybrid Search** — Semantic + keyword search with Reciprocal Rank Fusion
 - **Citations** — Every insight links back to the original source with context
-- **MCP Integration** — 10 tools for Claude Desktop and Claude Code
+- **MCP Integration** — 9 tools for Claude Desktop and Claude Code
 - **Agentic Research** — Claude iteratively explores your knowledge, synthesizes findings with citations
 - **Multi-Machine Sync** — Content hash deduplication across machines
 - **Universal Formats** — Markdown, JSONL, JSON, PDF, images, CSV, HTML, and more

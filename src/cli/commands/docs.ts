@@ -123,7 +123,7 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .option('--no-push', 'Skip git push')
     .action(async (content, options) => {
-      const { handleRetain } = await import('../../mcp/handlers/retain.js');
+      const { handleIngest } = await import('../../mcp/handlers/ingest.js');
       const dataDir = options.dataDir;
       const dbPath = path.join(dataDir, 'lore.lance');
 
@@ -133,21 +133,29 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
         process.exit(1);
       }
 
-      const result = await handleRetain(dbPath, dataDir, {
+      // Map CLI type to source_type
+      const sourceTypeMap: Record<string, string> = {
+        decision: 'notes',
+        requirement: 'notes',
+        insight: 'notes',
+        note: 'notes',
+      };
+
+      const result = await handleIngest(dbPath, dataDir, {
         content,
         project: options.project,
-        type: options.type as 'insight' | 'decision' | 'requirement' | 'note',
-        source_context: options.context,
+        title: `${options.type.charAt(0).toUpperCase() + options.type.slice(1)}: ${content.slice(0, 50)}${content.length > 50 ? '...' : ''}`,
+        source_type: sourceTypeMap[options.type] || 'notes',
         tags: options.tags?.split(',').map((t: string) => t.trim()),
-      }, { autoPush: options.push !== false }) as { success: boolean; id: string; message: string; indexed: boolean; synced: boolean };
+      }, { autoPush: options.push !== false, hookContext: { mode: 'cli' } }) as { success: boolean; id: string; title: string; indexed: boolean; synced: boolean };
 
       if (result.success) {
-        console.log(`\n✓ ${result.message}`);
+        console.log(`\n✓ Created ${options.type} for project "${options.project}"`);
         console.log(`  ID: ${result.id}`);
         console.log(`  Indexed: ${result.indexed ? 'yes' : 'no'}`);
         console.log(`  Synced: ${result.synced ? 'yes' : 'no'}`);
       } else {
-        console.error(`\nFailed to create: ${result.message}`);
+        console.error(`\nFailed to create ${options.type}`);
         process.exit(1);
       }
     });

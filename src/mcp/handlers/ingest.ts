@@ -18,7 +18,7 @@ import { getExtensionRegistry } from '../../extensions/registry.js';
 
 interface IngestArgs {
   content: string;
-  title: string;
+  title?: string;
   project: string;
   source_type?: string;
   date?: string;
@@ -147,7 +147,6 @@ export async function handleIngest(
 ): Promise<unknown> {
   const {
     content,
-    title,
     project,
     source_type: raw_source_type,
     date,
@@ -159,6 +158,9 @@ export async function handleIngest(
   const { autoPush = true, hookContext } = options;
 
   const source_type = normalizeSourceType(raw_source_type);
+
+  // Auto-generate title if not provided
+  const title = args.title || `${source_type.charAt(0).toUpperCase() + source_type.slice(1)}: ${content.slice(0, 50)}${content.length > 50 ? '...' : ''}`;
 
   // Content hash deduplication — skip everything if already ingested
   const contentHash = createHash('sha256').update(content).digest('hex');
@@ -209,13 +211,18 @@ export async function handleIngest(
   // Save content.md
   await writeFile(path.join(sourceDir, 'content.md'), content);
 
-  // Extract insights using LLM
+  // Extract insights using LLM (skip for short content)
   let summary = content.slice(0, 200) + (content.length > 200 ? '...' : '');
   let themes: Array<{ name: string; quotes: string[] }> = [];
   let quotes: Array<{ text: string; speaker?: string }> = [];
 
-  try {
-    if (content.trim().length > 100) {
+  const isShortContent = content.trim().length <= 500;
+
+  if (isShortContent) {
+    // Short content fast path — use content as its own summary, skip LLM extraction
+    summary = content;
+  } else {
+    try {
       const insights = await extractInsights(content, title, id, { contentType });
       summary = insights.summary;
       themes = insights.themes.map((t) => ({ name: t.name, quotes: [] }));
@@ -226,10 +233,10 @@ export async function handleIngest(
         path.join(sourceDir, 'insights.json'),
         JSON.stringify({ summary, themes, quotes }, null, 2)
       );
+    } catch (error) {
+      console.error('Failed to extract insights:', error);
+      // Continue with basic summary
     }
-  } catch (error) {
-    console.error('Failed to extract insights:', error);
-    // Continue with basic summary
   }
 
   // Add to vector store immediately

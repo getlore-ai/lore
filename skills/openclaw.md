@@ -37,12 +37,12 @@ Before answering questions about past decisions, user feedback, project history,
 
 3. **Use `get_source`** with `include_content=true` when you need the full original text of a specific document.
 
-## When to Retain Insights
+## Short Content
 
-Use `retain` (not `ingest`) for short, discrete pieces of knowledge:
-- Key decisions: "We chose X because Y"
-- Synthesized insights: "3/5 users mentioned Z as their top issue"
-- Requirements: "Must support SSO for enterprise"
+For short insights, decisions, or notes — title and source_type are optional:
+```
+ingest(content: "We chose X because Y", project: "my-project")
+```
 
 ## Citation Best Practices
 

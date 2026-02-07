@@ -9,11 +9,10 @@ import os from 'os';
 import path from 'path';
 
 import { handleIngest } from '../mcp/handlers/ingest.js';
-import { handleRetain } from '../mcp/handlers/retain.js';
 import { getDatabase, getSourceById } from '../core/vector-store.js';
 
 export interface ProposedChange {
-  type: 'create_source' | 'update_source' | 'delete_source' | 'retain_insight' | 'add_tags';
+  type: 'create_source' | 'update_source' | 'delete_source' | 'add_tags';
   // For create_source:
   title?: string;
   content?: string;
@@ -21,8 +20,6 @@ export interface ProposedChange {
   // For update_source / delete_source:
   sourceId?: string;
   changes?: Record<string, unknown>;
-  // For retain_insight:
-  insight?: string;
   // For add_tags:
   tags?: string[];
   // Common:
@@ -128,18 +125,6 @@ async function applyProposalChange(
         content: change.content,
         project: change.project,
       }, { hookContext: { mode: 'cli' } });
-      return;
-    }
-    case 'retain_insight': {
-      if (!change.insight) {
-        throw new Error('retain_insight requires insight');
-      }
-      const project = change.project || proposal.extensionName;
-      await handleRetain(dbPath, dataDir, {
-        content: change.insight,
-        project,
-        type: 'insight',
-      }, {});
       return;
     }
     case 'update_source': {

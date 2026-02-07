@@ -354,7 +354,7 @@ const context = lore.getSessionHandoff("claude-code");
 ```
 
 **MCP tools:**
-- `retain` with `type: session_context`
+- `ingest` with `source_type: session_context`
 - `get_session_context` - retrieve recent session summaries
 
 **Implementation notes:**

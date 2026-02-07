@@ -27,8 +27,7 @@ This is a template for your Lore knowledge data repository.
 
 ```
 .
-├── sources/              # Ingested documents (auto-created)
-├── retained/             # Explicitly saved insights (auto-created)
+├── sources/              # Ingested content (auto-created)
 ├── lore.lance/           # Vector index (git-ignored)
 ├── archived-projects.json # Archived projects list
 └── .gitignore

@@ -33,10 +33,7 @@ export type ContentType =
   | 'note'           // Quick note/memo
   | 'analysis'       // Competitor analysis, market research
   | 'survey'         // Survey results, user feedback data
-  | 'research'       // Research synthesis, literature review
-  | 'decision'       // Retained decision
-  | 'insight'        // Retained insight
-  | 'requirement';   // Retained requirement
+  | 'research';      // Research synthesis, literature review
 
 // ============================================================================
 // Source Document - The immutable original
@@ -259,14 +256,6 @@ export interface SearchArgs {
   content_type?: ContentType;
   limit?: number;
   mode?: SearchMode;
-}
-
-export interface RetainArgs {
-  content: string;
-  project: string;
-  type: 'insight' | 'decision' | 'requirement' | 'note';
-  source_context?: string;
-  tags?: string[];
 }
 
 export interface ResearchArgs {

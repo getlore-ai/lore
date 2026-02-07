@@ -26,7 +26,6 @@ After setup, Lore works autonomously.
 
 - **Sources**: Full documents (meeting notes, interviews, Slack threads, specs, etc.)
 - **Projects**: Organizational grouping for sources
-- **Insights**: Short retained knowledge (decisions, requirements, observations)
 - **Citations**: Every piece of knowledge links back to its original source
 
 ## Tools Reference
@@ -47,10 +46,19 @@ The primary way to add content. Accepts any document with metadata.
 }
 ```
 
+For short insights, decisions, or notes — title and source_type are optional:
+```json
+{
+  "content": "We chose JWT over session cookies because of mobile app requirements",
+  "project": "auth-system"
+}
+```
+
 - **Idempotent**: Duplicate content returns `{deduplicated: true}` with no processing cost.
 - **source_type**: Free-form string. Common values: `meeting`, `interview`, `document`, `notes`, `analysis`, `conversation`, `slack`, `email`, `github-issue`, `notion`.
 - **source_url**: Always pass when available — enables citation linking.
 - **source_name**: Human-readable origin label.
+- Short content (≤500 chars) skips LLM extraction for speed.
 
 ### `search` — Find relevant sources
 Fast lookup. Returns summaries with relevance scores.
@@ -79,18 +87,6 @@ List sources filtered by project or type. Sorted by date (newest first).
 ### `list_projects` — Discover projects
 Lists all projects with source counts and activity dates.
 
-### `retain` — Save discrete knowledge
-For short insights, decisions, or requirements — not full documents.
-
-```json
-{
-  "content": "Users consistently report export takes >30s for large datasets",
-  "project": "my-project",
-  "type": "insight",
-  "source_context": "User interview synthesis — Jan batch"
-}
-```
-
 ### `research` — Deep research with citations
 Runs an internal agent that iteratively searches, reads, and synthesizes findings.
 
@@ -114,6 +110,6 @@ Excludes from default search. Only use when explicitly requested.
 1. **Search before you answer**: If a question might have documented context, search Lore first.
 2. **Ingest what matters**: After meaningful conversations or when processing external content, ingest it.
 3. **Always pass source_url**: Enables citation linking back to the original.
-4. **Use retain for synthesis**: After analyzing multiple sources, retain the key insight.
+4. **Ingest handles both long and short content**: For short insights, decisions, or notes — just pass the content. Title and source_type are optional.
 5. **Prefer search over research**: `search` is 10x cheaper. Only use `research` for multi-source synthesis.
 6. **Cite your sources**: When presenting Lore results, reference the source title and date.

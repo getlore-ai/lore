@@ -130,12 +130,12 @@ We evaluated three approaches:
 | Source | Strategy | Rationale |
 |--------|----------|-----------|
 | **Granola** | Pull (ingest all) | User interviews are always high-signal |
-| **Claude Code** | Push (explicit retain) | Many debugging sessions aren't worth keeping |
-| **Claude Desktop** | Push (explicit retain) | Mixed relevance |
-| **ChatGPT** | Push (explicit retain) | Moving away from this anyway |
+| **Claude Code** | Push (explicit ingest) | Many debugging sessions aren't worth keeping |
+| **Claude Desktop** | Push (explicit ingest) | Mixed relevance |
+| **ChatGPT** | Push (explicit ingest) | Moving away from this anyway |
 | **Documents** | Pull (specific folders) | Point at project folders you care about |
 
-The `retain` MCP tool allows explicitly saving insights from any context.
+The `ingest` MCP tool allows explicitly saving content from any context.
 
 ## MCP Tool Design
 
@@ -148,7 +148,7 @@ The `retain` MCP tool allows explicitly saving insights from any context.
 | `list_sources` | Browse sources by project/type |
 | `get_quotes` | Find citable quotes, filter by theme |
 | `list_projects` | Project overview with stats |
-| `retain` | Explicitly save insight/decision/requirement |
+| `ingest` | Add content — documents, insights, decisions |
 
 ### Agentic Tool (Active, Thorough, More Expensive)
 

@@ -570,7 +570,6 @@ function renderDocumentPreview(source: SourceItem, previewWidth: number, lines: 
   const date = formatDate(source.created_at);
   const type = source.content_type || source.source_type;
   const project = source.projects[0] || '';
-
   lines.push(`{cyan-fg}${date}  ·  ${type}${project ? `  ·  ${project}` : ''}{/cyan-fg}`);
 
   // Show similarity score if from search

@@ -25,7 +25,6 @@ import { toolDefinitions } from './tools.js';
 import { handleSearch } from './handlers/search.js';
 import { handleGetSource } from './handlers/get-source.js';
 import { handleListSources } from './handlers/list-sources.js';
-import { handleRetain } from './handlers/retain.js';
 import { handleIngest } from './handlers/ingest.js';
 import { handleResearch, startResearchJob, getResearchJobStatus } from './handlers/research.js';
 import { handleListProjects } from './handlers/list-projects.js';
@@ -162,7 +161,7 @@ async function main() {
   const server = new Server(
     {
       name: 'lore',
-      version: '0.7.0',
+      version: '0.8.0',
     },
     {
       capabilities: {
@@ -259,13 +258,6 @@ async function main() {
 
           case 'list_projects':
             result = await handleListProjects(DB_PATH);
-            break;
-
-          // Push-based retention
-          case 'retain':
-            result = await handleRetain(DB_PATH, LORE_DATA_DIR, args as any, {
-              autoPush: AUTO_GIT_PUSH,
-            });
             break;
 
           // Direct document ingestion

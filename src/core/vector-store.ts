@@ -148,9 +148,7 @@ export async function addSource(
     record.source_name = extras.source_name;
   }
 
-  const { error } = await client.from('sources').upsert(record, {
-    ignoreDuplicates: true,
-  });
+  const { error } = await client.from('sources').upsert(record);
 
   if (error) {
     // Duplicate content_hash for this user — document already exists, skip silently

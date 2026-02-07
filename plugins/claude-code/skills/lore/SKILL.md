@@ -36,8 +36,7 @@ After setup, Lore works autonomously.
 | `get_source` | Low | Full document retrieval by ID |
 | `list_sources` | Low | Browse what exists in a project |
 | `list_projects` | Low | Discover available knowledge domains |
-| `retain` | Low | Save discrete insights/decisions |
-| `ingest` | Medium | Push full documents into the knowledge base |
+| `ingest` | Low-Medium | Push content — documents, insights, or decisions |
 | `research` | High | Cross-reference multiple sources, synthesize findings |
 | `sync` | Variable | Refresh from configured source directories |
 
@@ -50,19 +49,17 @@ Use `ingest` to push content into Lore when:
 
 Always pass `source_url` (original URL for linking) and `source_name` (human-readable label like "GitHub PR #123") when available. Ingestion is idempotent — safe to call repeatedly with the same content.
 
+For short insights, decisions, or notes — title and source_type are optional:
+```
+ingest(content: "We chose JWT for auth", project: "auth-system")
+```
+
 ## When to Search
 
 Before making recommendations or answering questions about past work:
 1. `search` first — it's fast and cheap
 2. Only use `research` if the question genuinely needs cross-referencing multiple sources
 3. Use `get_source(id, include_content: true)` when you need the full text
-
-## When to Retain
-
-Use `retain` for short synthesized knowledge (not full documents):
-- Decisions made during a session
-- Key insights distilled from analysis
-- Requirements extracted from conversations
 
 ## Example: Grounding a Decision
 
@@ -73,11 +70,9 @@ search("database migration approach", project: "backend-rewrite")
 # 2. If results are relevant, get full context
 get_source("abc-123", include_content: true)
 
-# 3. After making a decision, retain it
-retain(
+# 3. After making a decision, save it
+ingest(
   content: "Chose pgvector over Pinecone for embeddings — lower latency, simpler ops, sufficient scale",
-  project: "backend-rewrite",
-  type: "decision",
-  source_context: "Architecture review session"
+  project: "backend-rewrite"
 )
 ```

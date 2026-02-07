@@ -22,7 +22,6 @@ import path from 'path';
 export async function initDataRepo(dirPath: string): Promise<void> {
   await mkdir(dirPath, { recursive: true });
   await mkdir(path.join(dirPath, 'sources'), { recursive: true });
-  await mkdir(path.join(dirPath, 'retained'), { recursive: true });
 
   // Create .gitignore if missing
   const gitignorePath = path.join(dirPath, '.gitignore');
@@ -41,8 +40,7 @@ Your personal knowledge repository for Lore.
 
 ## Structure
 
-- \`sources/\` - Ingested documents
-- \`retained/\` - Explicitly saved insights
+- \`sources/\` - Ingested content
 
 Vector embeddings are stored in Supabase (cloud) for multi-machine access.
 `

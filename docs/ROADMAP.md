@@ -16,8 +16,7 @@
 - [x] `get_source` - Full source retrieval (includes quotes)
 - [x] `list_sources` - Browse by project/type
 - [x] `list_projects` - Project overview with stats
-- [x] `retain` - Save insights/decisions (instant indexing)
-- [x] `ingest` - Add documents directly via MCP
+- [x] `ingest` - Add content (documents, insights, decisions)
 - [x] `sync` - Two-phase sync with content hash deduplication
 - [x] `archive_project` - Archive completed/superseded projects
 - [x] `research` - Agentic research with Claude Agent SDK
