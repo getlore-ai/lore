@@ -1105,6 +1105,24 @@ function showProjectDeleteConfirm(
 }
 
 /**
+ * Start an animated spinner in the status bar.
+ * Returns a stop function that clears the interval.
+ */
+function startSpinner(ui: UIComponents, message: string): () => void {
+  const frames = ['\u280b', '\u2819', '\u2838', '\u2834', '\u2826', '\u2807']; // braille dots spinner
+  let i = 0;
+  const interval = setInterval(() => {
+    ui.statusBar.setContent(` {red-fg}{bold}${frames[i % frames.length]}{/bold}{/red-fg} {black-fg}{bold}${message}{/bold}{/black-fg}`);
+    ui.screen.render();
+    i++;
+  }, 100);
+  // Show first frame immediately
+  ui.statusBar.setContent(` {red-fg}{bold}${frames[0]}{/bold}{/red-fg} {black-fg}{bold}${message}{/bold}{/black-fg}`);
+  ui.screen.render();
+  return () => clearInterval(interval);
+}
+
+/**
  * Cancel delete operation
  */
 export function cancelDelete(state: BrowserState, ui: UIComponents): void {
@@ -1148,8 +1166,7 @@ export async function confirmDelete(
   // Hide dialog and show progress
   ui.deleteConfirm.hide();
   state.mode = 'list';
-  ui.statusBar.setContent(` {yellow-fg}Deleting "${source.title}"...{/yellow-fg}`);
-  ui.screen.render();
+  const stopSpinner = startSpinner(ui, `Deleting "${source.title}"...`);
 
   try {
     // 1. Delete from Supabase (this also handles chunks cascade)
@@ -1194,6 +1211,8 @@ export async function confirmDelete(
       }
     }
 
+    stopSpinner();
+
     // Update UI
     updateStatus(ui, state, state.currentProject, sourceType);
     renderList(ui, state);
@@ -1208,6 +1227,7 @@ export async function confirmDelete(
       ui.screen.render();
     }, 2000);
   } catch (error) {
+    stopSpinner();
     ui.statusBar.setContent(` {red-fg}Delete failed: ${error}{/red-fg}`);
     ui.screen.render();
   }
@@ -1225,11 +1245,10 @@ async function confirmProjectDelete(
   project?: string,
   sourceType?: import('../core/types.js').SourceType
 ): Promise<void> {
-  // Hide dialog and show progress
+  // Hide dialog and show spinner
   ui.deleteConfirm.hide();
   state.mode = 'list';
-  ui.statusBar.setContent(` {yellow-fg}Deleting ${header.documentCount} documents from "${header.displayName}"...{/yellow-fg}`);
-  ui.screen.render();
+  const stopSpinner = startSpinner(ui, `Deleting ${header.documentCount} documents from "${header.displayName}"...`);
 
   try {
     // Get all documents in this project
@@ -1298,6 +1317,8 @@ async function confirmProjectDelete(
       }
     }
 
+    stopSpinner();
+
     // Update UI
     updateStatus(ui, state, state.currentProject, sourceType);
     renderList(ui, state);
@@ -1316,6 +1337,7 @@ async function confirmProjectDelete(
       ui.screen.render();
     }, 2000);
   } catch (error) {
+    stopSpinner();
     ui.statusBar.setContent(` {red-fg}Delete failed: ${error}{/red-fg}`);
     ui.screen.render();
   }
