@@ -55,7 +55,7 @@ export function registerAuthCommands(program: Command): void {
         const { loadAuthSession } = await import('../../core/auth.js');
         const session = await loadAuthSession();
         console.log(c.success(`Already logged in as ${session?.user.email}`));
-        console.log(c.dim('Run \'lore logout\' first to switch accounts.'));
+        console.log(c.dim('Run \'lore auth logout\' first to switch accounts.'));
         return;
       }
 
@@ -139,7 +139,7 @@ export function registerAuthCommands(program: Command): void {
         }
       } else {
         callback.abort();
-        console.error(c.error('Login timed out. Try again with \'lore login\'.'));
+        console.error(c.error('Login timed out. Try again with \'lore auth login\'.'));
         process.exit(1);
       }
 
@@ -181,7 +181,7 @@ export function registerAuthCommands(program: Command): void {
 
       const session = await getValidSession();
       if (!session) {
-        console.log(c.dim('Not logged in. Run \'lore login\' to sign in.'));
+        console.log(c.dim('Not logged in. Run \'lore auth login\' to sign in.'));
         return;
       }
 

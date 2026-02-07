@@ -136,7 +136,7 @@ The `LORE_DATA_DIR` should point to a separate directory (its own git repo for c
 ```
 ~/.config/lore/           # Machine-specific config (NOT in any repo)
 ├── config.json           # API keys, Supabase URL (created by `lore setup`)
-├── auth.json             # Auth session token (created by `lore login`)
+├── auth.json             # Auth session token (created by `lore auth login`)
 └── sync-sources.json     # Sync source directories
 
 ~/lore-data/              # Your data repo (separate git repo)
@@ -154,7 +154,7 @@ Supabase (cloud):         # Vector index - shared across all machines
 All 9 MCP tools and core features are implemented:
 
 - **Universal Sync**: Two-phase sync with content hash deduplication
-- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `login`, `logout`, `whoami`, `setup`
+- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `auth login`, `auth logout`, `auth whoami`, `setup`
 - **MCP Tools**: All 10 tools fully functional
 - **LLM-powered Research**: Uses Claude for extraction and research
 - **Multi-machine Support**: Content hash dedup works across machines
@@ -167,8 +167,8 @@ All 9 MCP tools and core features are implemented:
 lore setup
 
 # Or configure manually:
-lore login --email user@example.com
-lore whoami
+lore auth login --email user@example.com
+lore auth whoami
 
 # Configure sync sources
 lore sources add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
@@ -183,9 +183,9 @@ lore search "user pain points"
 lore mcp
 
 # Auth commands
-lore login            # Sign in with email OTP
-lore logout           # Clear session
-lore whoami           # Show current user/status
+lore auth login       # Sign in with email OTP
+lore auth logout      # Clear session
+lore auth whoami      # Show current user/status
 lore setup            # Guided wizard (config + login + claim data)
 ```
 
@@ -298,13 +298,13 @@ This approach ensures:
 
 Lore supports **Supabase Auth with email OTP** for multi-tenant data isolation:
 
-- **Auth flow**: `lore login` → enter email → receive OTP code → verify → session saved to `~/.config/lore/auth.json`
+- **Auth flow**: `lore auth login` → enter email → receive OTP code → verify → session saved to `~/.config/lore/auth.json`
 - **Session management**: Auto-refreshes tokens when near expiry (5-minute buffer)
 - **Data isolation**: Postgres RLS policies on `sources` and `chunks` tables, scoped by `user_id`
 - **Three client modes**:
   1. **Service key** (`SUPABASE_SERVICE_KEY` env var) — bypasses RLS, for admin/migration
   2. **Authenticated user** — publishable key + Bearer token, RLS applies
-  3. **No auth** — throws helpful "run lore login" error
+  3. **No auth** — throws helpful "run lore auth login" error
 - **Existing data migration**: `lore setup` includes a "claim unclaimed data" step
 
 ## Non-Goals (Current Phase)

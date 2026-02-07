@@ -62,7 +62,7 @@ If the MCP host doesn't inherit your shell environment (e.g. Claude Desktop), ad
 | Command | Description |
 |---------|-------------|
 | `lore setup` | Guided configuration wizard |
-| `lore login` | Sign in with email OTP |
+| `lore auth login` | Sign in with email OTP |
 | `lore sync` | Sync all configured sources |
 | `lore sync add` | Add a source directory |
 | `lore search <query>` | Hybrid search |
@@ -77,7 +77,7 @@ If the MCP host doesn't inherit your shell environment (e.g. Claude Desktop), ad
 - **Node.js** 18+
 - **OpenAI API key** (embeddings)
 - **Anthropic API key** (metadata extraction & research)
-- **Lore account** (free — sign up via `lore login`)
+- **Lore account** (free — sign up via `lore auth login`)
 
 ## How Sync Works
 

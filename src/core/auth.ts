@@ -122,7 +122,7 @@ export async function verifyOTP(
   }
 
   // All types failed — return the last error
-  return { error: 'Token has expired or is invalid. Request a new code with \'lore login\'.' };
+  return { error: 'Token has expired or is invalid. Request a new code with \'lore auth login\'.' };
 }
 
 /**

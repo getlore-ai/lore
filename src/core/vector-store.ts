@@ -61,7 +61,7 @@ export async function getSupabase(): Promise<SupabaseClient> {
 
   // Mode 3: No auth
   throw new Error(
-    'Not authenticated. Run \'lore login\' to sign in, or set SUPABASE_SERVICE_KEY for service mode.'
+    'Not authenticated. Run \'lore auth login\' to sign in, or set SUPABASE_SERVICE_KEY for service mode.'
   );
 }
 
