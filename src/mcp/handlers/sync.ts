@@ -347,7 +347,7 @@ export async function handleSync(
   dbPath: string,
   dataDir: string,
   args: SyncArgs,
-  options: { hookContext?: { mode: 'mcp' | 'cli' } } = {}
+  options: { hookContext?: { mode: 'mcp' | 'cli' }; onProgress?: (progress: number, total?: number, message?: string) => Promise<void> } = {}
 ): Promise<SyncResult> {
   const doPull = args.git_pull !== false;
   const doPush = args.git_push !== false;
@@ -366,8 +366,11 @@ export async function handleSync(
     reconciled: 0,
   };
 
+  const { onProgress } = options;
+
   // 1. Git pull
   if (doPull) {
+    await onProgress?.(5, undefined, 'Pulling from git...');
     const pullResult = await gitPull(dataDir);
     result.git_pulled = pullResult.success && (pullResult.message?.includes('Pulled') || false);
     if (pullResult.error) {
@@ -383,6 +386,7 @@ export async function handleSync(
 
     if (hasUniversalSources && !useLegacy) {
       // Use new universal sync
+      await onProgress?.(20, undefined, 'Discovering new files...');
       const { discovery, processing } = await universalSync(
         dataDir,
         dryRun,
@@ -394,12 +398,14 @@ export async function handleSync(
 
     // Always run legacy disk sync for backward compatibility
     // (picks up sources added via old `lore ingest` command)
+    await onProgress?.(60, undefined, 'Running legacy sync...');
     const legacyResult = await legacyDiskSync(dbPath, dataDir);
     result.sources_found = legacyResult.sources_found;
     result.sources_indexed = legacyResult.sources_indexed;
     result.already_indexed = legacyResult.already_indexed;
 
     // Reconcile: ensure every Supabase source has local content.md
+    await onProgress?.(80, undefined, 'Reconciling local content...');
     result.reconciled = await reconcileLocalContent(dataDir);
   }
 

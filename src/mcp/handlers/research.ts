@@ -6,15 +6,185 @@
  * 2. SIMPLE (fallback): Single-pass search + GPT-4o-mini synthesis
  *
  * Set LORE_RESEARCH_MODE=simple to use the fallback mode.
+ *
+ * MCP integration: Research runs asynchronously. The `research` tool returns
+ * immediately with a job_id. Use `research_status` to poll for results.
  */
 
 import OpenAI from 'openai';
+import { randomUUID } from 'crypto';
 import { searchSources, getSourceById } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
 import { runResearchAgent } from './research-agent.js';
 import type { ResearchPackage, Quote, SourceType } from '../../core/types.js';
 import { getExtensionRegistry } from '../../extensions/registry.js';
+
+// ============================================================================
+// Async Job Store
+// ============================================================================
+
+interface ResearchJob {
+  id: string;
+  task: string;
+  project?: string;
+  status: 'running' | 'complete' | 'error';
+  startedAt: string;
+  completedAt?: string;
+  lastActivityAt: string;
+  result?: ResearchPackage;
+  error?: string;
+  activity: string[];  // Running log of what the agent is doing
+}
+
+const jobStore = new Map<string, ResearchJob>();
+
+// Clean up old jobs after 10 minutes
+const JOB_TTL_MS = 10 * 60 * 1000;
+function cleanOldJobs() {
+  const now = Date.now();
+  for (const [id, job] of jobStore) {
+    const startTime = new Date(job.startedAt).getTime();
+    if (now - startTime > JOB_TTL_MS) {
+      jobStore.delete(id);
+    }
+  }
+}
+
+/**
+ * Start research asynchronously and return a job ID immediately.
+ */
+export function startResearchJob(
+  dbPath: string,
+  dataDir: string,
+  args: ResearchArgs,
+  options: { hookContext?: { mode: 'mcp' | 'cli' }; onProgress?: ProgressCallback } = {}
+): { job_id: string; status: string; message: string } {
+  cleanOldJobs();
+
+  const jobId = randomUUID();
+  const now = new Date().toISOString();
+  const job: ResearchJob = {
+    id: jobId,
+    task: args.task,
+    project: args.project,
+    status: 'running',
+    startedAt: now,
+    lastActivityAt: now,
+    activity: ['Starting research...'],
+  };
+  jobStore.set(jobId, job);
+
+  // Fire and forget — runs in the background
+  handleResearch(dbPath, dataDir, args, {
+    ...options,
+    onProgress: async (_p, _t, message) => {
+      const j = jobStore.get(jobId);
+      if (j && message) {
+        j.activity.push(message);
+        j.lastActivityAt = new Date().toISOString();
+      }
+    },
+  })
+    .then((result) => {
+      const j = jobStore.get(jobId);
+      if (j) {
+        j.status = 'complete';
+        j.completedAt = new Date().toISOString();
+        j.result = result;
+        j.activity.push('Research complete');
+      }
+    })
+    .catch((err) => {
+      const j = jobStore.get(jobId);
+      if (j) {
+        j.status = 'error';
+        j.completedAt = new Date().toISOString();
+        j.error = err instanceof Error ? err.message : String(err);
+        j.activity.push(`Failed: ${j.error}`);
+      }
+    })
+    .catch((err) => {
+      // Final safety net for errors in the handlers above
+      console.error(`[research] Critical error in job ${jobId}:`, err);
+    });
+
+  return {
+    job_id: jobId,
+    status: 'running',
+    message: `Research started for: "${args.task}". Poll research_status with job_id "${jobId}" every 15-20 seconds. This typically takes 2-8 minutes — do not abandon early.`,
+  };
+}
+
+/**
+ * Check status of a research job.
+ * Long-polls for up to POLL_WAIT_MS, returning early if the job completes.
+ */
+const POLL_WAIT_MS = 20_000;
+const POLL_INTERVAL_MS = 1_000;
+
+export async function getResearchJobStatus(jobId: string): Promise<Record<string, unknown>> {
+  let job = jobStore.get(jobId);
+  if (!job) {
+    return { status: 'not_found', job_id: jobId };
+  }
+
+  // If already done, return immediately
+  if (job.status !== 'running') {
+    return formatJobResponse(job);
+  }
+
+  // Long-poll: wait up to POLL_WAIT_MS for completion, checking every second
+  const deadline = Date.now() + POLL_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    // Re-fetch to avoid stale reference if job was cleaned up
+    job = jobStore.get(jobId);
+    if (!job) {
+      return { status: 'not_found', job_id: jobId };
+    }
+    if (job.status !== 'running') {
+      return formatJobResponse(job);
+    }
+  }
+
+  return formatJobResponse(job);
+}
+
+function formatJobResponse(job: ResearchJob): Record<string, unknown> {
+  const elapsed = Math.round((Date.now() - new Date(job.startedAt).getTime()) / 1000);
+
+  if (job.status === 'complete') {
+    return {
+      status: 'complete',
+      job_id: job.id,
+      task: job.task,
+      elapsed_seconds: elapsed,
+      result: job.result,
+    };
+  }
+
+  if (job.status === 'error') {
+    return {
+      status: 'error',
+      job_id: job.id,
+      task: job.task,
+      elapsed_seconds: elapsed,
+      error: job.error,
+    };
+  }
+
+  return {
+    status: 'running',
+    job_id: job.id,
+    task: job.task,
+    elapsed_seconds: elapsed,
+    total_steps: job.activity.length,
+    activity: job.activity,
+    message: `Research is still running (${elapsed}s elapsed, ${job.activity.length} steps completed). This is normal — deep research takes 2-8 minutes. Keep polling.`,
+  };
+}
 
 // Lazy initialization for OpenAI (only used in simple mode)
 let openaiClient: OpenAI | null = null;
@@ -141,21 +311,26 @@ Respond with only the JSON object.`;
   }
 }
 
+export type ProgressCallback = (progress: number, total?: number, message?: string) => Promise<void>;
+
 export async function handleResearch(
   dbPath: string,
   dataDir: string,
   args: ResearchArgs,
-  options: { hookContext?: { mode: 'mcp' | 'cli' } } = {}
+  options: { hookContext?: { mode: 'mcp' | 'cli' }; onProgress?: ProgressCallback } = {}
 ): Promise<ResearchPackage> {
   const { task, project, include_sources = true } = args;
+  const { onProgress } = options;
 
   // Check if we should use agentic mode (default) or simple mode (fallback)
   const useAgenticMode = process.env.LORE_RESEARCH_MODE !== 'simple';
 
   if (useAgenticMode) {
     console.error('[research] Using agentic mode (Claude Agent SDK)');
+    await onProgress?.(0, undefined, 'Starting agentic research...');
     try {
-      const result = await runResearchAgent(dbPath, dataDir, args);
+      const result = await runResearchAgent(dbPath, dataDir, args, onProgress);
+      await onProgress?.(100, 100, 'Research complete');
       await runResearchCompletedHook(result, {
         mode: options.hookContext?.mode || 'mcp',
         dataDir,
@@ -164,12 +339,15 @@ export async function handleResearch(
       return result;
     } catch (error) {
       console.error('[research] Agentic mode failed, falling back to simple mode:', error);
+      await onProgress?.(0, undefined, 'Agentic mode failed, falling back to simple mode...');
       // Fall through to simple mode
     }
   }
 
   console.error('[research] Using simple mode (single-pass synthesis)');
-  const result = await handleResearchSimple(dbPath, dataDir, args);
+  await onProgress?.(0, undefined, 'Starting simple research...');
+  const result = await handleResearchSimple(dbPath, dataDir, args, onProgress);
+  await onProgress?.(100, 100, 'Research complete');
   await runResearchCompletedHook(result, {
     mode: options.hookContext?.mode || 'mcp',
     dataDir,
@@ -185,7 +363,8 @@ export async function handleResearch(
 async function handleResearchSimple(
   dbPath: string,
   dataDir: string,
-  args: ResearchArgs
+  args: ResearchArgs,
+  onProgress?: ProgressCallback
 ): Promise<ResearchPackage> {
   const { task, project, include_sources = true } = args;
 
@@ -198,7 +377,9 @@ async function handleResearchSimple(
   const archivedNames = new Set(archivedProjects.map((p) => p.project.toLowerCase()));
 
   // Step 1: Search for relevant sources (fetch extra to account for archived filtering)
+  await onProgress?.(10, 100, 'Generating embeddings...');
   const queryVector = await generateEmbedding(task);
+  await onProgress?.(30, 100, 'Searching sources...');
   const rawSources = await searchSources(dbPath, queryVector, {
     limit: sourceLimit * 2,
     project,
@@ -224,6 +405,7 @@ async function handleResearchSimple(
   }
 
   // Step 3: Synthesize findings with LLM (conflict-aware)
+  await onProgress?.(60, 100, 'Synthesizing findings...');
   // Note: Decisions are now extracted at query time by the agentic research mode
   const synthesis = await synthesizeFindings(
     task,

@@ -271,7 +271,7 @@ USE 'ingest' INSTEAD for full documents, meeting notes, transcripts, or any cont
     name: 'research',
     description: `Run a comprehensive research query across the knowledge base. An internal agent iteratively searches, reads sources, cross-references findings, and synthesizes a research package with full citations.
 
-Returns: summary, key findings, supporting quotes with citations, conflicts detected between sources, and suggested follow-up queries.
+ASYNC: This tool returns immediately with a job_id. You MUST then poll 'research_status' with that job_id to get results. Research typically takes 2-8 minutes depending on the amount of data. Poll every 15-20 seconds. Do NOT assume it is stuck — check the 'activity' array in the status response to see what the agent is doing.
 
 WHEN TO USE:
 - Questions that span multiple sources ("What do we know about authentication?")
@@ -279,8 +279,23 @@ WHEN TO USE:
 - Building a cited research package for decision-making
 - Open-ended exploration of a topic
 
-COST: This tool makes multiple LLM calls internally (typically 3-8 search + read cycles). For simple lookups, use 'search' instead — it's 10x cheaper and faster.`,
+COST: This tool makes multiple LLM calls internally (typically 10-30 search + read cycles). For simple lookups, use 'search' instead — it's 10x cheaper and faster.`,
     inputSchema: zodToJsonSchema(ResearchSchema),
+  },
+
+  // Research status (polling for async results)
+  {
+    name: 'research_status',
+    description: `Check the status of a running research job. Returns the full research package when complete.
+
+Call this after 'research' returns a job_id. Research typically takes 2-8 minutes. Poll every 15-20 seconds. The response includes an 'activity' array showing exactly what the research agent is doing (searches, sources being read, reasoning). As long as 'total_steps' is increasing or 'elapsed_seconds' is under 8 minutes, the research is progressing normally — do NOT abandon it.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        job_id: { type: 'string', description: 'The job_id returned by the research tool' },
+      },
+      required: ['job_id'],
+    },
   },
 
   // Ingest tool

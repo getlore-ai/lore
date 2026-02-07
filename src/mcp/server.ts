@@ -27,7 +27,7 @@ import { handleGetSource } from './handlers/get-source.js';
 import { handleListSources } from './handlers/list-sources.js';
 import { handleRetain } from './handlers/retain.js';
 import { handleIngest } from './handlers/ingest.js';
-import { handleResearch } from './handlers/research.js';
+import { handleResearch, startResearchJob, getResearchJobStatus } from './handlers/research.js';
 import { handleListProjects } from './handlers/list-projects.js';
 import { handleSync } from './handlers/sync.js';
 import { handleArchiveProject } from './handlers/archive-project.js';
@@ -220,8 +220,25 @@ async function main() {
   });
 
   // Handle tool calls (core tools only)
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
+
+    // Build a progress callback for long-running tools.
+    // If the client sent a progressToken, we send notifications/progress back;
+    // otherwise, onProgress is a no-op.
+    const progressToken = request.params._meta?.progressToken;
+    const onProgress = progressToken
+      ? async (progress: number, total?: number, message?: string) => {
+          try {
+            await extra.sendNotification({
+              method: 'notifications/progress',
+              params: { progressToken, progress, ...(total != null ? { total } : {}), ...(message ? { message } : {}) },
+            });
+          } catch {
+            // Progress notifications are best-effort
+          }
+        }
+      : undefined;
 
     try {
       let result: unknown;
@@ -259,17 +276,24 @@ async function main() {
             });
             break;
 
-          // Agentic research tool (uses Claude Agent SDK internally)
+          // Agentic research tool — runs async, returns job_id immediately
           case 'research':
-            result = await handleResearch(DB_PATH, LORE_DATA_DIR, args as any, {
+            result = startResearchJob(DB_PATH, LORE_DATA_DIR, args as any, {
               hookContext: { mode: 'mcp' },
+              onProgress,
             });
+            break;
+
+          // Poll for research results (long-polls up to 20s)
+          case 'research_status':
+            result = await getResearchJobStatus((args as any)?.job_id);
             break;
 
           // Sync tool
           case 'sync':
             result = await handleSync(DB_PATH, LORE_DATA_DIR, args as any, {
               hookContext: { mode: 'mcp' },
+              onProgress,
             });
             break;
 

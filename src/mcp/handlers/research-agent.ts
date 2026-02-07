@@ -14,6 +14,7 @@ import { searchSources, getSourceById, getAllSources } from '../../core/vector-s
 import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
 import type { ResearchPackage, Quote, SourceType, Theme } from '../../core/types.js';
+import type { ProgressCallback } from './research.js';
 
 interface ResearchAgentArgs {
   task: string;
@@ -272,7 +273,8 @@ Now begin your research. Use the tools iteratively until you have comprehensive 
 export async function runResearchAgent(
   dbPath: string,
   dataDir: string,
-  args: ResearchAgentArgs
+  args: ResearchAgentArgs,
+  onProgress?: ProgressCallback
 ): Promise<ResearchPackage> {
   const { task, project, include_sources = true } = args;
 
@@ -291,6 +293,9 @@ export async function runResearchAgent(
 
   try {
     // Run the agent
+    let turnCount = 0;
+    await onProgress?.(5, undefined, 'Starting research agent...');
+
     for await (const message of query({
       prompt: `Research task: ${task}${project ? ` (project: ${project})` : ''}`,
       options: {
@@ -307,17 +312,36 @@ export async function runResearchAgent(
         permissionMode: 'acceptEdits', // Auto-approve tool calls
       },
     })) {
-      // Capture assistant messages (intermediate)
+      // Capture assistant messages and extract tool call details
       if (message.type === 'assistant') {
+        turnCount++;
         const msg = message as any;
         if (msg.message?.content) {
           const content = msg.message.content;
           if (typeof content === 'string') {
             lastAssistantMessage = content;
           } else if (Array.isArray(content)) {
-            const textBlocks = content.filter((b: any) => b.type === 'text');
-            if (textBlocks.length > 0) {
-              lastAssistantMessage = textBlocks.map((b: any) => b.text).join('\n');
+            // Extract tool_use blocks to report what the agent is doing
+            for (const block of content) {
+              if (block.type === 'tool_use') {
+                const input = block.input as Record<string, unknown>;
+                const toolShort = (block.name as string).replace('mcp__lore-tools__', '');
+                if (toolShort === 'search' && input.query) {
+                  await onProgress?.(0, undefined, `Searching: "${input.query}"`);
+                } else if (toolShort === 'get_source' && input.source_id) {
+                  await onProgress?.(0, undefined, `Reading source: ${input.source_id}`);
+                } else if (toolShort === 'list_sources') {
+                  const filter = input.project ? ` (project: ${input.project})` : '';
+                  await onProgress?.(0, undefined, `Listing sources${filter}`);
+                }
+              } else if (block.type === 'text' && block.text) {
+                lastAssistantMessage = block.text;
+                // Send a brief snippet of agent reasoning
+                const snippet = (block.text as string).substring(0, 120).replace(/\n/g, ' ');
+                if (snippet.length > 10) {
+                  await onProgress?.(0, undefined, `Agent thinking: ${snippet}...`);
+                }
+              }
             }
           }
         }
@@ -328,16 +352,22 @@ export async function runResearchAgent(
         const msg = message as any;
         if (msg.subtype === 'success' && msg.result) {
           lastAssistantMessage = msg.result;
+          await onProgress?.(0, undefined, `Research complete (${msg.num_turns} turns)`);
           console.error(`[research-agent] Completed in ${msg.num_turns} turns`);
         } else if (msg.subtype?.startsWith('error')) {
           console.error(`[research-agent] Error: ${msg.subtype}`, msg.errors);
         }
       }
 
-      // Log tool usage for debugging
+      // Log tool results via the summary message
       if (message.type === 'tool_use_summary') {
         const msg = message as any;
-        console.error(`[research-agent] Tool: ${msg.tool_name || 'unknown'}`);
+        if (msg.summary) {
+          // The summary often contains "Found X results" or similar
+          const summarySnippet = (msg.summary as string).substring(0, 150).replace(/\n/g, ' ');
+          await onProgress?.(0, undefined, `Result: ${summarySnippet}`);
+        }
+        console.error(`[research-agent] Tool complete (turn ${turnCount})`);
       }
     }
 
