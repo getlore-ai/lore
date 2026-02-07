@@ -275,7 +275,7 @@ export function createUIComponents(): UIComponents {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 9,
+    height: 11,
     border: {
       type: 'line',
     },
