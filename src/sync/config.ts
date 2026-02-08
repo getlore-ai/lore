@@ -17,7 +17,7 @@ import os from 'os';
 export interface SyncSource {
   name: string;           // Human-readable name
   path: string;           // Directory path (can use ~)
-  glob: string;           // Glob pattern (e.g., "**/*.md")
+  glob: string;           // Glob pattern (e.g., "**/*")
   project: string;        // Default project for sources from this directory
   enabled: boolean;       // Whether to include in sync
 }
@@ -60,7 +60,7 @@ function getDefaultConfig(): SyncConfig {
       {
         name: 'Example Source',
         path: '~/Documents/notes',
-        glob: '**/*.md',
+        glob: '**/*',
         project: 'notes',
         enabled: false,
       },

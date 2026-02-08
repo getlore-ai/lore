@@ -155,7 +155,7 @@ All 9 MCP tools and core features are implemented:
 
 - **Universal Sync**: Two-phase sync with content hash deduplication
 - **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `auth login`, `auth logout`, `auth whoami`, `setup`
-- **MCP Tools**: All 10 tools fully functional
+- **MCP Tools**: All 9 tools fully functional
 - **LLM-powered Research**: Uses Claude for extraction and research
 - **Multi-machine Support**: Content hash dedup works across machines
 - **Multi-tenant Auth**: Supabase Auth (email OTP) with RLS data isolation
@@ -171,7 +171,7 @@ lore auth login --email user@example.com
 lore auth whoami
 
 # Configure sync sources
-lore sync add --name "Granola Meetings" --path ~/granola-extractor/output --glob "**/*.md" --project meetings
+lore sync add --name "Meeting Notes" --path ~/notes --project meetings
 
 # Sync all sources (two-phase: discovery then processing)
 lore sync
@@ -251,14 +251,11 @@ research("What authentication approach should we use?")
     ├─→ search("authentication decisions")
     │      └─→ Found decision to use JWT
     │
-    ├─→ get_quotes(theme: "requirements")
-    │      └─→ Found 5 specific requirements
-    │
     └─→ Synthesize everything into ResearchPackage
 ```
 
 **How it works:**
-1. Claude Agent gets access to Lore's own tools (search, get_source, get_quotes, list_sources)
+1. Claude Agent gets access to Lore's own tools (search, get_source, list_sources)
 2. Agent iteratively explores, following leads
 3. Cross-references findings across sources
 4. Synthesizes with citations

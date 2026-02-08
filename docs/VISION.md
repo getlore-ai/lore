@@ -146,7 +146,6 @@ The `ingest` MCP tool allows explicitly saving content from any context.
 | `search` | Semantic search across sources, returns summaries + quotes |
 | `get_source` | Full source document with all content |
 | `list_sources` | Browse sources by project/type |
-| `get_quotes` | Find citable quotes, filter by theme |
 | `list_projects` | Project overview with stats |
 | `ingest` | Add content — documents, insights, decisions |
 

@@ -341,11 +341,10 @@ When one agent session ends and another begins, maintain continuity.
 
 ```typescript
 // Agent A finishes work
-lore.retain({
-  type: "session_context",
+lore.ingest({
   content: "Explored options. Key finding: X. Next: try Y.",
-  session_id: "claude-code-abc123",
-  handoff_to: ["any"]
+  project: "my-project",
+  source_type: "session_context",
 });
 
 // Agent B picks up

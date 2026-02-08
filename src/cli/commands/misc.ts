@@ -174,7 +174,7 @@ Done! To use this data repository:
    "env": { "LORE_DATA_DIR": "${expandedPath}" }
 
 3. Add sync sources:
-   lore sync add --name "My Notes" --path ~/notes --glob "**/*.md" -p myproject
+   lore sync add --name "My Notes" --path ~/notes -p myproject
 
 Tip: Run 'lore setup' for the full guided experience (config + login + data repo).
 `);

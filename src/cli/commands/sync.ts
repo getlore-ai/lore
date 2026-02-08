@@ -722,7 +722,7 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
     .description('Add a new sync source directory')
     .option('-n, --name <name>', 'Source name')
     .option('-p, --path <path>', 'Directory path')
-    .option('-g, --glob <glob>', 'File glob pattern', '**/*.md')
+    .option('-g, --glob <glob>', 'File glob pattern', '**/*')
     .option('--project <project>', 'Default project')
     .action(async (options) => {
       const { addSyncSource } = await import('../../sync/config.js');
@@ -746,7 +746,7 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
 
       const name = options.name || await ask('Name (e.g., "Granola Meetings")');
       const sourcePath = options.path || await ask('Path (e.g., ~/granola-extractor/output)');
-      const glob = options.glob || await ask('Glob pattern', '**/*.md');
+      const glob = options.glob || await ask('Glob pattern', '**/*');
       const project = options.project || await ask('Default project');
 
       rl.close();
