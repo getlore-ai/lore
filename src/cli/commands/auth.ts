@@ -10,6 +10,7 @@
 import type { Command } from 'commander';
 import path from 'path';
 import { colors, c } from '../colors.js';
+import { getLogo } from '../logo.js';
 
 // ============================================================================
 // Readline helper
@@ -208,6 +209,9 @@ export function registerAuthCommands(program: Command): void {
     .option('--data-dir <dir>', 'Data directory path (skip prompt)')
     .option('--code <code>', 'OTP code (for non-interactive login)')
     .option('--skip-login', 'Skip the login step (use if already authenticated)')
+    .option('--sync-path <path>', 'Sync source directory path (non-interactive)')
+    .option('--sync-project <project>', 'Default project for sync source (non-interactive)')
+    .option('--sync-name <name>', 'Name for sync source (non-interactive, defaults to project name)')
     .action(async (options) => {
       const { saveLoreConfig, getLoreConfigPath } = await import('../../core/config.js');
       const { sendOTP, verifyOTP, sessionFromMagicLink, isAuthenticated, loadAuthSession } = await import('../../core/auth.js');
@@ -216,8 +220,12 @@ export function registerAuthCommands(program: Command): void {
       // Non-interactive mode: skip prompts when all key flags are provided
       const nonInteractive = !!(options.openaiKey && options.anthropicKey && options.email);
 
-      console.log(`\n${c.title('Lore Setup Wizard')}`);
-      console.log(`${c.dim('=')}`.repeat(40) + '\n');
+      console.log('');
+      console.log(getLogo());
+      console.log('');
+      console.log(`  ${c.title('Setup Wizard')}`);
+      console.log(`  ${c.dim('━'.repeat(12))}`);
+      console.log('');
 
       // ── Step 1: Configuration ───────────────────────────────────────
       console.log(c.bold('Step 1: Configuration\n'));
@@ -520,8 +528,78 @@ export function registerAuthCommands(program: Command): void {
         console.log(c.dim('You can add documents later with lore sync\n'));
       }
 
-      // ── Step 5: Background Daemon ──────────────────────────────────────
-      console.log(c.bold('Step 5: Background Daemon\n'));
+      // ── Step 5: Sync Sources ──────────────────────────────────────────
+      console.log(c.bold('Step 5: Sync Sources\n'));
+
+      if (nonInteractive) {
+        if (options.syncPath && options.syncProject) {
+          const { addSyncSource } = await import('../../sync/config.js');
+          const syncName = options.syncName || options.syncProject.charAt(0).toUpperCase() + options.syncProject.slice(1);
+          try {
+            await addSyncSource({
+              name: syncName,
+              path: expandPath(options.syncPath),
+              glob: '**/*',
+              project: options.syncProject,
+              enabled: true,
+            });
+            console.log(c.success(`Added sync source "${syncName}" → ${options.syncPath}\n`));
+          } catch (err) {
+            console.log(c.warning(`Could not add sync source: ${err instanceof Error ? err.message : err}\n`));
+          }
+        } else {
+          console.log(c.dim('Skipped (no --sync-path/--sync-project provided).\n'));
+        }
+      } else {
+        console.log(c.dim('Sync sources are directories on your machine that Lore watches'));
+        console.log(c.dim('for new files. When files appear or change, they\'re automatically'));
+        console.log(c.dim('indexed into your knowledge base.\n'));
+        console.log(c.dim('Supported formats: Markdown, JSON, JSONL, plain text, CSV,'));
+        console.log(c.dim('HTML, XML, PDF, and images.\n'));
+
+        let addMore = true;
+        while (addMore) {
+          const wantsSource = await prompt('Would you like to add a sync source? (y/n)', 'y');
+
+          if (wantsSource.toLowerCase() !== 'y') {
+            if (wantsSource.toLowerCase() === 'n') {
+              console.log(c.dim('You can add sources anytime with: lore sync add\n'));
+            }
+            break;
+          }
+
+          const sourceName = await prompt('Name (e.g., "Meeting Notes")');
+          const sourcePath = await prompt('Path (e.g., ~/Documents/notes)');
+          const sourceProject = await prompt('Default project');
+
+          if (!sourceName || !sourcePath || !sourceProject) {
+            console.log(c.warning('Name, path, and project are all required. Skipping.\n'));
+            break;
+          }
+
+          try {
+            const { addSyncSource } = await import('../../sync/config.js');
+            await addSyncSource({
+              name: sourceName,
+              path: expandPath(sourcePath),
+              glob: '**/*',
+              project: sourceProject,
+              enabled: true,
+            });
+            console.log(c.success(`Added source "${sourceName}"`));
+            console.log(c.dim(`  Path: ${sourcePath}`));
+            console.log(c.dim(`  Glob: **/* (all supported files)\n`));
+          } catch (err) {
+            console.log(c.warning(`Could not add source: ${err instanceof Error ? err.message : err}\n`));
+          }
+
+          const another = await prompt('Add another source? (y/n)', 'n');
+          addMore = another.toLowerCase() === 'y';
+        }
+      }
+
+      // ── Step 6: Background Daemon ──────────────────────────────────────
+      console.log(c.bold('Step 6: Background Daemon\n'));
 
       const startDaemon = nonInteractive ? 'y' : await prompt('Start background sync daemon? (y/n)', 'y');
 
@@ -545,8 +623,8 @@ export function registerAuthCommands(program: Command): void {
         console.log(c.dim('You can start it later with: lore sync start\n'));
       }
 
-      // ── Step 6: Agent Skills ──────────────────────────────────────────
-      console.log(c.bold('Step 6: Agent Skills\n'));
+      // ── Step 7: Agent Skills ──────────────────────────────────────────
+      console.log(c.bold('Step 7: Agent Skills\n'));
 
       if (nonInteractive) {
         console.log(c.dim('Skipped in non-interactive mode.'));

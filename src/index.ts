@@ -37,6 +37,7 @@ import { registerIngestCommand } from './cli/commands/ingest.js';
 import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
 import { bridgeConfigToEnv } from './core/config.js';
 import { expandPath } from './sync/config.js';
+import { showWelcomeScreen } from './cli/welcome.js';
 
 // Load .env files silently (without the v17 logging)
 function loadEnvFile(filePath: string, override = false): void {
@@ -103,6 +104,11 @@ try {
 } catch {
   // Extensions not loaded — fine for initial release
 }
+
+// Default action: show welcome screen when no command is given
+program.action(() => {
+  showWelcomeScreen();
+});
 
 // Global error handler — show friendly messages instead of stack traces
 process.on('uncaughtException', (error) => {

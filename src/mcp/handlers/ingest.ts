@@ -147,7 +147,7 @@ export async function handleIngest(
 ): Promise<unknown> {
   const {
     content,
-    project,
+    project: rawProject,
     source_type: raw_source_type,
     date,
     participants = [],
@@ -158,6 +158,7 @@ export async function handleIngest(
   const { autoPush = true, hookContext } = options;
 
   const source_type = normalizeSourceType(raw_source_type);
+  const project = rawProject.toLowerCase().trim();
 
   // Auto-generate title if not provided
   const title = args.title || `${source_type.charAt(0).toUpperCase() + source_type.slice(1)}: ${content.slice(0, 50)}${content.length > 50 ? '...' : ''}`;

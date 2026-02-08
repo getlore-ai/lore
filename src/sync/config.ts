@@ -140,6 +140,9 @@ export async function initializeSyncConfig(): Promise<SyncConfig> {
 export async function addSyncSource(source: SyncSource): Promise<SyncConfig> {
   const config = await loadSyncConfig();
 
+  // Normalize project name
+  source.project = source.project.toLowerCase().trim();
+
   // Check for duplicate names
   const existingIndex = config.sources.findIndex(s => s.name === source.name);
   if (existingIndex !== -1) {

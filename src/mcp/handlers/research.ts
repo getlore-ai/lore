@@ -319,7 +319,8 @@ export async function handleResearch(
   args: ResearchArgs,
   options: { hookContext?: { mode: 'mcp' | 'cli' }; onProgress?: ProgressCallback } = {}
 ): Promise<ResearchPackage> {
-  const { task, project, include_sources = true } = args;
+  const { task, project: rawProject, include_sources = true } = args;
+  const project = rawProject?.toLowerCase().trim();
   const { onProgress } = options;
 
   // Check if we should use agentic mode (default) or simple mode (fallback)

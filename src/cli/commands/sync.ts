@@ -6,7 +6,7 @@
 
 import type { Command } from 'commander';
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, appendFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -696,25 +696,35 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
     .action(async () => {
       const { loadSyncConfig, getConfigPath } = await import('../../sync/config.js');
 
-      console.log(`\nSync Sources`);
-      console.log(`============`);
-      console.log(`Config: ${getConfigPath()}\n`);
+      console.log('');
+      console.log(`  ${c.title('Sync Sources')}`);
+      console.log(`  ${c.dim('━'.repeat(12))}`);
+      console.log('');
 
       const config = await loadSyncConfig();
 
       if (config.sources.length === 0) {
-        console.log('No sources configured. Run "lore sync add" to add one.');
+        console.log(c.dim('  No sources configured.'));
+        console.log(`  Run ${c.bold('lore sync add')} to add one.`);
+        console.log('');
         return;
       }
 
       for (const source of config.sources) {
-        const status = source.enabled ? '✓' : '○';
-        console.log(`${status} ${source.name}`);
-        console.log(`    Path: ${source.path}`);
-        console.log(`    Glob: ${source.glob}`);
+        if (source.enabled) {
+          console.log(`  ${c.success('✓')} ${c.bold(source.name)}`);
+        } else {
+          console.log(`  ${c.dim('○')} ${c.dim(source.name + ' (disabled)')}`);
+        }
+        console.log(`    Path:    ${source.path}`);
+        console.log(`    Glob:    ${c.dim(source.glob)}`);
         console.log(`    Project: ${source.project}`);
         console.log('');
       }
+
+      console.log(c.dim(`  Config: ${getConfigPath()}`));
+      console.log(c.dim(`  Add more with: lore sync add`));
+      console.log('');
     });
 
   syncCmd
@@ -725,9 +735,36 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
     .option('-g, --glob <glob>', 'File glob pattern', '**/*')
     .option('--project <project>', 'Default project')
     .action(async (options) => {
-      const { addSyncSource } = await import('../../sync/config.js');
-      const readline = await import('readline');
+      const { addSyncSource, expandPath } = await import('../../sync/config.js');
 
+      // Non-interactive: path and project provided
+      const nonInteractive = !!(options.path && options.project);
+
+      if (nonInteractive) {
+        const dirBase = path.basename(expandPath(options.path)) || 'Source';
+        const name = options.name || dirBase.charAt(0).toUpperCase() + dirBase.slice(1);
+        try {
+          await addSyncSource({
+            name,
+            path: options.path,
+            glob: options.glob || '**/*',
+            project: options.project,
+            enabled: true,
+          });
+          console.log(`\n  ${c.success('✓')} Added "${name}"`);
+          console.log(`    Path:    ${options.path}`);
+          console.log(`    Glob:    ${options.glob || '**/*'}`);
+          console.log(`    Project: ${options.project}`);
+          console.log(`\n  Run ${c.bold("'lore sync'")} to index these files now.\n`);
+        } catch (error) {
+          console.error(`\nError: ${error}`);
+          process.exit(1);
+        }
+        return;
+      }
+
+      // Interactive flow: path → project → done
+      const readline = await import('readline');
       const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
@@ -735,26 +772,52 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
 
       const ask = (question: string, defaultValue?: string): Promise<string> =>
         new Promise((resolve) => {
-          const prompt = defaultValue ? `${question} [${defaultValue}]: ` : `${question}: `;
+          const prompt = defaultValue ? `  ${question} [${defaultValue}]: ` : `  ${question}: `;
           rl.question(prompt, (answer) => {
             resolve(answer.trim() || defaultValue || '');
           });
         });
 
-      console.log(`\nAdd Sync Source`);
-      console.log(`===============\n`);
+      console.log('');
 
-      const name = options.name || await ask('Name (e.g., "Granola Meetings")');
-      const sourcePath = options.path || await ask('Path (e.g., ~/granola-extractor/output)');
-      const glob = options.glob || await ask('Glob pattern', '**/*');
-      const project = options.project || await ask('Default project');
+      // Path
+      const sourcePath = options.path || await ask('Path');
+      if (!sourcePath) {
+        rl.close();
+        console.log(c.warning('\n  Path is required.\n'));
+        process.exit(1);
+      }
+
+      // Validate path
+      const resolved = expandPath(sourcePath);
+      if (existsSync(resolved)) {
+        try {
+          const count = readdirSync(resolved).length;
+          console.log(c.success(`  ✓ Found (${count} items)`));
+        } catch {
+          console.log(c.success('  ✓ Directory exists'));
+        }
+      } else {
+        console.log(c.warning('  ⚠ Directory does not exist yet'));
+      }
+
+      // Derive name from directory basename
+      const dirName = path.basename(resolved) || 'Source';
+      const defaultName = options.name || dirName.charAt(0).toUpperCase() + dirName.slice(1);
+      const defaultProject = options.project || dirName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+      // Project
+      const project = await ask('Project', defaultProject);
+      if (!project) {
+        rl.close();
+        console.log(c.warning('\n  Project is required.\n'));
+        process.exit(1);
+      }
 
       rl.close();
 
-      if (!name || !sourcePath || !project) {
-        console.log('\nAll fields are required.');
-        process.exit(1);
-      }
+      const name = options.name || defaultName;
+      const glob = options.glob || '**/*';
 
       try {
         await addSyncSource({
@@ -765,10 +828,16 @@ export function registerSyncCommand(program: Command, defaultDataDir: string): v
           enabled: true,
         });
 
-        console.log(`\n✓ Added source "${name}"`);
-        console.log(`\nRun "lore sync" to process files from this source.`);
+        console.log('');
+        console.log(`  ${c.success('✓')} Added "${c.bold(name)}"`);
+        console.log(`    Path:    ${sourcePath}`);
+        console.log(`    Glob:    ${c.dim(glob)}`);
+        console.log(`    Project: ${project}`);
+        console.log('');
+        console.log(`  Run ${c.bold("'lore sync'")} to index these files now.`);
+        console.log('');
       } catch (error) {
-        console.error(`\nError: ${error}`);
+        console.error(`\n  ${c.error(String(error))}\n`);
         process.exit(1);
       }
     });

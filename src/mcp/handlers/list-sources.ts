@@ -15,7 +15,8 @@ export async function handleListSources(
   dbPath: string,
   args: ListSourcesArgs
 ): Promise<unknown> {
-  const { project, source_type, limit = 20 } = args;
+  const { project: rawProject, source_type, limit = 20 } = args;
+  const project = rawProject?.toLowerCase().trim();
 
   const sources = await getAllSources(dbPath, {
     project,

@@ -64,13 +64,14 @@ export async function handleSearch(
 ): Promise<SearchResult> {
   const {
     query,
-    project,
+    project: rawProject,
     source_type,
     content_type,
     limit = 10,
     include_archived = false,
     mode = 'hybrid',
   } = args;
+  const project = rawProject?.toLowerCase().trim();
 
   // Handle regex mode separately - uses local file search
   if (mode === 'regex') {
