@@ -44,7 +44,14 @@ export async function handleGetSource(
     try {
       const contentPath = path.join(dataDir, 'sources', source_id, 'content.md');
       const content = await readFile(contentPath, 'utf-8');
-      result.full_content = content;
+
+      // Skip reconciliation stubs — they only contain the summary
+      if (content.startsWith('<!-- lore:stub -->')) {
+        result.full_content = null;
+        result.content_note = 'Content not yet synced to this machine. Only summary available.';
+      } else {
+        result.full_content = content;
+      }
     } catch {
       result.full_content = null;
       result.content_note = 'Full content not available on disk';

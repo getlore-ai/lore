@@ -177,10 +177,14 @@ async function legacyDiskSync(
     return result;
   }
 
+  // UUID v4 pattern — only index directories with valid UUID names.
+  // Non-UUID directories (e.g. slugs from external systems) cause Supabase errors.
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   try {
     const diskSources = await readdir(sourcesDir, { withFileTypes: true });
     const diskIds = diskSources
-      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.') && uuidPattern.test(d.name))
       .map((d) => d.name);
 
     result.sources_found = diskIds.length;
@@ -232,8 +236,16 @@ async function reconcileLocalContent(dataDir: string): Promise<number> {
     const sourceDir = path.join(sourcesDir, source.id);
     const contentPath = path.join(sourceDir, 'content.md');
 
-    // Skip if content.md already exists
-    if (existsSync(contentPath)) continue;
+    // Skip if content.md already exists and is not a reconciliation stub
+    if (existsSync(contentPath)) {
+      try {
+        const existing = await readFile(contentPath, 'utf-8');
+        if (!existing.startsWith('<!-- lore:stub -->')) continue;
+        // It's a stub — try to replace with real content below
+      } catch {
+        continue;
+      }
+    }
 
     // Try to create content.md from the original source_path
     let content: string | null = null;
@@ -249,9 +261,11 @@ async function reconcileLocalContent(dataDir: string): Promise<number> {
       }
     }
 
-    // If we couldn't read the original file, use the summary from Supabase
+    // If we couldn't read the original file, use the summary from Supabase.
+    // Mark as a stub so it can be replaced when the real content arrives via git.
     if (!content) {
       content = [
+        `<!-- lore:stub -->`,
         `# ${source.title}`,
         '',
         source.summary,

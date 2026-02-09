@@ -111,7 +111,13 @@ export async function loadFullContent(
 
   try {
     const { readFile } = await import('fs/promises');
-    state.fullContent = await readFile(contentPath, 'utf-8');
+    const diskContent = await readFile(contentPath, 'utf-8');
+    // Skip reconciliation stubs — fall through to other sources
+    if (!diskContent.startsWith('<!-- lore:stub -->')) {
+      state.fullContent = diskContent;
+    } else {
+      throw new Error('stub');
+    }
   } catch {
     // content.md not found — try to find and read an original text file
     let foundOriginal = false;
