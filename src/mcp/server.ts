@@ -161,7 +161,7 @@ async function main() {
   const server = new Server(
     {
       name: 'lore',
-      version: '0.8.3',
+      version: '0.8.4',
     },
     {
       capabilities: {

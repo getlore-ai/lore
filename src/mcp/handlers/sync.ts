@@ -423,18 +423,16 @@ export async function handleSync(
     result.reconciled = await reconcileLocalContent(dataDir);
   }
 
-  // 3. Git push
+  // 3. Git commit + push (also flushes any previously unpushed commits)
   if (doPush && !dryRun) {
     const totalNew = (result.processing?.processed || 0) + result.sources_indexed + result.reconciled;
-    if (totalNew > 0) {
-      const pushResult = await gitCommitAndPush(
-        dataDir,
-        `Sync: Added ${totalNew} source(s)`
-      );
-      result.git_pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
-      if (pushResult.error) {
-        result.git_error = (result.git_error ? result.git_error + '; ' : '') + pushResult.error;
-      }
+    const pushResult = await gitCommitAndPush(
+      dataDir,
+      totalNew > 0 ? `Sync: Added ${totalNew} source(s)` : 'Sync'
+    );
+    result.git_pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
+    if (pushResult.error) {
+      result.git_error = (result.git_error ? result.git_error + '; ' : '') + pushResult.error;
     }
   }
 

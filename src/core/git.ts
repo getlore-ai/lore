@@ -50,6 +50,18 @@ export async function hasChanges(dir: string): Promise<boolean> {
 }
 
 /**
+ * Check if there are commits that haven't been pushed to the remote
+ */
+export async function hasUnpushedCommits(dir: string): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync('git log --oneline @{u}..HEAD', { cwd: dir });
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Git pull with rebase
  */
 export async function gitPull(dir: string): Promise<GitResult> {
@@ -120,30 +132,38 @@ export async function gitCommitAndPush(
       return { success: false, error: 'Not a git repository' };
     }
 
-    // Check for changes
-    if (!(await hasChanges(dir))) {
-      return { success: true, message: 'No changes to commit' };
+    // Check for uncommitted changes
+    const hasLocalChanges = await hasChanges(dir);
+
+    if (hasLocalChanges) {
+      // Stage all changes
+      await execAsync('git add -A', { cwd: dir });
+
+      // Commit
+      await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: dir });
     }
 
-    // Stage all changes
-    await execAsync('git add -A', { cwd: dir });
-
-    // Commit
-    await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: dir });
-
-    // Push if remote exists
+    // Push if remote exists — covers both new commits and previously unpushed ones
     if (await hasRemote(dir)) {
+      const needsPush = hasLocalChanges || await hasUnpushedCommits(dir);
+      if (!needsPush) {
+        return { success: true, message: hasLocalChanges ? 'Committed (nothing to push)' : 'No changes to commit' };
+      }
+
       try {
         await execAsync('git push', { cwd: dir });
-        return { success: true, message: 'Committed and pushed' };
+        return { success: true, message: hasLocalChanges ? 'Committed and pushed' : 'Pushed pending commits' };
       } catch (pushError) {
-        // Commit succeeded but push failed — report specifically
         const errMsg = String(pushError);
-        console.error(`[git] Push failed (commit succeeded): ${errMsg}`);
-        return { success: true, message: 'Committed but push failed', error: `Push failed: ${errMsg}` };
+        console.error(`[git] Push failed: ${errMsg}`);
+        return {
+          success: true,
+          message: hasLocalChanges ? 'Committed but push failed' : 'Push of pending commits failed',
+          error: `Push failed: ${errMsg}`,
+        };
       }
     } else {
-      return { success: true, message: 'Committed (no remote to push)' };
+      return { success: true, message: hasLocalChanges ? 'Committed (no remote to push)' : 'No changes to commit' };
     }
   } catch (error) {
     return { success: false, error: String(error) };
