@@ -703,7 +703,7 @@ export async function triggerSync(
       state.sources = await getAllSources(dbPath, {
         project,
         source_type: sourceType,
-        limit: 100,
+        limit: state.loadLimit,
       });
       state.filtered = [...state.sources];
       state.selectedIndex = 0;
@@ -936,14 +936,14 @@ export async function selectProject(
       // Special case: filter for docs with no project
       const allSources = await getAllSources(dbPath, {
         source_type: sourceType,
-        limit: 100,
+        limit: state.loadLimit,
       });
       state.sources = allSources.filter(s => s.projects.length === 0);
     } else {
       state.sources = await getAllSources(dbPath, {
         project: newProject,
         source_type: sourceType,
-        limit: 100,
+        limit: state.loadLimit,
       });
     }
 
@@ -1015,7 +1015,7 @@ export async function clearProjectFilter(
   try {
     state.sources = await getAllSources(dbPath, {
       source_type: sourceType,
-      limit: 100,
+      limit: state.loadLimit,
     });
 
     state.filtered = [...state.sources];
@@ -1193,7 +1193,7 @@ export async function confirmDelete(
     state.sources = await getAllSources(dbPath, {
       project: state.currentProject,
       source_type: sourceType,
-      limit: 100,
+      limit: state.loadLimit,
     });
     state.filtered = [...state.sources];
 
@@ -1301,7 +1301,7 @@ async function confirmProjectDelete(
     // Refresh the source list (no project filter - show all remaining)
     state.sources = await getAllSources(dbPath, {
       source_type: sourceType,
-      limit: 100,
+      limit: state.loadLimit,
     });
     state.filtered = [...state.sources];
 
@@ -2122,7 +2122,7 @@ export async function applyContentTypeFilter(
     state.sources = await getAllSources(dbPath, {
       project: state.currentProject,
       source_type: sourceType,
-      limit: 100,
+      limit: state.loadLimit,
     });
 
     // Apply content type filter client-side
@@ -2204,7 +2204,7 @@ export async function clearContentTypeFilter(
     state.sources = await getAllSources(dbPath, {
       project: state.currentProject,
       source_type: sourceType,
-      limit: 100,
+      limit: state.loadLimit,
     });
 
     state.filtered = [...state.sources];

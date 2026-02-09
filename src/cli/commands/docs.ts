@@ -20,7 +20,7 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
     .description('List all documents')
     .option('-p, --project <project>', 'Filter by project')
     .option('-t, --type <type>', 'Filter by source type')
-    .option('-l, --limit <limit>', 'Max results', '20')
+    .option('-l, --limit <limit>', 'Max results (omit to show all)')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (options) => {
       const { handleListSources } = await import('../../mcp/handlers/list-sources.js');
@@ -30,10 +30,13 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
       const result = await handleListSources(dbPath, {
         project: options.project,
         source_type: options.type,
-        limit: parseInt(options.limit),
-      }) as { sources: Array<{ id: string; title: string; source_type: string; content_type: string; projects: string[]; created_at: string; summary: string }>; total: number };
+        limit: options.limit ? parseInt(options.limit) : undefined,
+      }) as { sources: Array<{ id: string; title: string; source_type: string; content_type: string; projects: string[]; created_at: string; summary: string }>; total: number; showing: number };
 
-      console.log(`\nDocuments (${result.total}):`);
+      const header = result.showing < result.total
+        ? `Documents (showing ${result.showing} of ${result.total}):`
+        : `Documents (${result.total}):`;
+      console.log(`\n${header}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       if (result.sources.length === 0) {

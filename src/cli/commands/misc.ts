@@ -14,7 +14,7 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
     .description('Browse documents in an interactive terminal UI')
     .option('-p, --project <project>', 'Filter by project')
     .option('-t, --type <type>', 'Filter by source type')
-    .option('-l, --limit <limit>', 'Max documents to load', '100')
+    .option('-l, --limit <limit>', 'Max documents to load (omit to show all)')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (options) => {
       const { startBrowser } = await import('../../tui/browse.js');
@@ -22,7 +22,7 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
       await startBrowser({
         project: options.project,
         sourceType: options.type,
-        limit: parseInt(options.limit, 10),
+        limit: options.limit ? parseInt(options.limit, 10) : undefined,
         dataDir: options.dataDir,
       });
     });

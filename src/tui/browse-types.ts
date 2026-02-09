@@ -128,6 +128,8 @@ export interface BrowserState {
   currentContentType?: string; // Active content type filter
   // Return mode after picker (for use from ask/research modes)
   pickerReturnMode?: 'ask' | 'research';
+  // Load limit for getAllSources queries (undefined = load all)
+  loadLimit?: number;
   // Autocomplete state
   autocompleteVisible: boolean;
   autocompleteOptions: Array<{ value: string; label: string; description?: string }>;

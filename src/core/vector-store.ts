@@ -462,6 +462,38 @@ export async function searchSources(
   }));
 }
 
+/**
+ * Get a count of sources matching filters (no data fetched).
+ */
+export async function getSourceCount(
+  _dbPath: string,
+  options: { project?: string; source_type?: SourceType } = {}
+): Promise<number> {
+  const { project, source_type } = options;
+  const client = await getSupabase();
+
+  let query = client
+    .from('sources')
+    .select('*', { count: 'exact', head: true });
+
+  if (source_type) {
+    query = query.eq('source_type', source_type);
+  }
+
+  if (project) {
+    query = query.contains('projects', [project]);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    console.error('Error getting source count:', error);
+    return 0;
+  }
+
+  return count || 0;
+}
+
 // ============================================================================
 // Retrieval Operations
 // ============================================================================

@@ -50,7 +50,7 @@ async function loadProjects(dbPath: string): Promise<Array<{ value: string; labe
   }
 
   try {
-    const sources = await getAllSources(dbPath, { limit: 1000 });
+    const sources = await getAllSources(dbPath, {});
     const projectMap = new Map<string, { count: number; latest: string }>();
 
     for (const source of sources) {

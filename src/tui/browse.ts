@@ -105,7 +105,7 @@ import { getAllSources } from '../core/vector-store.js';
  * Start the document browser TUI
  */
 export async function startBrowser(options: BrowseOptions): Promise<void> {
-  const { project, sourceType, limit = 100, dataDir } = options;
+  const { project, sourceType, limit, dataDir } = options;
   const dbPath = path.join(dataDir, 'lore.lance');
   const sourcesDir = path.join(dataDir, 'sources');
 
@@ -159,6 +159,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     currentContentType: undefined,
     // Return mode after picker
     pickerReturnMode: undefined,
+    // Load limit for getAllSources queries
+    loadLimit: limit,
     // Autocomplete state
     autocompleteVisible: false,
     autocompleteOptions: [],

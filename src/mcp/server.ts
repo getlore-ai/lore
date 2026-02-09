@@ -252,9 +252,14 @@ async function main() {
             result = await handleGetSource(DB_PATH, LORE_DATA_DIR, args as any);
             break;
 
-          case 'list_sources':
-            result = await handleListSources(DB_PATH, args as any);
+          case 'list_sources': {
+            const listArgs = args as any;
+            result = await handleListSources(DB_PATH, {
+              ...listArgs,
+              limit: listArgs.limit ?? 20,
+            });
             break;
+          }
 
           case 'list_projects':
             result = await handleListProjects(DB_PATH);

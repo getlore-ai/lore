@@ -100,7 +100,7 @@ const ListSourcesSchema = z.object({
     .string()
     .optional()
     .describe('Filter by source type (matches the source_type passed during ingest, e.g. "meeting", "slack", "github-issue")'),
-  limit: z.number().optional().describe('Max results (default 20)'),
+  limit: z.number().optional().describe('Max results (default 20). Pass a high number like 1000 to get all.'),
 });
 
 // ============================================================================
