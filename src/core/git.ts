@@ -133,8 +133,15 @@ export async function gitCommitAndPush(
 
     // Push if remote exists
     if (await hasRemote(dir)) {
-      await execAsync('git push', { cwd: dir });
-      return { success: true, message: 'Committed and pushed' };
+      try {
+        await execAsync('git push', { cwd: dir });
+        return { success: true, message: 'Committed and pushed' };
+      } catch (pushError) {
+        // Commit succeeded but push failed — report specifically
+        const errMsg = String(pushError);
+        console.error(`[git] Push failed (commit succeeded): ${errMsg}`);
+        return { success: true, message: 'Committed but push failed', error: `Push failed: ${errMsg}` };
+      }
     } else {
       return { success: true, message: 'Committed (no remote to push)' };
     }

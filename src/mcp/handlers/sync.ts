@@ -432,6 +432,9 @@ export async function handleSync(
         `Sync: Added ${totalNew} source(s)`
       );
       result.git_pushed = pushResult.success && (pushResult.message?.includes('pushed') || false);
+      if (pushResult.error) {
+        result.git_error = (result.git_error ? result.git_error + '; ' : '') + pushResult.error;
+      }
     }
   }
 

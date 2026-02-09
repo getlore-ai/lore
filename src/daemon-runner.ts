@@ -64,6 +64,9 @@ async function runSync(gitPull: boolean = true): Promise<{
   files_processed: number;
   errors: number;
   titles: string[];
+  git_pulled: boolean;
+  git_pushed: boolean;
+  git_error?: string;
 }> {
   const { handleSync } = await import('./mcp/handlers/sync.js');
 
@@ -77,11 +80,19 @@ async function runSync(gitPull: boolean = true): Promise<{
     { hookContext: { mode: 'cli' } }
   );
 
+  // Log git operation results — these were previously silent
+  if (gitPull && result.git_error) {
+    log('WARN', `Git pull error: ${result.git_error}`);
+  }
+
   return {
     files_scanned: result.discovery?.total_files || 0,
     files_processed: result.processing?.processed || 0,
     errors: result.processing?.errors || 0,
     titles: result.processing?.titles || [],
+    git_pulled: result.git_pulled,
+    git_pushed: result.git_pushed,
+    git_error: result.git_error,
   };
 }
 
@@ -124,6 +135,11 @@ async function main(): Promise<void> {
     log('SYNC', `Initial sync complete: ${result.files_scanned} scanned, ${result.files_processed} processed`);
     for (const title of result.titles) {
       log('INDEX', title);
+    }
+    if (result.git_pushed) {
+      log('PUSH', 'Changes pushed to remote');
+    } else if (result.files_processed > 0) {
+      log('WARN', `Git push failed after processing ${result.files_processed} file(s)${result.git_error ? `: ${result.git_error}` : ''}`);
     }
     updateStatus({
       last_sync: new Date().toISOString(),
@@ -257,8 +273,27 @@ async function main(): Promise<void> {
         for (const title of result.titles) {
           log('INDEX', title);
         }
+        if (result.git_pushed) {
+          log('PUSH', 'Changes pushed to remote');
+        } else {
+          log('WARN', `Git push failed${result.git_error ? `: ${result.git_error}` : ''}`);
+        }
       } else {
         log('PULL', 'Up to date');
+      }
+
+      // Detect unpushed commits (commits exist locally but weren't pushed this cycle)
+      try {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+        const { stdout } = await execAsync('git log --oneline @{u}..HEAD 2>/dev/null', { cwd: dataDir });
+        const unpushed = stdout.trim().split('\n').filter(Boolean).length;
+        if (unpushed > 0) {
+          log('WARN', `${unpushed} unpushed commit(s) in data directory — run 'git -C ${dataDir} push' manually if this persists`);
+        }
+      } catch {
+        // No upstream or not a git repo — skip check
       }
 
       updateStatus({
