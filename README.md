@@ -40,7 +40,7 @@ lore search "user pain points"
 [![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=lore&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22%40getlore%2Fcli%22%2C%22mcp%22%5D%7D&quality=insiders)
 [![Install in Goose](https://img.shields.io/badge/Goose-Install_Extension-F97316?style=flat-square&logoColor=white)](goose://extension?cmd=npx&arg=-y&arg=%40getlore%2Fcli&arg=mcp&timeout=300&id=lore-mcp&name=Lore&description=Research%20knowledge%20repository%20with%20semantic%20search%20and%20citations)
 
-After installing, run `npx @getlore/cli setup` to configure API keys and sign in.
+Run `npx @getlore/cli setup` first to configure API keys and sign in. The MCP server reads your config automatically — no env vars needed.
 
 **Manual config** — add to your MCP client config (`.mcp.json`, `.cursor/mcp.json`, etc.):
 
@@ -54,8 +54,6 @@ After installing, run `npx @getlore/cli setup` to configure API keys and sign in
   }
 }
 ```
-
-If the MCP host doesn't inherit your shell environment (e.g. Claude Desktop), add your API keys to the `env` block.
 
 ## CLI Commands
 
