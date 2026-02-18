@@ -33,9 +33,11 @@ Before answering questions about past decisions, user feedback, project history,
    - `keyword`: For exact terms, names, identifiers
    - `semantic`: For conceptual queries ("user frustrations", "pain points")
 
-2. **Use `research`** only when the question requires cross-referencing multiple sources or synthesizing findings. It costs 10x more than `search` — don't use it for simple lookups.
+2. **Use `research`** only when the question requires cross-referencing multiple sources or synthesizing findings. It costs 10x more than `search` — don't use it for simple lookups. Use `depth: "quick"` for focused questions, `"deep"` for comprehensive audits.
 
 3. **Use `get_source`** with `include_content=true` when you need the full original text of a specific document.
+
+4. **Temporal queries**: Queries like "latest" or "most recent" automatically boost recent sources. Use `since`/`before` for explicit date filtering (e.g., `since: "7d"`, `since: "last week"`).
 
 ## Short Content
 
@@ -63,5 +65,5 @@ When presenting information from Lore, always cite your sources:
 2. Confirm ingestion to user
 
 **User asks a broad research question:**
-1. `research(task: "What do users think about our onboarding flow?", project: "my-app")`
+1. `research(task: "What do users think about our onboarding flow?", project: "my-app", depth: "standard")`
 2. Present the synthesized findings with citations

@@ -78,6 +78,8 @@ Modes:
 - `keyword`: Full-text only. For exact terms, names, identifiers.
 - `regex`: Pattern matching. For code patterns or complex text matching.
 
+Date filtering: Use `since` and `before` for time-scoped queries (e.g., `"since": "7d"`, `"since": "last week"`, `"before": "2025-06-01"`). Use `"sort": "recent"` to sort newest-first. Temporal queries ("latest", "most recent") auto-boost recent sources.
+
 ### `get_source` — Retrieve full document
 Get complete details of a source by ID. Set `include_content: true` for the full text.
 
@@ -93,11 +95,14 @@ Runs an internal agent that iteratively searches, reads, and synthesizes finding
 ```json
 {
   "task": "What authentication approach should we use based on user feedback?",
-  "project": "my-project"
+  "project": "my-project",
+  "depth": "standard"
 }
 ```
 
-**Async**: Returns a `job_id` immediately. Poll `research_status` for results (typically 2-8 minutes). Makes 10-30 internal LLM calls. Use `search` for simple lookups.
+**Depth**: `quick` (~30-60s, 3-5 sources), `standard` (~1-2 min, default), `deep` (~4-8 min, exhaustive).
+
+**Async**: Returns a `job_id` immediately. Poll `research_status` for results. Use `search` for simple lookups.
 
 ### `sync` — Refresh from source directories
 Scans configured directories for new files. Use `ingest` for agent-pushed content instead.

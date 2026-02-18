@@ -31,7 +31,7 @@ After setup, Lore works autonomously.
 | `list_sources` | Low | Browse what exists in a project |
 | `list_projects` | Low | Discover available knowledge domains |
 | `ingest` | Low-Medium | Push content — documents, insights, or decisions |
-| `research` | High | Cross-reference multiple sources, synthesize findings |
+| `research` | High | Cross-reference multiple sources, synthesize findings (supports depth: quick/standard/deep) |
 | `sync` | Variable | Refresh from configured source directories |
 
 ## When to Ingest
@@ -41,8 +41,8 @@ Use `ingest` to push content into Lore when working context should be preserved,
 ## When to Search
 
 Before making recommendations or answering questions about past work:
-1. `search` first — it's fast and cheap
-2. Only use `research` for multi-source synthesis (10x more expensive)
+1. `search` first — it's fast and cheap. Use `since`/`before` for date filtering (e.g., `since: "7d"`). Temporal queries auto-boost recent results.
+2. Only use `research` for multi-source synthesis (10x more expensive). Use `depth: "quick"` for focused questions, `"deep"` for audits.
 3. Use `get_source(id, include_content: true)` for full text
 
 For short insights or decisions, just pass the content — title and source_type are optional and auto-generated from content.

@@ -45,14 +45,14 @@ WORKING CONTEXT (research packages, project summaries for agents)
 
 | Tool | Type | Purpose |
 |------|------|---------|
-| `search` | Simple | Semantic search, returns summaries with relevance scores |
+| `search` | Simple | Semantic search with date filtering (`since`/`before`/`sort`) |
 | `get_source` | Simple | Full source with original content |
 | `list_sources` | Simple | Browse by project/type |
 | `list_projects` | Simple | Project overview |
 | `ingest` | Simple | Add content — documents, insights, decisions |
 | `sync` | Simple | Refresh index (git pull + index new sources) |
 | `archive_project` | Simple | Archive a project (human-triggered curation) |
-| `research` | Agentic | Start async research job, returns job_id for polling |
+| `research` | Agentic | Async research job with `depth` (quick/standard/deep) |
 | `research_status` | Simple | Poll for research results (long-polls up to 20s) |
 
 ## Project Structure
@@ -65,7 +65,9 @@ src/
 │   ├── auth.ts        # Supabase Auth session management (OTP login)
 │   ├── embedder.ts    # OpenAI embeddings
 │   ├── vector-store.ts # Supabase + pgvector (auth-aware, RLS-compatible)
-│   └── insight-extractor.ts # Summary generation
+│   ├── insight-extractor.ts # Summary generation
+│   ├── temporal.ts    # Temporal search intent detection + date parsing
+│   └── blocklist.ts   # Deletion blocklist (deleted-hashes.json)
 ├── sync/              # Universal sync system
 │   ├── config.ts      # Sync source configuration (~/.config/lore/sync-sources.json)
 │   ├── discover.ts    # Phase 1: File discovery + hash deduplication
@@ -76,10 +78,6 @@ src/
 │   ├── sync.ts        # Sync/daemon/watch/sources commands
 │   ├── search.ts      # Search command
 │   └── ...            # docs, projects, ask, etc.
-├── ingest/            # Legacy source adapters (deprecated, use sync)
-│   ├── granola.ts     # Granola meeting exports
-│   ├── claude-code.ts # Claude Code conversations
-│   └── markdown.ts    # Any markdown documents
 ├── mcp/
 │   ├── server.ts      # MCP server entry (with config bridging)
 │   ├── tools.ts       # Tool definitions (Zod schemas)
