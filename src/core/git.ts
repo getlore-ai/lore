@@ -7,6 +7,45 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+/**
+ * Check if a rebase is in progress (e.g. from a crashed process)
+ */
+async function isRebaseInProgress(dir: string): Promise<boolean> {
+  const { existsSync } = await import('fs');
+  const { join } = await import('path');
+  // git stores rebase state in one of these dirs
+  return existsSync(join(dir, '.git', 'rebase-merge')) ||
+         existsSync(join(dir, '.git', 'rebase-apply'));
+}
+
+/**
+ * Recover from a stuck rebase — try continue first (if clean), then abort
+ */
+async function recoverRebase(dir: string): Promise<void> {
+  if (!(await isRebaseInProgress(dir))) return;
+
+  console.error('[git] Detected stuck rebase, attempting recovery...');
+
+  // If working tree is clean, continue the rebase
+  if (!(await hasChanges(dir))) {
+    try {
+      await execAsync('git rebase --continue', { cwd: dir, env: { ...process.env, GIT_EDITOR: 'true' } });
+      console.error('[git] Rebase recovered via --continue');
+      return;
+    } catch {
+      // continue failed, fall through to abort
+    }
+  }
+
+  // Abort the rebase as a last resort
+  try {
+    await execAsync('git rebase --abort', { cwd: dir });
+    console.error('[git] Rebase recovered via --abort');
+  } catch (abortErr) {
+    console.error(`[git] Rebase recovery failed: ${abortErr}`);
+  }
+}
+
 export interface GitResult {
   success: boolean;
   message?: string;
@@ -74,6 +113,9 @@ export async function gitPull(dir: string): Promise<GitResult> {
       return { success: false, error: 'No remote configured' };
     }
 
+    // Recover from any stuck rebase (e.g. from a crashed process)
+    await recoverRebase(dir);
+
     // Stash any local changes before pulling
     let didStash = false;
     if (await hasChanges(dir)) {
@@ -85,17 +127,12 @@ export async function gitPull(dir: string): Promise<GitResult> {
       }
     }
 
-    // Pull with rebase
+    // Pull with merge (not rebase — rebase can leave repo stuck if process is killed)
     let pullOutput: string;
     try {
-      const { stdout } = await execAsync('git pull --rebase', { cwd: dir });
+      const { stdout } = await execAsync('git pull', { cwd: dir });
       pullOutput = stdout;
     } catch (pullErr) {
-      // Abort the failed rebase so the repo doesn't get stuck
-      await execAsync('git rebase --abort', { cwd: dir }).catch((abortErr) => {
-        console.error(`[git] Rebase abort failed: ${abortErr}`);
-      });
-
       // Restore stashed changes before returning error
       if (didStash) {
         await execAsync('git stash pop', { cwd: dir }).catch((popErr) => {
@@ -136,6 +173,9 @@ export async function gitCommitAndPush(
     if (!(await isGitRepo(dir))) {
       return { success: false, error: 'Not a git repository' };
     }
+
+    // Recover from any stuck rebase before committing
+    await recoverRebase(dir);
 
     // Check for uncommitted changes
     const hasLocalChanges = await hasChanges(dir);
@@ -209,7 +249,7 @@ export async function gitSync(dir: string): Promise<GitResult> {
       return { success: false, error: 'No remote configured' };
     }
 
-    // Pull first
+    // Pull first (gitPull handles rebase recovery internally)
     const pullResult = await gitPull(dir);
     if (!pullResult.success) {
       return pullResult;

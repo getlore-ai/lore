@@ -16,8 +16,6 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import chokidar from 'chokidar';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { readdir } from 'fs/promises';
 import path from 'path';
 
@@ -36,8 +34,6 @@ import { getExtensionRegistry } from '../extensions/registry.js';
 import { getExtensionsDir } from '../extensions/config.js';
 import { bridgeConfigToEnv } from '../core/config.js';
 
-const execAsync = promisify(exec);
-
 // Configuration from environment
 const LORE_DATA_DIR = expandPath(process.env.LORE_DATA_DIR || '~/.lore');
 const DB_PATH = path.join(LORE_DATA_DIR, 'lore.lance');
@@ -51,28 +47,6 @@ const AUTO_GIT_PUSH = process.env.LORE_AUTO_GIT_PUSH !== 'false';
 const AUTO_INDEX = process.env.LORE_AUTO_INDEX !== 'false';
 const WATCH_EXTENSIONS =
   process.env.LORE_EXTENSION_WATCH === 'true' || process.argv.includes('--watch');
-
-/**
- * Try to git pull, handling conflicts gracefully
- */
-async function tryGitPull(): Promise<{ pulled: boolean; error?: string }> {
-  try {
-    // Check if we're in a git repo
-    await execAsync('git rev-parse --git-dir', { cwd: LORE_DATA_DIR });
-
-    // Stash any local changes (shouldn't be any, but just in case)
-    await execAsync('git stash', { cwd: LORE_DATA_DIR }).catch(() => {});
-
-    // Pull with rebase to avoid merge commits
-    const { stdout } = await execAsync('git pull --rebase', { cwd: LORE_DATA_DIR });
-
-    const pulled = !stdout.includes('Already up to date');
-    return { pulled };
-  } catch (error) {
-    // Not a git repo or pull failed - that's okay, continue without sync
-    return { pulled: false, error: String(error) };
-  }
-}
 
 /**
  * Find sources on disk that aren't in the index
