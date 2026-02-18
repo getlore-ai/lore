@@ -262,7 +262,7 @@ export function createUIComponents(): UIComponents {
   n / N      Next/previous match
   y          Copy to clipboard
   Esc        Back to list
-  e          Open in $EDITOR
+  e          Edit in $EDITOR (saves + re-indexes)
 
 {bold}Other:{/bold}
   Esc        Back / Quit (from list)

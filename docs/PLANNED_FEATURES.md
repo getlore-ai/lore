@@ -632,24 +632,23 @@ Browse and manage knowledge visually.
 - Optional (Lore works without it)
 - Self-hostable
 
-### 9.2 TUI (Terminal UI) 🟡
+### 9.2 TUI (Terminal UI) 🟢 *(Implemented)*
 
-Enhanced terminal interface for power users.
+Terminal UI for browsing, editing, and managing the knowledge base.
 
 ```bash
-lore tui
-# → Opens interactive terminal UI with:
-#   - Search bar
-#   - Source list with preview
-#   - Quick actions
-#   - Keyboard navigation
+lore browse
+# → Split-pane TUI with:
+#   - Document list + preview (Vim-style j/k navigation)
+#   - Hybrid search (semantic + keyword) and regex search
+#   - Full document view with in-doc search
+#   - Edit in $EDITOR with auto-save + background re-indexing
+#   - Ask mode (AI-powered Q&A) and Research mode (agentic)
+#   - Project/type filtering, move, rename, delete
+#   - Clipboard copy, grouped project view
 ```
 
-**Implementation notes:**
-- Ink (React for CLI) or Blessed
-- Vim-style keybindings
-- Fast navigation
-- Inline previews
+**Built with:** Blessed, Vim-style keybindings
 
 ### 9.3 Browser Extension 🟠
 
