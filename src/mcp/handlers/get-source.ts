@@ -49,6 +49,10 @@ export async function handleGetSource(
       if (content.startsWith('<!-- lore:stub -->')) {
         result.full_content = null;
         result.content_note = 'Content not yet synced to this machine. Only summary available.';
+      } else if (content.startsWith('<<<<<<< ')) {
+        // Git merge conflict markers — file is corrupted, don't return garbled content
+        result.full_content = null;
+        result.content_note = 'Content file has unresolved git merge conflicts. Run `lore sync` or resolve manually.';
       } else {
         result.full_content = content;
       }

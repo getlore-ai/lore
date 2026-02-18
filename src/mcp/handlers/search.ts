@@ -15,6 +15,7 @@ import { searchSources, getSourceById } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
 import { searchLocalFiles, getMatchSnippet } from '../../core/local-search.js';
 import { loadArchivedProjects } from './archive-project.js';
+import { detectTemporalIntent, parseDateArg, filterByDateRange, sortByRecency } from '../../core/temporal.js';
 import type { SourceType, ContentType, Quote, Theme, SearchMode } from '../../core/types.js';
 
 interface SearchArgs {
@@ -25,6 +26,9 @@ interface SearchArgs {
   limit?: number;
   include_archived?: boolean;
   mode?: SearchMode;
+  since?: string;
+  before?: string;
+  sort?: 'relevance' | 'recent';
 }
 
 interface SearchResultSource {
@@ -70,6 +74,9 @@ export async function handleSearch(
     limit = 10,
     include_archived = false,
     mode = 'hybrid',
+    since: rawSince,
+    before: rawBefore,
+    sort,
   } = args;
   const project = rawProject?.toLowerCase().trim();
 
@@ -83,11 +90,19 @@ export async function handleSearch(
     });
   }
 
+  // Detect temporal intent for auto recency boost
+  const temporal = detectTemporalIntent(query);
+
+  // Parse date filters
+  const since = rawSince ? parseDateArg(rawSince) : null;
+  const before = rawBefore ? parseDateArg(rawBefore) : null;
+
   // Generate embedding for query (needed for semantic/hybrid modes)
   const queryVector = await generateEmbedding(query);
 
-  // Search sources (fetch more to account for archived filtering)
-  const fetchLimit = include_archived ? limit : limit * 2;
+  // Search sources (fetch more to account for archived + date filtering)
+  const hasDateFilter = !!(since || before);
+  const fetchLimit = (include_archived ? limit : limit * 2) * (hasDateFilter ? 2 : 1);
   const results = await searchSources(dbPath, queryVector, {
     limit: fetchLimit,
     project,
@@ -95,6 +110,7 @@ export async function handleSearch(
     content_type,
     mode,
     queryText: query,
+    recency_boost: temporal.recencyBoost,
   });
 
   // Filter out archived projects unless explicitly requested
@@ -110,6 +126,16 @@ export async function handleSearch(
       if (isArchived) archivedExcluded++;
       return !isArchived;
     });
+  }
+
+  // Post-filter by date range
+  if (since || before) {
+    filteredResults = filterByDateRange(filteredResults, since, before);
+  }
+
+  // Sort by date if explicitly requested or temporal intent detected
+  if (sort === 'recent' || temporal.sortByDate) {
+    filteredResults = sortByRecency(filteredResults);
   }
 
   // Format results with relevant quotes highlighted

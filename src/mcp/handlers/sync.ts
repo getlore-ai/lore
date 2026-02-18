@@ -256,20 +256,16 @@ async function reconcileLocalContent(dataDir: string): Promise<number> {
         try {
           content = await readFile(source.source_path, 'utf-8');
         } catch {
-          // File can't be read — fall through to summary
+          // File can't be read — skip, real content will arrive via git
         }
       }
     }
 
-    // If we couldn't read the original file, use the summary from Supabase.
-    // Mark as a stub so it can be replaced when the real content arrives via git.
+    // If we couldn't read the original file, skip entirely.
+    // The real content will arrive via git pull from the machine that ingested it.
+    // Writing stubs causes merge conflicts when the real content is pulled later.
     if (!content) {
-      content = [
-        `<!-- lore:stub -->`,
-        `# ${source.title}`,
-        '',
-        source.summary,
-      ].join('\n');
+      continue;
     }
 
     // Create the source directory and content.md
@@ -315,8 +311,8 @@ async function universalSync(
     };
   }
 
-  // Phase 1: Discovery
-  const discoveryResults = await discoverAllSources(enabledSources);
+  // Phase 1: Discovery (blocklist filters out previously deleted files)
+  const discoveryResults = await discoverAllSources(enabledSources, { dataDir });
   const summary = summarizeDiscovery(discoveryResults);
 
   const discovery: SyncResult['discovery'] = {

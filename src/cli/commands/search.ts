@@ -9,6 +9,7 @@ import path from 'path';
 
 import { indexExists, searchSources, getSourceById } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
+import { detectTemporalIntent, parseDateArg, filterByDateRange, sortByRecency, formatDate } from '../../core/temporal.js';
 
 export function registerSearchCommand(program: Command, defaultDataDir: string): void {
   program
@@ -18,6 +19,9 @@ export function registerSearchCommand(program: Command, defaultDataDir: string):
     .option('-p, --project <project>', 'Filter by project')
     .option('-l, --limit <limit>', 'Max results', '5')
     .option('-m, --mode <mode>', 'Search mode: semantic, keyword, hybrid (default), regex', 'hybrid')
+    .option('--since <date>', 'Only show sources after this date (ISO, 7d, 2w, 1m, "last week")')
+    .option('--before <date>', 'Only show sources before this date (ISO, 7d, 2w, 1m)')
+    .option('-s, --sort <order>', 'Sort order: relevance (default), recent', 'relevance')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (query, options) => {
       const dataDir = options.dataDir;
@@ -69,14 +73,46 @@ export function registerSearchCommand(program: Command, defaultDataDir: string):
           return;
         }
 
+        // Detect temporal intent for recency boosting
+        const temporal = detectTemporalIntent(query);
+        const requestedLimit = parseInt(options.limit);
+
+        // Parse date filters
+        const since = options.since ? parseDateArg(options.since) : null;
+        const before = options.before ? parseDateArg(options.before) : null;
+
+        if (options.since && !since) {
+          console.error(`Warning: Could not parse --since value "${options.since}". Use ISO date, 7d, 2w, 1m, or "last week".`);
+        }
+        if (options.before && !before) {
+          console.error(`Warning: Could not parse --before value "${options.before}". Use ISO date, 7d, 2w, 1m.`);
+        }
+
+        // Fetch extra results when date-filtering to ensure we get enough after filtering
+        const fetchLimit = (since || before) ? requestedLimit * 2 : requestedLimit;
+
         // Semantic/keyword/hybrid search
         const queryVector = await generateEmbedding(query);
-        const results = await searchSources(dbPath, queryVector, {
-          limit: parseInt(options.limit),
+        let results = await searchSources(dbPath, queryVector, {
+          limit: fetchLimit,
           project: options.project,
           mode: searchMode,
           queryText: query,
+          recency_boost: temporal.recencyBoost,
         });
+
+        // Post-filter by date range
+        if (since || before) {
+          results = filterByDateRange(results, since, before);
+        }
+
+        // Sort by date if requested or temporal intent detected
+        if (options.sort === 'recent' || temporal.sortByDate) {
+          results = sortByRecency(results);
+        }
+
+        // Trim to requested limit
+        results = results.slice(0, requestedLimit);
 
         if (results.length === 0) {
           console.log('No results found.');
@@ -86,6 +122,7 @@ export function registerSearchCommand(program: Command, defaultDataDir: string):
         for (const result of results) {
           console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
           console.log(`📄 ${result.title}`);
+          console.log(`   Date: ${formatDate(result.created_at)}`);
           console.log(`   Type: ${result.source_type} | ${result.content_type}`);
           console.log(`   Projects: ${result.projects.join(', ') || '(none)'}`);
 

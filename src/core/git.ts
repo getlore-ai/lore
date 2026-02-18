@@ -91,6 +91,11 @@ export async function gitPull(dir: string): Promise<GitResult> {
       const { stdout } = await execAsync('git pull --rebase', { cwd: dir });
       pullOutput = stdout;
     } catch (pullErr) {
+      // Abort the failed rebase so the repo doesn't get stuck
+      await execAsync('git rebase --abort', { cwd: dir }).catch((abortErr) => {
+        console.error(`[git] Rebase abort failed: ${abortErr}`);
+      });
+
       // Restore stashed changes before returning error
       if (didStash) {
         await execAsync('git stash pop', { cwd: dir }).catch((popErr) => {

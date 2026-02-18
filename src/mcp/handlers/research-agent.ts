@@ -16,16 +16,21 @@ import { loadArchivedProjects } from './archive-project.js';
 import type { ResearchPackage, Quote, SourceType, Theme } from '../../core/types.js';
 import type { ProgressCallback } from './research.js';
 
+export type ResearchDepth = 'quick' | 'standard' | 'deep';
+
 interface ResearchAgentArgs {
   task: string;
   project?: string;
   content_type?: string;
   include_sources?: boolean;
+  depth?: ResearchDepth;
 }
 
-// Agent will self-terminate when it has enough evidence
-// This is a safety limit to prevent runaway loops
-const MAX_TURNS = 50;
+const DEPTH_CONFIG: Record<ResearchDepth, { maxTurns: number; label: string }> = {
+  quick:    { maxTurns: 8,  label: '~30-60 seconds' },
+  standard: { maxTurns: 20, label: '~1-2 minutes' },
+  deep:     { maxTurns: 50, label: '~4-8 minutes' },
+};
 
 /**
  * Create the Lore tools MCP server for the research agent
@@ -207,7 +212,16 @@ ${quotes || 'No quotes extracted'}`,
 /**
  * Research agent system prompt
  */
-function getResearchSystemPrompt(task: string, project?: string): string {
+function getResearchSystemPrompt(task: string, project?: string, depth: ResearchDepth = 'standard'): string {
+  const depthGuidance: Record<ResearchDepth, string> = {
+    quick: `\n## Depth: Quick
+Be focused. Find 3-5 key sources that directly address the question, then synthesize immediately. Do not explore tangential leads.`,
+    standard: `\n## Depth: Standard
+Balance thoroughness with speed. Aim for 5-10 sources. Follow the most promising leads but don't exhaustively explore every angle.`,
+    deep: `\n## Depth: Deep
+Be exhaustive. Explore multiple search angles, follow all promising leads, and cross-reference extensively. Aim for comprehensive coverage.`,
+  };
+
   return `You are a research agent for Lore, a knowledge repository containing user interviews, meeting transcripts, AI conversations, and documents.
 
 Your task is to conduct comprehensive research and produce a well-cited research package.
@@ -215,6 +229,7 @@ Your task is to conduct comprehensive research and produce a well-cited research
 ## Research Task
 ${task}
 ${project ? `\nFocus on project: ${project}` : ''}
+${depthGuidance[depth]}
 
 ## Your Tools
 - **search**: Semantic search across all sources. Start broad, then refine.
@@ -279,7 +294,8 @@ export async function runResearchAgent(
   args: ResearchAgentArgs,
   onProgress?: ProgressCallback
 ): Promise<ResearchPackage> {
-  const { task, project, include_sources = true } = args;
+  const { task, project, include_sources = true, depth = 'standard' } = args;
+  const depthConfig = DEPTH_CONFIG[depth];
 
   // Load archived projects to filter (extract just the project names)
   const archivedProjectsData = await loadArchivedProjects(dataDir);
@@ -289,7 +305,7 @@ export async function runResearchAgent(
   const loreTools = createLoreToolsServer(dbPath, dataDir, archivedProjects);
 
   // System prompt
-  const systemPrompt = getResearchSystemPrompt(task, project);
+  const systemPrompt = getResearchSystemPrompt(task, project, depth);
 
   let finalResult: ResearchPackage | null = null;
   let lastAssistantMessage = '';
@@ -311,7 +327,7 @@ export async function runResearchAgent(
           'mcp__lore-tools__get_source',
           'mcp__lore-tools__list_sources',
         ],
-        maxTurns: MAX_TURNS,
+        maxTurns: depthConfig.maxTurns,
         permissionMode: 'acceptEdits', // Auto-approve tool calls
       },
     })) {

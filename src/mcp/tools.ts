@@ -87,6 +87,18 @@ const SearchSchema = z.object({
     .enum(['semantic', 'keyword', 'hybrid', 'regex'])
     .optional()
     .describe('Search mode: semantic (vector), keyword (full-text), hybrid (RRF fusion, default), regex (local grep)'),
+  since: z
+    .string()
+    .optional()
+    .describe('Only return sources after this date. Accepts ISO dates (2025-06-01), relative shorthand (7d, 2w, 1m), or natural language ("last week", "last month")'),
+  before: z
+    .string()
+    .optional()
+    .describe('Only return sources before this date. Same formats as "since"'),
+  sort: z
+    .enum(['relevance', 'recent'])
+    .optional()
+    .describe('Sort order: relevance (default) or recent (newest first). Auto-set to recent for temporal queries like "latest" or "most recent"'),
 });
 
 const GetSourceSchema = z.object({
@@ -118,6 +130,10 @@ const ResearchSchema = z.object({
     .boolean()
     .optional()
     .describe('Include source document references (default: true)'),
+  depth: z
+    .enum(['quick', 'standard', 'deep'])
+    .optional()
+    .describe('Research depth: quick (~30-60s, 3-5 sources), standard (~1-2 min, 5-10 sources, default), deep (~4-8 min, exhaustive)'),
 });
 
 // ============================================================================
@@ -245,7 +261,12 @@ Use this to browse what exists in a project, understand the scope of available k
     name: 'research',
     description: `Run a comprehensive research query across the knowledge base. An internal agent iteratively searches, reads sources, cross-references findings, and synthesizes a research package with full citations.
 
-ASYNC: This tool returns immediately with a job_id. You MUST then poll 'research_status' with that job_id to get results. Research typically takes 2-8 minutes depending on the amount of data. Poll every 15-20 seconds. Do NOT assume it is stuck — check the 'activity' array in the status response to see what the agent is doing.
+ASYNC: This tool returns immediately with a job_id. You MUST then poll 'research_status' with that job_id to get results. Poll every 15-20 seconds. Do NOT assume it is stuck — check the 'activity' array in the status response to see what the agent is doing.
+
+DEPTH CONTROL (optional):
+- quick: ~30-60 seconds, finds 3-5 key sources. Good for focused questions.
+- standard (default): ~1-2 minutes, 5-10 sources. Good for most queries.
+- deep: ~4-8 minutes, exhaustive search. Use for comprehensive audits.
 
 WHEN TO USE:
 - Questions that span multiple sources ("What do we know about authentication?")
@@ -253,7 +274,7 @@ WHEN TO USE:
 - Building a cited research package for decision-making
 - Open-ended exploration of a topic
 
-COST: This tool makes multiple LLM calls internally (typically 10-30 search + read cycles). For simple lookups, use 'search' instead — it's 10x cheaper and faster.`,
+COST: This tool makes multiple LLM calls internally. For simple lookups, use 'search' instead — it's 10x cheaper and faster.`,
     inputSchema: zodToJsonSchema(ResearchSchema),
   },
 
@@ -262,7 +283,7 @@ COST: This tool makes multiple LLM calls internally (typically 10-30 search + re
     name: 'research_status',
     description: `Check the status of a running research job. Returns the full research package when complete.
 
-Call this after 'research' returns a job_id. Research typically takes 2-8 minutes. Poll every 15-20 seconds. The response includes an 'activity' array showing exactly what the research agent is doing (searches, sources being read, reasoning). As long as 'total_steps' is increasing or 'elapsed_seconds' is under 8 minutes, the research is progressing normally — do NOT abandon it.`,
+Call this after 'research' returns a job_id. Poll every 15-20 seconds. The response includes an 'activity' array showing exactly what the research agent is doing (searches, sources being read, reasoning). Completion time depends on depth: quick ~30-60s, standard ~1-2 min, deep ~4-8 min. As long as 'total_steps' is increasing, the research is progressing normally — do NOT abandon it.`,
     inputSchema: {
       type: 'object',
       properties: {

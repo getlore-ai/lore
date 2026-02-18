@@ -16,7 +16,7 @@ import { randomUUID } from 'crypto';
 import { searchSources, getSourceById } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
-import { runResearchAgent } from './research-agent.js';
+import { runResearchAgent, type ResearchDepth } from './research-agent.js';
 import type { ResearchPackage, Quote, SourceType } from '../../core/types.js';
 import { getExtensionRegistry } from '../../extensions/registry.js';
 
@@ -28,6 +28,7 @@ interface ResearchJob {
   id: string;
   task: string;
   project?: string;
+  depth: ResearchDepth;
   status: 'running' | 'complete' | 'error';
   startedAt: string;
   completedAt?: string;
@@ -59,8 +60,15 @@ export function startResearchJob(
   dataDir: string,
   args: ResearchArgs,
   options: { hookContext?: { mode: 'mcp' | 'cli' }; onProgress?: ProgressCallback } = {}
-): { job_id: string; status: string; message: string } {
+): { job_id: string; status: string; depth: ResearchDepth; message: string } {
   cleanOldJobs();
+
+  const depth: ResearchDepth = args.depth || 'standard';
+  const depthLabels: Record<ResearchDepth, string> = {
+    quick: '~30-60 seconds',
+    standard: '~1-2 minutes',
+    deep: '~4-8 minutes',
+  };
 
   const jobId = randomUUID();
   const now = new Date().toISOString();
@@ -68,10 +76,11 @@ export function startResearchJob(
     id: jobId,
     task: args.task,
     project: args.project,
+    depth,
     status: 'running',
     startedAt: now,
     lastActivityAt: now,
-    activity: ['Starting research...'],
+    activity: [`Starting ${depth} research...`],
   };
   jobStore.set(jobId, job);
 
@@ -112,7 +121,8 @@ export function startResearchJob(
   return {
     job_id: jobId,
     status: 'running',
-    message: `Research started for: "${args.task}". Poll research_status with job_id "${jobId}" every 15-20 seconds. This typically takes 2-8 minutes — do not abandon early.`,
+    depth,
+    message: `Research started (${depth}, ${depthLabels[depth]}) for: "${args.task}". Poll research_status with job_id "${jobId}" every 15-20 seconds.`,
   };
 }
 
@@ -175,14 +185,20 @@ function formatJobResponse(job: ResearchJob): Record<string, unknown> {
     };
   }
 
+  const depthLabels: Record<ResearchDepth, string> = {
+    quick: '~30-60s',
+    standard: '~1-2 min',
+    deep: '~4-8 min',
+  };
   return {
     status: 'running',
     job_id: job.id,
     task: job.task,
+    depth: job.depth,
     elapsed_seconds: elapsed,
     total_steps: job.activity.length,
     activity: job.activity,
-    message: `Research is still running (${elapsed}s elapsed, ${job.activity.length} steps completed). This is normal — deep research takes 2-8 minutes. Keep polling.`,
+    message: `Research is still running (${job.depth} depth, ${elapsed}s elapsed, ${job.activity.length} steps). Expected: ${depthLabels[job.depth]}. Keep polling.`,
   };
 }
 
@@ -201,6 +217,7 @@ interface ResearchArgs {
   project?: string;
   content_type?: string;
   include_sources?: boolean;
+  depth?: ResearchDepth;
 }
 
 interface SynthesisResult {

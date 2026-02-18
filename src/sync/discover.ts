@@ -15,6 +15,7 @@ import { existsSync } from 'fs';
 import type { SyncSource } from './config.js';
 import { expandPath } from './config.js';
 import { getSourcePathMappings, getExistingContentHashes } from '../core/vector-store.js';
+import { loadBlocklist } from '../core/blocklist.js';
 
 // ============================================================================
 // Types
@@ -136,9 +137,10 @@ export async function discoverSource(
   source: SyncSource,
   options: {
     onProgress?: (found: number, checked: number) => void;
+    blockedHashes?: Set<string>;
   } = {}
 ): Promise<DiscoveryResult> {
-  const { onProgress } = options;
+  const { onProgress, blockedHashes } = options;
   const expandedPath = expandPath(source.path);
 
   const result: DiscoveryResult = {
@@ -205,9 +207,12 @@ export async function discoverSource(
   const allPaths = filesWithHashes.map(f => f.absolutePath);
   const pathMappings = await getSourcePathMappings('', allPaths);
 
-  // Categorize files: existing (unchanged), edited, or new
+  // Categorize files: existing (unchanged), blocked (deleted), edited, or new
   for (const file of filesWithHashes) {
-    if (existingHashes.has(file.contentHash)) {
+    if (blockedHashes?.has(file.contentHash)) {
+      // Content hash is in the deletion blocklist — skip
+      result.existingFiles++;
+    } else if (existingHashes.has(file.contentHash)) {
       // Content hash matches - file is unchanged
       result.existingFiles++;
     } else {
@@ -232,21 +237,61 @@ export async function discoverAllSources(
   options: {
     onSourceStart?: (source: SyncSource) => void;
     onSourceComplete?: (result: DiscoveryResult) => void;
+    dataDir?: string;
   } = {}
 ): Promise<DiscoveryResult[]> {
-  const { onSourceStart, onSourceComplete } = options;
+  const { onSourceStart, onSourceComplete, dataDir } = options;
   const results: DiscoveryResult[] = [];
+
+  // Load deletion blocklist once for all sources
+  const blockedHashes = dataDir ? await loadBlocklist(dataDir) : undefined;
 
   for (const source of sources) {
     if (!source.enabled) continue;
 
     onSourceStart?.(source);
-    const result = await discoverSource(source);
+    const result = await discoverSource(source, { blockedHashes });
     onSourceComplete?.(result);
     results.push(result);
   }
 
   return results;
+}
+
+// ============================================================================
+// Find Original File by Hash
+// ============================================================================
+
+/**
+ * Search all configured sync source directories for a file matching a content hash.
+ * Used to locate the original file when source_path is missing from Supabase.
+ */
+export async function findFileByHash(targetHash: string): Promise<string | null> {
+  const config = await (await import('./config.js')).loadSyncConfig();
+  const sources = (await import('./config.js')).getEnabledSources(config);
+
+  for (const source of sources) {
+    const expandedPath = expandPath(source.path);
+    if (!existsSync(expandedPath)) continue;
+
+    const matchingFiles: { path: string; relativePath: string }[] = [];
+    try {
+      await discoverFilesRecursive(expandedPath, expandedPath, source.glob, matchingFiles);
+    } catch {
+      continue;
+    }
+
+    for (const file of matchingFiles) {
+      try {
+        const hash = await computeFileHash(file.path);
+        if (hash === targetHash) return file.path;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return null;
 }
 
 // ============================================================================

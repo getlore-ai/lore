@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Command } from 'commander';
 import { searchSources } from '../../core/vector-store.js';
 import { generateEmbedding } from '../../core/embedder.js';
+import { detectTemporalIntent, sortByRecency, formatDate } from '../../core/temporal.js';
 
 interface AskOptions {
   project?: string;
@@ -16,15 +17,16 @@ interface AskOptions {
   verbose?: boolean;
 }
 
-const SYSTEM_PROMPT = `You are a research assistant with access to a knowledge base. 
+const SYSTEM_PROMPT = `You are a research assistant with access to a knowledge base.
 Your job is to answer questions based on the provided sources.
 
 When answering:
 - Cite specific sources when making claims
 - Be concise but thorough
 - If the sources don't contain enough information, say so
+- Each source has a Date — use it to answer recency questions (e.g. "most recent", "latest")
 
-Source format: Each source has an ID, title, and content summary.`;
+Source format: Each source has an ID, title, date, and content summary.`;
 
 export function registerAskCommand(program: Command, dataDir: string): void {
   const dbPath = `${dataDir}/lore.lance`;
@@ -47,16 +49,29 @@ export function registerAskCommand(program: Command, dataDir: string): void {
       const maxSources = parseInt(options.maxSources || '10', 10);
       
       try {
+        // Detect temporal intent for recency boosting
+        const temporal = detectTemporalIntent(question);
+
         // Search for relevant sources
-        console.error('Searching knowledge base...');
+        if (temporal.hasTemporalIntent && options.verbose) {
+          console.error('Searching knowledge base (prioritizing recent sources)...');
+        } else {
+          console.error('Searching knowledge base...');
+        }
         const embedding = await generateEmbedding(question);
-        
-        const sources = await searchSources(dbPath, embedding, {
+
+        let sources = await searchSources(dbPath, embedding, {
           limit: maxSources,
           project: options.project,
           queryText: question,
           mode: 'hybrid',
+          recency_boost: temporal.recencyBoost,
         });
+
+        // Re-sort by date if temporal intent detected
+        if (temporal.sortByDate) {
+          sources = sortByRecency(sources);
+        }
 
         if (sources.length === 0) {
           console.error('No relevant sources found.');
@@ -67,18 +82,18 @@ export function registerAskCommand(program: Command, dataDir: string): void {
         }
 
         console.error(`Found ${sources.length} relevant sources`);
-        
+
         if (options.verbose) {
           console.error('\nSources:');
           for (const source of sources) {
-            console.error(`  - ${source.title} (${source.id})`);
+            console.error(`  - ${source.title} [${formatDate(source.created_at)}] (${source.id})`);
           }
           console.error('');
         }
 
         // Build context from sources
         const sourceContext = sources.map((s, i) => {
-          const parts = [`[Source ${i + 1}: ${s.title}]`, `ID: ${s.id}`];
+          const parts = [`[Source ${i + 1}: ${s.title}]`, `ID: ${s.id}`, `Date: ${formatDate(s.created_at)}`];
           if (s.summary) parts.push(`Summary: ${s.summary}`);
           if (s.themes?.length) parts.push(`Themes: ${s.themes.map(t => t.name).join(', ')}`);
           if (s.quotes?.length) {

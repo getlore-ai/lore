@@ -17,6 +17,7 @@ import type { BrowserState, UIComponents } from './browse-types.js';
 import { searchSources, getAllSources } from '../core/vector-store.js';
 import { generateEmbedding } from '../core/embedder.js';
 import { showProjectPicker, showContentTypeFilter } from './browse-handlers.js';
+import { detectTemporalIntent, sortByRecency, formatDate } from '../core/temporal.js';
 
 const SYSTEM_PROMPT = `You are a research assistant with access to a knowledge base.
 Your job is to answer questions based on the provided sources.
@@ -26,8 +27,9 @@ When answering:
 - Be concise but thorough
 - If the sources don't contain enough information, say so
 - Consider previous conversation context when answering follow-up questions
+- Each source has a Date — use it to answer recency questions (e.g. "most recent", "latest")
 
-Source format: Each source has an ID, title, and content summary.`;
+Source format: Each source has an ID, title, date, and content summary.`;
 
 const CONTENT_TYPES = ['interview', 'meeting', 'conversation', 'document', 'note', 'analysis'];
 
@@ -322,6 +324,9 @@ export async function executeAsk(
   ui.screen.render();
 
   try {
+    // Detect temporal intent for recency boosting
+    const temporal = detectTemporalIntent(trimmed);
+
     // Search for relevant sources
     const embedding = await generateEmbedding(trimmed);
     let sources = await searchSources(dbPath, embedding, {
@@ -330,7 +335,13 @@ export async function executeAsk(
       content_type: state.currentContentType as any || undefined,
       queryText: trimmed,
       mode: 'hybrid',
+      recency_boost: temporal.recencyBoost,
     });
+
+    // Re-sort by date if temporal intent detected
+    if (temporal.sortByDate) {
+      sources = sortByRecency(sources);
+    }
 
     // Double-check content type filter
     if (state.currentContentType) {
@@ -349,7 +360,7 @@ export async function executeAsk(
 
     // Build source context
     const sourceContext = sources.map((s, i) => {
-      const parts = [`[Source ${i + 1}: ${s.title}]`];
+      const parts = [`[Source ${i + 1}: ${s.title}]`, `Date: ${formatDate(s.created_at)}`];
       if (s.summary) parts.push(`Summary: ${s.summary}`);
       if (s.themes?.length) {
         parts.push(`Themes: ${s.themes.map(t => t.name).join(', ')}`);

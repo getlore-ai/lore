@@ -34,17 +34,26 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
     .argument('<query>', 'Research query')
     .option('-p, --project <project>', 'Focus on specific project')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
-    .option('--simple', 'Use simple mode (single-pass, faster)')
+    .option('--depth <depth>', 'Research depth: quick (~30-60s), standard (~1-2 min, default), deep (~4-8 min)', 'standard')
+    .option('--simple', 'Use simple fallback mode (single-pass GPT-4o-mini, no agent)')
     .action(async (query, options) => {
       const { handleResearch } = await import('../../mcp/handlers/research.js');
       const dataDir = options.dataDir;
       const dbPath = path.join(dataDir, 'lore.lance');
 
+      // --simple is an alias for --depth quick
       if (options.simple) {
         process.env.LORE_RESEARCH_MODE = 'simple';
       }
 
-      console.log(`\nResearching: "${query}"\n`);
+      const depth = options.simple ? 'quick' : (options.depth || 'standard');
+      const depthLabels: Record<string, string> = {
+        quick: '~30-60 seconds',
+        standard: '~1-2 minutes',
+        deep: '~4-8 minutes',
+      };
+
+      console.log(`\nResearching: "${query}" (${depth}, ${depthLabels[depth] || ''})\n`);
       console.log('This may take a moment...\n');
 
       const result = await handleResearch(
@@ -54,6 +63,7 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
           task: query,
           project: options.project,
           include_sources: true,
+          depth,
         },
         {
           hookContext: { mode: 'cli' },
