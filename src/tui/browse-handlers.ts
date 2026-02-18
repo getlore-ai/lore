@@ -4,10 +4,11 @@
  * Contains navigation, search, editor integration, and mode switching.
  */
 
-import { spawn } from 'child_process';
-import { writeFileSync, unlinkSync } from 'fs';
+import { spawn, spawnSync } from 'child_process';
+import { writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 
 import type { BrowserState, UIComponents, SourceDetails, ProjectInfo } from './browse-types.js';
 import {
@@ -20,11 +21,14 @@ import {
   buildListItems,
   getSelectedSource,
 } from './browse-render.js';
-import { getSourceById, searchSources, getProjectStats, getAllSources, deleteSource, updateSourceProjects, updateSourceTitle, updateSourceContentType } from '../core/vector-store.js';
-import { generateEmbedding } from '../core/embedder.js';
+import { getSourceById, searchSources, getProjectStats, getAllSources, deleteSource, updateSourceProjects, updateSourceTitle, updateSourceContentType, addSource } from '../core/vector-store.js';
+import { generateEmbedding, createSearchableText } from '../core/embedder.js';
+import { extractInsights } from '../core/insight-extractor.js';
 import { searchLocalFiles } from '../core/local-search.js';
 import { gitCommitAndPush, deleteFileAndCommit } from '../core/git.js';
-import type { SearchMode, SourceType } from '../core/types.js';
+import { addToBlocklist } from '../core/blocklist.js';
+import { computeFileHash, findFileByHash } from '../sync/discover.js';
+import type { SearchMode, SourceType, SourceRecord, ContentType } from '../core/types.js';
 
 /**
  * Helper to re-render ask/research pane when returning from pickers
@@ -526,7 +530,9 @@ export function hideHelp(state: BrowserState, ui: UIComponents): void {
 export async function openInEditor(
   state: BrowserState,
   ui: UIComponents,
-  sourcesDir: string
+  sourcesDir: string,
+  dbPath: string,
+  dataDir: string
 ): Promise<void> {
   if (state.filtered.length === 0) return;
 
@@ -557,25 +563,176 @@ export async function openInEditor(
   const tmpPath = path.join(tmpdir(), `lore-${source.id}.md`);
   writeFileSync(tmpPath, content);
 
-  // Open editor in background (detached so TUI keeps running)
-  const child = spawn(editor, [...editorArgs, tmpPath], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();  // Don't wait for editor to exit
+  // Yield terminal to editor: exit blessed's alternate buffer
+  ui.screen.program.normalBuffer();
+  ui.screen.program.showCursor();
 
-  // Show confirmation
-  ui.statusBar.setContent(` Opened in ${editor}`);
+  // Spawn editor in foreground and wait for it to close
+  const editorResult = spawnSync(editor, [...editorArgs, tmpPath], {
+    stdio: 'inherit',
+  });
+
+  // Return to blessed: re-enter alternate buffer
+  ui.screen.program.alternateBuffer();
+  ui.screen.program.hideCursor();
+
+  // Check if editor failed to launch
+  if (editorResult.error) {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    ui.screen.alloc();
+    ui.screen.render();
+    ui.statusBar.setContent(` {red-fg}Editor failed: ${editorResult.error.message}{/red-fg}`);
+    ui.screen.render();
+    return;
+  }
+
+  // Read back the edited file
+  let editedContent: string;
+  try {
+    editedContent = readFileSync(tmpPath, 'utf-8');
+  } catch {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    ui.screen.alloc();
+    ui.screen.render();
+    ui.statusBar.setContent(' {red-fg}Could not read edited file{/red-fg}');
+    ui.screen.render();
+    return;
+  }
+
+  // Clean up temp file
+  try { unlinkSync(tmpPath); } catch { /* ignore */ }
+
+  // Repaint blessed now that file is read
+  ui.screen.alloc();
+
+  // Compare — if unchanged, skip
+  if (editedContent === content) {
+    ui.statusBar.setContent(' {gray-fg}No changes{/gray-fg}');
+    ui.screen.render();
+    setTimeout(() => {
+      updateStatus(ui, state, state.currentProject);
+      ui.screen.render();
+    }, 1500);
+    return;
+  }
+
+  // Save edited content to disk
+  const sourceDir = path.join(sourcesDir, source.id);
+  const contentPath = path.join(sourceDir, 'content.md');
+  try {
+    const { mkdir, writeFile } = await import('fs/promises');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(contentPath, editedContent, 'utf-8');
+  } catch (err) {
+    ui.statusBar.setContent(` {red-fg}Save failed: ${err}{/red-fg}`);
+    ui.screen.render();
+    return;
+  }
+
+  // Update in-memory state so TUI reflects the edit immediately
+  state.fullContent = editedContent;
+  state.fullContentLinesRaw = editedContent.split('\n');
+  const rendered = markdownToBlessed(editedContent);
+  state.fullContentLines = rendered.split('\n');
+  if (state.mode === 'fullview') {
+    renderFullView(ui, state);
+  }
+
+  ui.statusBar.setContent(' {yellow-fg}Saved. Re-indexing...{/yellow-fg}');
   ui.screen.render();
 
-  // Clean up temp file after a delay (give editor time to read it)
-  setTimeout(() => {
+  // Kick off async re-indexing (don't block the TUI)
+  reindexSource(source.id, editedContent, source, state, dbPath, dataDir, ui).catch(() => {
+    // errors handled inside reindexSource
+  });
+}
+
+/**
+ * Re-index a source after its content has been edited.
+ * Runs in the background — updates status bar when done.
+ */
+async function reindexSource(
+  sourceId: string,
+  newContent: string,
+  source: { title: string; source_type: string; content_type: string; projects: string[]; created_at: string },
+  state: BrowserState,
+  dbPath: string,
+  dataDir: string,
+  ui: UIComponents
+): Promise<void> {
+  try {
+    // 1. Compute new content hash
+    const contentHash = createHash('sha256').update(newContent).digest('hex');
+
+    // 2. Fetch existing tags from DB so we don't overwrite them
+    const existing = await getSourceById(dbPath, sourceId);
+    const existingTags = existing?.tags || [];
+
+    // 3. Extract new summary
+    const insights = await extractInsights(newContent, source.title, sourceId, {
+      contentType: source.content_type,
+    });
+
+    // 4. Generate new embedding
+    const searchableText = createSearchableText({
+      type: 'summary',
+      text: insights.summary,
+      project: source.projects[0],
+    });
+    const vector = await generateEmbedding(searchableText);
+
+    // 5. Upsert to Supabase (preserve original created_at and tags)
+    const sourceRecord: SourceRecord = {
+      id: sourceId,
+      title: source.title,
+      source_type: source.source_type as SourceType,
+      content_type: source.content_type as ContentType,
+      projects: JSON.stringify(source.projects),
+      tags: JSON.stringify(existingTags),
+      created_at: source.created_at,
+      summary: insights.summary,
+      themes_json: JSON.stringify(insights.themes || []),
+      quotes_json: JSON.stringify(insights.quotes || []),
+      has_full_content: true,
+      vector: [],
+    };
+    await addSource(dbPath, sourceRecord, vector, { content_hash: contentHash });
+
+    // 6. Write insights.json to disk
+    const insightsPath = path.join(dataDir, 'sources', sourceId, 'insights.json');
     try {
-      unlinkSync(tmpPath);
-    } catch {
-      // Ignore - file might still be in use
+      const { writeFile } = await import('fs/promises');
+      await writeFile(insightsPath, JSON.stringify(insights, null, 2), 'utf-8');
+    } catch { /* non-critical */ }
+
+    // 7. Git commit + push (non-blocking)
+    gitCommitAndPush(dataDir, `Edit: ${source.title.slice(0, 50)}`).catch(() => {});
+
+    // 8. Update in-memory list so TUI reflects new summary immediately
+    const updateItem = (item: { id: string; summary: string }) => {
+      if (item.id === sourceId) {
+        item.summary = insights.summary;
+      }
+    };
+    state.sources.forEach(updateItem);
+    state.filtered.forEach(updateItem);
+
+    // Re-render list and preview if currently visible
+    if (state.mode === 'list') {
+      if (state.groupByProject) {
+        state.listItems = buildListItems(state);
+      }
+      renderList(ui, state);
+      renderPreview(ui, state);
     }
-  }, 5000);
+
+    // 9. Update status bar
+    ui.statusBar.setContent(` {green-fg}Re-indexed: ${source.title.slice(0, 40)}{/green-fg}`);
+    ui.screen.render();
+  } catch (err) {
+    ui.statusBar.setContent(` {red-fg}Re-index failed: ${err}{/red-fg}`);
+    ui.screen.render();
+  }
 }
 
 // Navigation functions
@@ -1176,7 +1333,26 @@ export async function confirmDelete(
 
   try {
     // 1. Delete from Supabase (this also handles chunks cascade)
-    const { sourcePath: originalPath } = await deleteSource(dbPath, source.id);
+    const { sourcePath: originalPath, contentHash } = await deleteSource(dbPath, source.id);
+
+    // 1b. Compute content hash from local files if Supabase didn't have one
+    let effectiveHash = contentHash;
+    if (!effectiveHash) {
+      const loreOriginal = path.join(dataDir, 'sources', source.id);
+      try {
+        const { readdir: rd } = await import('fs/promises');
+        const files = await rd(loreOriginal);
+        const candidate = files.find(f => f.startsWith('original.')) || files.find(f => f === 'content.md');
+        if (candidate) {
+          effectiveHash = await computeFileHash(path.join(loreOriginal, candidate));
+        }
+      } catch {
+        // No local files to hash
+      }
+    }
+
+    // 1c. Record content hash in blocklist so sync won't re-add this file
+    await addToBlocklist(dataDir, effectiveHash);
 
     // 2. Delete local files in data directory
     const { rm } = await import('fs/promises');
@@ -1188,8 +1364,13 @@ export async function confirmDelete(
     }
 
     // 3. Delete original source file from sync directory (and commit to its repo)
-    if (originalPath) {
-      await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
+    let fileToDelete = originalPath;
+    if (!fileToDelete && effectiveHash) {
+      // source_path missing — search sync source dirs by content hash
+      fileToDelete = await findFileByHash(effectiveHash) ?? undefined;
+    }
+    if (fileToDelete) {
+      await deleteFileAndCommit(fileToDelete, `Delete: ${source.title.slice(0, 50)}`);
     }
 
     // 4. Git commit and push the lore-data changes
@@ -1267,12 +1448,30 @@ async function confirmProjectDelete(
 
     let deleted = 0;
     const errors: string[] = [];
+    const deletedHashes: (string | undefined)[] = [];
 
     const { rm } = await import('fs/promises');
     for (const source of docsToDelete) {
       try {
         // Delete from Supabase
-        const { sourcePath: originalPath } = await deleteSource(dbPath, source.id);
+        const { sourcePath: originalPath, contentHash } = await deleteSource(dbPath, source.id);
+
+        // Compute content hash from local files if Supabase didn't have one
+        let effectiveHash = contentHash;
+        if (!effectiveHash) {
+          const loreOriginal = path.join(dataDir, 'sources', source.id);
+          try {
+            const { readdir: rd } = await import('fs/promises');
+            const files = await rd(loreOriginal);
+            const candidate = files.find(f => f.startsWith('original.')) || files.find(f => f === 'content.md');
+            if (candidate) {
+              effectiveHash = await computeFileHash(path.join(loreOriginal, candidate));
+            }
+          } catch {
+            // No local files to hash
+          }
+        }
+        deletedHashes.push(effectiveHash);
 
         // Delete local files
         const loreSourcePath = path.join(dataDir, 'sources', source.id);
@@ -1283,8 +1482,12 @@ async function confirmProjectDelete(
         }
 
         // Delete original source file from sync directory (and commit to its repo)
-        if (originalPath) {
-          await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
+        let fileToDelete = originalPath;
+        if (!fileToDelete && effectiveHash) {
+          fileToDelete = await findFileByHash(effectiveHash) ?? undefined;
+        }
+        if (fileToDelete) {
+          await deleteFileAndCommit(fileToDelete, `Delete: ${source.title.slice(0, 50)}`);
         }
 
         deleted++;
@@ -1294,6 +1497,9 @@ async function confirmProjectDelete(
         errors.push(`${source.title}: ${err}`);
       }
     }
+
+    // Record content hashes in blocklist so sync won't re-add these files
+    await addToBlocklist(dataDir, ...deletedHashes);
 
     // Git commit and push the deletions
     await gitCommitAndPush(dataDir, `Delete project: ${header.displayName} (${deleted} documents)`);

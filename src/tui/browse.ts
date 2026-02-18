@@ -410,7 +410,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
 
   screen.key(['e'], () => {
     if (state.mode === 'list' || state.mode === 'fullview') {
-      openInEditor(state, ui, sourcesDir);
+      openInEditor(state, ui, sourcesDir, dbPath, dataDir);
     }
   });
 
