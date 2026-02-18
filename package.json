@@ -1,6 +1,6 @@
 {
   "name": "@getlore/cli",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Research knowledge repository with semantic search, citations, and project lineage tracking",
   "type": "module",
   "main": "dist/index.js",
