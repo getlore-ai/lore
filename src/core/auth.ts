@@ -212,7 +212,9 @@ export async function getValidSession(): Promise<AuthSession | null> {
     return session;
   }
 
-  // Try to refresh
+  // Try to refresh — but don't discard the session if refresh fails.
+  // A transient network error shouldn't silently log the user out.
+  // Return the existing session and let the actual API call decide.
   try {
     const client = await getAuthClient();
     const { data, error } = await client.auth.refreshSession({
@@ -220,8 +222,9 @@ export async function getValidSession(): Promise<AuthSession | null> {
     });
 
     if (error || !data.session || !data.user) {
-      // Refresh failed — session is expired
-      return null;
+      // Refresh failed — return existing session anyway (it may still work)
+      console.error(`[auth] Token refresh failed: ${error?.message || 'no session returned'}`);
+      return session;
     }
 
     const refreshed: AuthSession = {
@@ -236,8 +239,9 @@ export async function getValidSession(): Promise<AuthSession | null> {
 
     await saveAuthSession(refreshed);
     return refreshed;
-  } catch {
-    return null;
+  } catch (err) {
+    console.error(`[auth] Token refresh error: ${err}`);
+    return session;
   }
 }
 
