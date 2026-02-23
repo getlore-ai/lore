@@ -18,6 +18,7 @@ import { getValidSession } from './auth.js';
 
 let supabase: SupabaseClient | null = null;
 let supabaseMode: 'service' | 'auth' | null = null;
+let supabaseTokenExpiresAt: number = 0;
 
 /**
  * Get an authenticated Supabase client. Three modes:
@@ -26,6 +27,16 @@ let supabaseMode: 'service' | 'auth' | null = null;
  * 3. Neither → throws with helpful message
  */
 export async function getSupabase(): Promise<SupabaseClient> {
+  // Auto-reset cached client if token has expired (with 60s buffer)
+  if (supabase && supabaseMode === 'auth') {
+    const now = Math.floor(Date.now() / 1000);
+    if (supabaseTokenExpiresAt > 0 && supabaseTokenExpiresAt <= now + 60) {
+      supabase = null;
+      supabaseMode = null;
+      supabaseTokenExpiresAt = 0;
+    }
+  }
+
   if (supabase) return supabase;
 
   const url = process.env.SUPABASE_URL;
@@ -55,6 +66,7 @@ export async function getSupabase(): Promise<SupabaseClient> {
         },
       });
       supabaseMode = 'auth';
+      supabaseTokenExpiresAt = session.expires_at;
       return supabase;
     }
   }
@@ -89,11 +101,13 @@ export function resetDatabaseConnection(): void {
   // Reset the client to force reconnection
   supabase = null;
   supabaseMode = null;
+  supabaseTokenExpiresAt = 0;
 }
 
 export async function closeDatabase(): Promise<void> {
   supabase = null;
   supabaseMode = null;
+  supabaseTokenExpiresAt = 0;
 }
 
 // For compatibility - Supabase doesn't use a local path

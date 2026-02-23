@@ -398,10 +398,20 @@ export async function processFiles(
         //    and legacy sync will pick it up on the next run.
         try {
           await indexSource(sourceId, file, metadata, dbPath);
-        } catch (supabaseError) {
+        } catch (supabaseError: unknown) {
+          const errObj = supabaseError as { code?: string; message?: string };
+          const isAuthError = errObj?.code === 'PGRST303'
+            || errObj?.message?.includes('JWT expired')
+            || errObj?.message?.includes('Invalid JWT')
+            || errObj?.message?.includes('Not authenticated');
+          if (isAuthError) {
+            // Auth errors will affect ALL remaining files — abort to prevent wasted LLM spend
+            console.error(`[process] Auth error for ${file.relativePath}: ${supabaseError}`);
+            throw new Error(`Auth failed (JWT expired or invalid). Aborting sync to prevent wasted API spend. Run 'lore auth login' to re-authenticate.`);
+          }
           console.error(`[process] Supabase index failed for ${file.relativePath}: ${supabaseError}`);
           console.error(`[process] Content saved to disk — will be indexed on next sync via legacy path`);
-          // Don't re-throw: disk write succeeded, source is safe
+          // Don't re-throw for non-auth errors: disk write succeeded, source is safe
         }
 
         if (extensionRegistry && hookContext) {

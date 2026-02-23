@@ -20,6 +20,7 @@ import {
   getAllSources,
   addSource,
   getSourcesWithPaths,
+  getSupabase,
   resetDatabaseConnection,
 } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
@@ -328,6 +329,21 @@ async function universalSync(
   const totalToProcess = summary.newFiles + summary.editedFiles;
   if (dryRun || totalToProcess === 0) {
     return { discovery, processing: undefined };
+  }
+
+  // Pre-flight auth check: reset the DB connection and verify auth works
+  // BEFORE spending money on LLM calls. Discovery may have used a token
+  // that could expire during the (much longer) processing phase.
+  resetDatabaseConnection();
+  try {
+    const client = await getSupabase();
+    const { error } = await client.from('sources').select('id').limit(1);
+    if (error) {
+      throw new Error(`Supabase pre-flight check failed: ${error.message} (code: ${error.code})`);
+    }
+  } catch (preflight) {
+    console.error(`[sync] Auth pre-flight check failed before processing ${totalToProcess} files: ${preflight}`);
+    throw new Error(`Auth check failed before processing. Run 'lore auth login' to re-authenticate. (${totalToProcess} files skipped to prevent wasted API spend)`);
   }
 
   // Phase 2: Process new and edited files

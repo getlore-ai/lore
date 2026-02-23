@@ -200,6 +200,22 @@ export async function gitCommitAndPush(
         return { success: true, message: hasLocalChanges ? 'Committed and pushed' : 'Pushed pending commits' };
       } catch (pushError) {
         const errMsg = String(pushError);
+        // Remote has newer commits — pull and retry once
+        if (errMsg.includes('remote rejected') || errMsg.includes('failed to push') || errMsg.includes('non-fast-forward')) {
+          console.error('[git] Push rejected (remote ahead), pulling and retrying...');
+          try {
+            await execAsync('git pull --no-rebase', { cwd: dir });
+            await execAsync('git push', { cwd: dir });
+            return { success: true, message: hasLocalChanges ? 'Committed, pulled, and pushed' : 'Pulled and pushed pending commits' };
+          } catch (retryErr) {
+            console.error(`[git] Push retry after pull failed: ${retryErr}`);
+            return {
+              success: true,
+              message: hasLocalChanges ? 'Committed but push failed after retry' : 'Push failed after retry',
+              error: `Push failed after pull+retry: ${retryErr}`,
+            };
+          }
+        }
         console.error(`[git] Push failed: ${errMsg}`);
         return {
           success: true,

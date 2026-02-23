@@ -212,9 +212,10 @@ export async function getValidSession(): Promise<AuthSession | null> {
     return session;
   }
 
-  // Try to refresh — but don't discard the session if refresh fails.
-  // A transient network error shouldn't silently log the user out.
-  // Return the existing session and let the actual API call decide.
+  // Try to refresh the token.
+  // If refresh fails but token hasn't technically expired yet, return it.
+  // If refresh fails AND token is past expires_at, return null (unusable).
+  // We never delete auth.json here — preserves refresh_token for later retry.
   try {
     const client = await getAuthClient();
     const { data, error } = await client.auth.refreshSession({
@@ -222,9 +223,14 @@ export async function getValidSession(): Promise<AuthSession | null> {
     });
 
     if (error || !data.session || !data.user) {
-      // Refresh failed — return existing session anyway (it may still work)
       console.error(`[auth] Token refresh failed: ${error?.message || 'no session returned'}`);
-      return session;
+      // Token hasn't expired yet — still usable despite refresh failure
+      if (session.expires_at > now) {
+        return session;
+      }
+      // Token is actually expired AND refresh failed — unusable
+      console.error('[auth] Session expired and refresh failed. Run \'lore auth login\' to re-authenticate.');
+      return null;
     }
 
     const refreshed: AuthSession = {
@@ -241,7 +247,11 @@ export async function getValidSession(): Promise<AuthSession | null> {
     return refreshed;
   } catch (err) {
     console.error(`[auth] Token refresh error: ${err}`);
-    return session;
+    if (session.expires_at > now) {
+      return session;
+    }
+    console.error('[auth] Session expired and refresh failed. Run \'lore auth login\' to re-authenticate.');
+    return null;
   }
 }
 
