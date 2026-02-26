@@ -150,8 +150,12 @@ export function registerMiscCommands(program: Command, defaultDataDir: string): 
       console.log(`=========`);
       console.log(`Creating data repository at: ${expandedPath}\n`);
 
-      await initDataRepo(expandedPath);
-      console.log('✓ Created data repository');
+      const initResult = await initDataRepo(expandedPath);
+      if (initResult.gitInitialized) {
+        console.log('✓ Created data repository');
+      } else {
+        console.log(`✓ Created data directory (git init issue: ${initResult.error || 'unknown'})`);
+      }
 
       // Add remote if provided
       if (options.remote) {

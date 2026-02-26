@@ -14,12 +14,17 @@ import path from 'path';
 // Data Repo Init
 // ============================================================================
 
+export interface InitDataRepoResult {
+  gitInitialized: boolean;
+  error?: string;
+}
+
 /**
  * Initialize a lore data repository at the given path.
  * Creates directory structure, .gitignore, README, and git init.
  * Idempotent — safe to call on an existing directory.
  */
-export async function initDataRepo(dirPath: string): Promise<void> {
+export async function initDataRepo(dirPath: string): Promise<InitDataRepoResult> {
   await mkdir(dirPath, { recursive: true });
   await mkdir(path.join(dirPath, 'sources'), { recursive: true });
 
@@ -56,10 +61,22 @@ Vector embeddings are stored in Supabase (cloud) for multi-machine access.
         cwd: dirPath,
         stdio: 'pipe',
       });
-    } catch {
-      // git not installed or commit failed — non-fatal
+      return { gitInitialized: true };
+    } catch (err: any) {
+      const msg = err?.message || err?.stderr?.toString() || String(err);
+      const lower = msg.toLowerCase();
+
+      if (lower.includes('not found') || lower.includes('command not found') || lower.includes('enoent')) {
+        return { gitInitialized: false, error: 'Git is not installed' };
+      }
+      if (lower.includes('user.email') || lower.includes('user.name') || lower.includes('please tell me who you are')) {
+        return { gitInitialized: false, error: 'Git user not configured. Run: git config --global user.email "you@example.com" && git config --global user.name "Your Name"' };
+      }
+      return { gitInitialized: false, error: msg.slice(0, 200) };
     }
   }
+
+  return { gitInitialized: true };
 }
 
 // ============================================================================

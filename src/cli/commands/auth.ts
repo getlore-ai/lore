@@ -227,6 +227,28 @@ export function registerAuthCommands(program: Command): void {
       console.log(`  ${c.dim('━'.repeat(12))}`);
       console.log('');
 
+      // ── Preflight Checks ───────────────────────────────────────────
+      console.log(c.bold('Preflight Checks\n'));
+
+      const { checkGit } = await import('../../core/preflight.js');
+      const gitCheck = checkGit();
+
+      if (!gitCheck.installed) {
+        console.log(`  ${c.error('✗')} git not installed`);
+        console.log(`    ${c.dim('Install: https://git-scm.com/downloads')}`);
+        console.log('');
+        process.exit(1);
+      }
+
+      console.log(`  ${c.success('✓')} git ${gitCheck.version || '(unknown version)'}`);
+
+      if (!gitCheck.configured) {
+        console.log(`  ${c.warning('⚠')} git user not configured`);
+        console.log(`    ${c.dim('Fix: git config --global user.email "you@example.com"')}`);
+        console.log(`    ${c.dim('     git config --global user.name "Your Name"')}`);
+      }
+      console.log('');
+
       // ── Step 1: Configuration ───────────────────────────────────────
       console.log(c.bold('Step 1: Configuration\n'));
 
@@ -235,6 +257,58 @@ export function registerAuthCommands(program: Command): void {
       const dataDir = options.dataDir || await prompt('Data directory', defaultDataDir);
       const openaiApiKey = options.openaiKey || process.env.OPENAI_API_KEY || await prompt('OpenAI API Key (for embeddings)');
       const anthropicApiKey = options.anthropicKey || process.env.ANTHROPIC_API_KEY || await prompt('Anthropic API Key (for sync & research)');
+
+      // Validate API keys before saving
+      let openaiKeyValidated = false;
+      let anthropicKeyValidated = false;
+
+      if (openaiApiKey || anthropicApiKey) {
+        const { validateOpenAIKey, validateAnthropicKey } = await import('../../core/preflight.js');
+
+        const validations: Promise<void>[] = [];
+
+        if (openaiApiKey) {
+          validations.push(
+            (async () => {
+              process.stdout.write(c.dim('Validating OpenAI key... '));
+              const result = await validateOpenAIKey(openaiApiKey);
+              if (result.valid) {
+                console.log(c.success('✓ valid'));
+                openaiKeyValidated = true;
+              } else {
+                console.log(c.warning(`✗ ${result.error || 'invalid'}`));
+                if (!nonInteractive) {
+                  const cont = await prompt('Continue anyway? (y/n)', 'y');
+                  if (cont.toLowerCase() !== 'y') process.exit(1);
+                }
+              }
+            })()
+          );
+        }
+
+        if (anthropicApiKey) {
+          validations.push(
+            (async () => {
+              process.stdout.write(c.dim('Validating Anthropic key... '));
+              const result = await validateAnthropicKey(anthropicApiKey);
+              if (result.valid) {
+                console.log(c.success('✓ valid'));
+                anthropicKeyValidated = true;
+              } else {
+                console.log(c.warning(`✗ ${result.error || 'invalid'}`));
+                if (!nonInteractive) {
+                  const cont = await prompt('Continue anyway? (y/n)', 'y');
+                  if (cont.toLowerCase() !== 'y') process.exit(1);
+                }
+              }
+            })()
+          );
+        }
+
+        // Run validations sequentially (stdout interleaving otherwise)
+        for (const v of validations) await v;
+        console.log('');
+      }
 
       await saveLoreConfig({
         ...(dataDir ? { data_dir: expandPath(dataDir) } : {}),
@@ -382,8 +456,13 @@ export function registerAuthCommands(program: Command): void {
         } else {
           // Machine A: create fresh repo
           console.log(c.dim(`Creating data repository at ${resolvedDataDir}...\n`));
-          await initDataRepo(resolvedDataDir);
-          console.log(c.success('Created data repository.\n'));
+          const initResult = await initDataRepo(resolvedDataDir);
+          if (initResult.gitInitialized) {
+            console.log(c.success('Created data repository.\n'));
+          } else {
+            console.log(c.warning(`Created data directory, but git init failed: ${initResult.error}`));
+            console.log(c.dim('You can initialize git manually later.\n'));
+          }
 
           // Try to set up GitHub remote
           if (await isGhAvailable()) {
@@ -431,7 +510,10 @@ export function registerAuthCommands(program: Command): void {
       } else {
         // Dir exists but no git remote — check Supabase first, then offer setup
         console.log(c.dim(`Data directory exists at ${resolvedDataDir}, ensuring git is set up...\n`));
-        await initDataRepo(resolvedDataDir);
+        const initResult2 = await initDataRepo(resolvedDataDir);
+        if (!initResult2.gitInitialized) {
+          console.log(c.warning(`Git init issue: ${initResult2.error || 'unknown'}\n`));
+        }
 
         // Check Supabase for a saved repo URL before offering to create a new one
         let savedUrl: string | null = null;
@@ -647,6 +729,74 @@ export function registerAuthCommands(program: Command): void {
           console.log(c.dim('You can install later with: lore skills install <name>\n'));
         }
       }
+
+      // ── Health Check ──────────────────────────────────────────────────
+      console.log(c.bold('Health Check\n'));
+
+      // Config file
+      try {
+        const { loadLoreConfig } = await import('../../core/config.js');
+        const cfg = await loadLoreConfig();
+        if (cfg) {
+          console.log(`  ${c.success('✓')} Configuration loaded`);
+        } else {
+          console.log(`  ${c.warning('⚠')} Configuration file missing`);
+        }
+      } catch {
+        console.log(`  ${c.warning('⚠')} Could not load configuration`);
+      }
+
+      // Auth session
+      if (!options.skipLogin) {
+        try {
+          const { getValidSession } = await import('../../core/auth.js');
+          const session = await getValidSession();
+          if (session) {
+            console.log(`  ${c.success('✓')} Authenticated as ${session.user.email}`);
+          } else {
+            console.log(`  ${c.warning('⚠')} Not authenticated`);
+          }
+        } catch {
+          console.log(`  ${c.warning('⚠')} Could not verify auth session`);
+        }
+      }
+
+      // Supabase connection
+      try {
+        const { getSupabase } = await import('../../core/vector-store.js');
+        const db = await getSupabase();
+        const { error } = await db.from('sources').select('id').limit(1);
+        if (!error) {
+          console.log(`  ${c.success('✓')} Database connected`);
+        } else {
+          console.log(`  ${c.warning('⚠')} Database query failed: ${error.message}`);
+        }
+      } catch {
+        console.log(`  ${c.warning('⚠')} Could not connect to database`);
+      }
+
+      // Data directory
+      if (existsSync(resolvedDataDir)) {
+        const gitOk = isGitRepo(resolvedDataDir);
+        console.log(`  ${c.success('✓')} Data repo at ${resolvedDataDir}${gitOk ? '' : ' (no git)'}`);
+      } else {
+        console.log(`  ${c.warning('⚠')} Data directory not found at ${resolvedDataDir}`);
+      }
+
+      // API keys (skip re-validation if already validated in Step 1)
+      if (openaiKeyValidated) {
+        console.log(`  ${c.success('✓')} OpenAI API key valid`);
+      } else if (openaiApiKey) {
+        console.log(`  ${c.warning('⚠')} OpenAI API key not validated`);
+      }
+
+      if (anthropicKeyValidated) {
+        console.log(`  ${c.success('✓')} Anthropic API key valid`);
+      } else if (anthropicApiKey) {
+        console.log(`  ${c.warning('⚠')} Anthropic API key not validated`);
+      }
+
+      console.log('');
 
       // ── Done ───────────────────────────────────────────────────────────
       console.log(c.title('Setup complete!\n'));

@@ -80,9 +80,14 @@ async function runSync(gitPull: boolean = true): Promise<{
     { hookContext: { mode: 'cli' } }
   );
 
-  // Log git operation results — these were previously silent
+  // Log git operation results with actionable hints
   if (gitPull && result.git_error) {
-    log('WARN', `Git pull error: ${result.git_error}`);
+    log('WARN', `Git error: ${result.git_error}`);
+    const { getGitErrorHint } = await import('./core/preflight.js');
+    const hint = getGitErrorHint(result.git_error);
+    if (hint) {
+      log('HINT', hint);
+    }
   }
 
   return {
@@ -140,6 +145,9 @@ async function main(): Promise<void> {
       log('PUSH', 'Changes pushed to remote');
     } else if (result.git_error) {
       log('WARN', `Git push failed: ${result.git_error}`);
+      const { getGitErrorHint } = await import('./core/preflight.js');
+      const hint = getGitErrorHint(result.git_error);
+      if (hint) log('HINT', hint);
     }
     updateStatus({
       last_sync: new Date().toISOString(),
@@ -281,6 +289,9 @@ async function main(): Promise<void> {
         log('PUSH', 'Changes pushed to remote');
       } else if (result.git_error) {
         log('WARN', `Git push failed: ${result.git_error}`);
+        const { getGitErrorHint } = await import('./core/preflight.js');
+        const hint = getGitErrorHint(result.git_error);
+        if (hint) log('HINT', hint);
       }
 
       updateStatus({

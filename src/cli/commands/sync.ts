@@ -36,6 +36,19 @@ function generatePlist(dataDir: string): string {
   const nodePath = process.execPath;
   const scriptPath = path.join(__dirname, '..', '..', 'daemon-runner.js');
 
+  // Pass SSH_AUTH_SOCK so the daemon can git pull/push over SSH.
+  // The socket path may change on reboot, but this helps for same-session starts.
+  const sshAuthSock = process.env.SSH_AUTH_SOCK;
+  const xmlEscape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const envVarsBlock = sshAuthSock
+    ? `
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SSH_AUTH_SOCK</key>
+    <string>${xmlEscape(sshAuthSock)}</string>
+  </dict>`
+    : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -47,7 +60,7 @@ function generatePlist(dataDir: string): string {
     <string>${nodePath}</string>
     <string>${scriptPath}</string>
     <string>${dataDir}</string>
-  </array>
+  </array>${envVarsBlock}
   <key>KeepAlive</key>
   <true/>
   <key>RunAtLoad</key>
@@ -932,6 +945,27 @@ export async function startDaemonProcess(dataDir: string): Promise<{ pid: number
   const existingPid = getPid();
   if (existingPid) {
     return { pid: existingPid, alreadyRunning: true };
+  }
+
+  // Warn if data repo uses SSH remote — daemon may not have SSH agent access
+  try {
+    const { getGitRemoteUrl } = await import('../../core/data-repo.js');
+    const { analyzeGitRemote } = await import('../../core/preflight.js');
+    const remoteUrl = getGitRemoteUrl(dataDir);
+    if (remoteUrl) {
+      const analysis = analyzeGitRemote(remoteUrl);
+      if (analysis.isSSH) {
+        const { c } = await import('../colors.js');
+        console.log(c.warning(`Warning: Git remote uses SSH (${remoteUrl}).`));
+        console.log(c.dim('The background daemon may not have SSH agent access.'));
+        if (analysis.httpsEquivalent) {
+          console.log(c.dim(`Consider switching to HTTPS: git remote set-url origin ${analysis.httpsEquivalent}`));
+        }
+        console.log('');
+      }
+    }
+  } catch {
+    // Non-fatal — don't block daemon start
   }
 
   // macOS: use launchd for persistence across reboots
