@@ -7,7 +7,7 @@
 
 import { mkdir, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 
 // ============================================================================
@@ -55,9 +55,9 @@ Vector embeddings are stored in Supabase (cloud) for multi-machine access.
   // Git init if not already a repo
   if (!existsSync(path.join(dirPath, '.git'))) {
     try {
-      execSync('git init', { cwd: dirPath, stdio: 'pipe' });
-      execSync('git add .', { cwd: dirPath, stdio: 'pipe' });
-      execSync('git commit -m "Initial lore data repository"', {
+      execFileSync('git', ['init'], { cwd: dirPath, stdio: 'pipe' });
+      execFileSync('git', ['add', '.'], { cwd: dirPath, stdio: 'pipe' });
+      execFileSync('git', ['commit', '-m', 'Initial lore data repository'], {
         cwd: dirPath,
         stdio: 'pipe',
       });
@@ -124,8 +124,8 @@ Run \`lore sync start\` to launch a background daemon that watches for new files
  */
 export async function isGhAvailable(): Promise<boolean> {
   try {
-    execSync('which gh', { stdio: 'pipe' });
-    execSync('gh auth status', { stdio: 'pipe' });
+    execFileSync('which', ['gh'], { stdio: 'pipe' });
+    execFileSync('gh', ['auth', 'status'], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -141,7 +141,7 @@ export async function createGithubRepo(
   name: string
 ): Promise<string | null> {
   try {
-    execSync(`gh repo create ${name} --private --source=. --push`, {
+    execFileSync('gh', ['repo', 'create', name, '--private', '--source=.', '--push'], {
       cwd: dirPath,
       stdio: 'pipe',
     });
@@ -157,7 +157,7 @@ export async function createGithubRepo(
  */
 export function getGitRemoteUrl(dirPath: string): string | null {
   try {
-    return execSync('git remote get-url origin', {
+    return execFileSync('git', ['remote', 'get-url', 'origin'], {
       cwd: dirPath,
       stdio: 'pipe',
     })

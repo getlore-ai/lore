@@ -111,7 +111,7 @@ ANTHROPIC_API_KEY=...           # Required for research agent
 SUPABASE_URL=...                # Supabase project URL
 SUPABASE_PUBLISHABLE_KEY=...    # Supabase publishable key (has defaults, usually not needed)
 SUPABASE_SERVICE_KEY=...        # Service key (bypasses RLS, env-only, never stored)
-LORE_DATA_DIR=~/lore-data       # Data directory for raw documents (git-synced)
+LORE_DATA_DIR=~/lore-data       # Data directory for raw documents (synced via Lore Cloud; git optional)
 LORE_AUTO_GIT_PULL=true         # Auto git pull every 5 min (default: true)
 LORE_AUTO_INDEX=true            # Auto-index new sources (default: true, costs API calls)
 ```
@@ -129,7 +129,7 @@ Service key (`SUPABASE_SERVICE_KEY`) is env-only and never stored in config.
 **Supabase** = cloud vector index, shared across all machines
 **Config directory** = `~/.config/lore/` (machine-specific, not in any repo)
 
-The `LORE_DATA_DIR` should point to a separate directory (its own git repo for cross-machine sync of raw documents). Vector embeddings are stored in Supabase for multi-agent, multi-machine access.
+The `LORE_DATA_DIR` should point to a separate directory. Document content is synced across machines via Lore Cloud (Supabase). Git is optional — install it for local version history, but cross-machine sync works without it.
 
 ```
 ~/.config/lore/           # Machine-specific config (NOT in any repo)
@@ -137,13 +137,13 @@ The `LORE_DATA_DIR` should point to a separate directory (its own git repo for c
 ├── auth.json             # Auth session token (created by `lore auth login`)
 └── sync-sources.json     # Sync source directories
 
-~/lore-data/              # Your data repo (separate git repo)
-├── sources/              # Ingested documents (git-tracked)
-├── retained/             # Explicitly saved insights (git-tracked)
+~/lore-data/              # Your data directory (git optional)
+├── sources/              # Ingested documents (cached locally)
+├── retained/             # Explicitly saved insights
 └── archived-projects.json
 
-Supabase (cloud):         # Vector index - shared across all machines
-├── sources table         # Document metadata + embeddings + user_id (RLS)
+Lore Cloud (Supabase):    # Primary sync layer - shared across all machines
+├── sources table         # Document metadata + content + embeddings + user_id (RLS)
 └── chunks table          # Quotes/chunks + embeddings + user_id (RLS)
 ```
 

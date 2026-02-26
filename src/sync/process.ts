@@ -269,7 +269,8 @@ async function indexSource(
   sourceId: string,
   file: DiscoveredFile,
   metadata: ExtractedMetadata,
-  dbPath: string
+  dbPath: string,
+  processedContent: string
 ): Promise<void> {
   // Generate embedding
   const searchableText = createSearchableText({
@@ -295,10 +296,12 @@ async function indexSource(
     vector: [],
   };
 
-  // Add to vector store with content_hash and source_path
+  // Add to vector store with content_hash, source_path, and content
   await addSource(dbPath, sourceRecord, vector, {
     content_hash: file.contentHash,
     source_path: file.absolutePath,
+    content: processedContent,
+    content_size: Buffer.byteLength(processedContent, 'utf-8'),
   });
 }
 
@@ -397,7 +400,7 @@ export async function processFiles(
         // 5. Index in Supabase — if this fails, disk content still exists
         //    and legacy sync will pick it up on the next run.
         try {
-          await indexSource(sourceId, file, metadata, dbPath);
+          await indexSource(sourceId, file, metadata, dbPath, contentText);
         } catch (supabaseError: unknown) {
           const errObj = supabaseError as { code?: string; message?: string };
           const isAuthError = errObj?.code === 'PGRST303'

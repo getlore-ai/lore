@@ -128,6 +128,8 @@ export async function addSource(
     source_path?: string;
     source_url?: string;
     source_name?: string;
+    content?: string;
+    content_size?: number;
   }
 ): Promise<void> {
   const client = await getSupabase();
@@ -161,6 +163,14 @@ export async function addSource(
   if (extras?.source_name) {
     record.source_name = extras.source_name;
   }
+  if (extras?.content) {
+    const size = extras.content_size ?? Buffer.byteLength(extras.content, 'utf-8');
+    // Skip content storage for documents exceeding 500KB (Supabase payload limit)
+    if (size <= 500 * 1024) {
+      record.content = extras.content;
+      record.content_size = size;
+    }
+  }
 
   const { error } = await client.from('sources').upsert(record);
 
@@ -184,6 +194,8 @@ export async function storeSources(
       source_path?: string;
       source_url?: string;
       source_name?: string;
+      content?: string;
+      content_size?: number;
     };
   }>
 ): Promise<void> {
@@ -218,13 +230,39 @@ export async function storeSources(
     if (extras?.source_name) {
       record.source_name = extras.source_name;
     }
+    if (extras?.content) {
+      const size = extras.content_size ?? Buffer.byteLength(extras.content, 'utf-8');
+      if (size <= 500 * 1024) {
+        record.content = extras.content;
+        record.content_size = size;
+      }
+    }
 
     return record;
   });
 
-  const { error } = await client.from('sources').upsert(records);
+  const { error } = await client.from('sources').upsert(records, {
+    onConflict: 'id',
+    ignoreDuplicates: false,
+  });
 
   if (error) {
+    // If batch fails due to duplicate content_hash, fall back to individual upserts
+    if (error.code === '23505') {
+      const failures: unknown[] = [];
+      for (const record of records) {
+        const { error: singleError } = await client.from('sources').upsert(record);
+        if (singleError && singleError.code !== '23505') {
+          console.error('[storeSources] Error upserting single record:', singleError);
+          failures.push(singleError);
+        }
+      }
+      if (failures.length > 0) {
+        const first = failures[0] as { message?: string };
+        throw new Error(first?.message || 'Unknown storeSources error');
+      }
+      return;
+    }
     console.error('[storeSources] Error:', error);
     throw error;
   }
@@ -512,6 +550,39 @@ export async function getSourceCount(
 // Retrieval Operations
 // ============================================================================
 
+/**
+ * Get all source IDs. Paginates to avoid Supabase's default 1000-row limit.
+ */
+export async function getAllSourceIds(_dbPath: string): Promise<Set<string>> {
+  const client = await getSupabase();
+  const ids = new Set<string>();
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await client
+      .from('sources')
+      .select('id')
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      console.error('Error getting source IDs:', error);
+      break;
+    }
+
+    if (!data || data.length === 0) break;
+
+    for (const row of data) {
+      ids.add(row.id);
+    }
+
+    if (data.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return ids;
+}
+
 export async function getAllSources(
   _dbPath: string,
   options: {
@@ -607,9 +678,105 @@ export async function getSourcesWithPaths(
     }));
 }
 
+/**
+ * Get content for specific sources from the database.
+ * Returns a map of source ID → content string.
+ * Only fetches content for the provided IDs to avoid unbounded queries.
+ */
+export async function getSourceContentMap(
+  _dbPath: string,
+  sourceIds: string[]
+): Promise<Map<string, string>> {
+  const client = await getSupabase();
+  const contentMap = new Map<string, string>();
+
+  if (sourceIds.length === 0) return contentMap;
+
+  // Fetch in batches of 50 to stay within Supabase payload limits
+  const batchSize = 50;
+  for (let i = 0; i < sourceIds.length; i += batchSize) {
+    const batch = sourceIds.slice(i, i + batchSize);
+    const { data, error } = await client
+      .from('sources')
+      .select('id, content')
+      .in('id', batch)
+      .not('content', 'is', null);
+
+    if (error) {
+      console.error('Error getting source content map:', error);
+      continue;
+    }
+
+    for (const row of data || []) {
+      if (row.id && row.content) {
+        contentMap.set(row.id, row.content);
+      }
+    }
+  }
+
+  return contentMap;
+}
+
+/**
+ * Get source IDs that do NOT have content stored in the cloud.
+ * Used by reconciliation to identify sources needing backfill.
+ */
+export async function getSourceIdsWithoutContent(
+  _dbPath: string
+): Promise<Set<string>> {
+  const client = await getSupabase();
+  // Limit to 200 per sync cycle to avoid large payloads and long backfill runs
+  const { data, error } = await client
+    .from('sources')
+    .select('id')
+    .is('content', null)
+    .limit(200);
+
+  if (error) {
+    console.error('Error getting sources without content:', error);
+    return new Set();
+  }
+
+  return new Set((data || []).map((row) => row.id));
+}
+
+/**
+ * Backfill content for existing sources that don't have cloud content.
+ * Used to push local content to Lore Cloud for pre-feature sources.
+ */
+export async function backfillSourceContent(
+  _dbPath: string,
+  updates: Array<{ id: string; content: string }>
+): Promise<number> {
+  if (updates.length === 0) return 0;
+
+  const client = await getSupabase();
+  let backfilled = 0;
+
+  for (const { id, content } of updates) {
+    const size = Buffer.byteLength(content, 'utf-8');
+    if (size > 500 * 1024) continue; // Skip oversized content
+
+    const { error } = await client
+      .from('sources')
+      .update({ content, content_size: size })
+      .eq('id', id)
+      .is('content', null); // Only update if still NULL (no race)
+
+    if (error) {
+      console.error(`[backfillSourceContent] Error updating ${id}:`, error.message);
+    } else {
+      backfilled++;
+    }
+  }
+
+  return backfilled;
+}
+
 export async function getSourceById(
   _dbPath: string,
-  sourceId: string
+  sourceId: string,
+  options?: { includeContent?: boolean }
 ): Promise<{
   id: string;
   title: string;
@@ -624,12 +791,19 @@ export async function getSourceById(
   source_url?: string;
   source_name?: string;
   source_path?: string;
+  content?: string;
+  content_size?: number;
 } | null> {
   const client = await getSupabase();
 
+  // Exclude the large content column by default
+  const columns = options?.includeContent
+    ? 'id, title, source_type, content_type, projects, tags, created_at, summary, themes_json, quotes_json, source_url, source_name, source_path, content, content_size'
+    : 'id, title, source_type, content_type, projects, tags, created_at, summary, themes_json, quotes_json, source_url, source_name, source_path';
+
   const { data, error } = await client
     .from('sources')
-    .select('*')
+    .select(columns)
     .eq('id', sourceId)
     .single();
 
@@ -638,20 +812,26 @@ export async function getSourceById(
     return null;
   }
 
+  const row = data as unknown as Record<string, unknown>;
+
   return {
-    id: data.id,
-    title: data.title,
-    source_type: data.source_type as SourceType,
-    content_type: data.content_type as ContentType,
-    projects: data.projects,
-    tags: data.tags,
-    created_at: data.created_at,
-    summary: data.summary,
-    themes: data.themes_json || [],
-    quotes: data.quotes_json || [],
-    source_url: data.source_url || undefined,
-    source_name: data.source_name || undefined,
-    source_path: data.source_path || undefined,
+    id: row.id as string,
+    title: row.title as string,
+    source_type: row.source_type as SourceType,
+    content_type: row.content_type as ContentType,
+    projects: row.projects as string[],
+    tags: row.tags as string[],
+    created_at: row.created_at as string,
+    summary: row.summary as string,
+    themes: (row.themes_json || []) as Theme[],
+    quotes: (row.quotes_json || []) as Quote[],
+    source_url: (row.source_url as string) || undefined,
+    source_name: (row.source_name as string) || undefined,
+    source_path: (row.source_path as string) || undefined,
+    ...(options?.includeContent ? {
+      content: (row.content as string) || undefined,
+      content_size: (row.content_size as number) || undefined,
+    } : {}),
   };
 }
 

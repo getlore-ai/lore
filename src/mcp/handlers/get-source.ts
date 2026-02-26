@@ -3,7 +3,7 @@
  */
 
 import { getSourceById } from '../../core/vector-store.js';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 
 interface GetSourceArgs {
@@ -18,7 +18,10 @@ export async function handleGetSource(
 ): Promise<unknown> {
   const { source_id, include_content = false } = args;
 
-  const source = await getSourceById(dbPath, source_id);
+  // Fetch with content included when requested — single DB round-trip
+  const source = await getSourceById(dbPath, source_id, {
+    includeContent: include_content,
+  });
 
   if (!source) {
     return { error: `Source not found: ${source_id}` };
@@ -41,24 +44,31 @@ export async function handleGetSource(
 
   // Include full content if requested
   if (include_content) {
+    let diskContent: string | null = null;
+
     try {
       const contentPath = path.join(dataDir, 'sources', source_id, 'content.md');
-      const content = await readFile(contentPath, 'utf-8');
-
-      // Skip reconciliation stubs — they only contain the summary
-      if (content.startsWith('<!-- lore:stub -->')) {
-        result.full_content = null;
-        result.content_note = 'Content not yet synced to this machine. Only summary available.';
-      } else if (content.startsWith('<<<<<<< ')) {
-        // Git merge conflict markers — file is corrupted, don't return garbled content
-        result.full_content = null;
-        result.content_note = 'Content file has unresolved git merge conflicts. Run `lore sync` or resolve manually.';
-      } else {
-        result.full_content = content;
-      }
+      diskContent = await readFile(contentPath, 'utf-8');
     } catch {
+      // File not on disk
+    }
+
+    // Use disk content if it's valid (not a stub or merge conflict)
+    if (diskContent && !diskContent.startsWith('<!-- lore:stub -->') && !diskContent.startsWith('<<<<<<< ')) {
+      result.full_content = diskContent;
+    } else if (source.content) {
+      // Use content already fetched from Lore Cloud
+      result.full_content = source.content;
+      // Cache to disk for future reads
+      try {
+        await mkdir(path.join(dataDir, 'sources', source_id), { recursive: true });
+        await writeFile(path.join(dataDir, 'sources', source_id, 'content.md'), source.content);
+      } catch {
+        // Non-fatal — disk cache is nice-to-have
+      }
+    } else {
       result.full_content = null;
-      result.content_note = 'Full content not available on disk';
+      result.content_note = 'Full content not available';
     }
   }
 

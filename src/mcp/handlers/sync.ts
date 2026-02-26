@@ -17,9 +17,12 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 import {
-  getAllSources,
+  getAllSourceIds,
   addSource,
+  getSourceContentMap,
   getSourcesWithPaths,
+  getSourceIdsWithoutContent,
+  backfillSourceContent,
   getSupabase,
   resetDatabaseConnection,
 } from '../../core/vector-store.js';
@@ -164,6 +167,8 @@ async function indexSource(
   await addSource(dbPath, sourceRecord, vector, {
     content_hash: source.content_hash,
     source_path: source.source_path,
+    content: source.content,
+    content_size: Buffer.byteLength(source.content, 'utf-8'),
   });
 }
 
@@ -186,12 +191,12 @@ async function legacyDiskSync(
     const diskSources = await readdir(sourcesDir, { withFileTypes: true });
     const diskIds = diskSources
       .filter((d) => d.isDirectory() && !d.name.startsWith('.') && uuidPattern.test(d.name))
+      .filter((d) => existsSync(path.join(sourcesDir, d.name, 'metadata.json')))
       .map((d) => d.name);
 
     result.sources_found = diskIds.length;
 
-    const indexedSources = await getAllSources(dbPath, {});
-    const indexedIds = new Set(indexedSources.map((s) => s.id));
+    const indexedIds = await getAllSourceIds(dbPath);
     result.already_indexed = indexedIds.size;
 
     const unsyncedIds = diskIds.filter((id) => !indexedIds.has(id));
@@ -223,60 +228,99 @@ async function legacyDiskSync(
  *
  * Cost: One Supabase query + local filesystem checks. No LLM calls.
  */
-async function reconcileLocalContent(dataDir: string): Promise<number> {
+async function reconcileLocalContent(dataDir: string, dbPath: string): Promise<number> {
   const sourcesDir = path.join(dataDir, 'sources');
   const textExts = ['.md', '.txt', '.json', '.jsonl', '.csv', '.xml', '.yaml', '.yml', '.html', '.log'];
 
-  // Get all sources that have a source_path in Supabase
-  const sourcesWithPaths = await getSourcesWithPaths('');
-  if (sourcesWithPaths.length === 0) return 0;
+  // Get all source IDs (paginated, no 1000-row cap) + source_path map
+  const allSourceIds = await getAllSourceIds(dbPath);
+  if (allSourceIds.size === 0) return 0;
 
+  const sourcesWithPaths = await getSourcesWithPaths(dbPath);
+  const pathMap = new Map(sourcesWithPaths.map(s => [s.id, s.source_path]));
+
+  // Phase 1: Determine which sources are missing local content.md
+  const missingIds: string[] = [];
   let reconciled = 0;
-
-  for (const source of sourcesWithPaths) {
-    const sourceDir = path.join(sourcesDir, source.id);
-    const contentPath = path.join(sourceDir, 'content.md');
-
-    // Skip if content.md already exists and is not a reconciliation stub
+  for (const sourceId of allSourceIds) {
+    const contentPath = path.join(sourcesDir, sourceId, 'content.md');
     if (existsSync(contentPath)) {
       try {
         const existing = await readFile(contentPath, 'utf-8');
-        if (!existing.startsWith('<!-- lore:stub -->')) continue;
-        // It's a stub — try to replace with real content below
+        if (existing.trim().length > 0 && !existing.startsWith('<!-- lore:stub -->')) continue;
+        // Empty or stub — try to replace with real content below
       } catch {
-        continue;
+        // Unreadable file — try to replace
       }
     }
 
-    // Try to create content.md from the original source_path
-    let content: string | null = null;
-
-    if (existsSync(source.source_path)) {
-      const ext = path.extname(source.source_path).toLowerCase();
+    // Try original source_path first (no cloud fetch needed)
+    const sourcePath = pathMap.get(sourceId);
+    if (sourcePath && existsSync(sourcePath)) {
+      const ext = path.extname(sourcePath).toLowerCase();
       if (textExts.includes(ext)) {
         try {
-          content = await readFile(source.source_path, 'utf-8');
+          const content = await readFile(sourcePath, 'utf-8');
+          if (content) {
+            await mkdir(path.join(sourcesDir, sourceId), { recursive: true });
+            await writeFile(contentPath, content);
+            reconciled++;
+            continue; // Reconciled from disk — no cloud needed
+          }
         } catch {
-          // File can't be read — skip, real content will arrive via git
+          // Fall through to cloud fetch
         }
       }
     }
 
-    // If we couldn't read the original file, skip entirely.
-    // The real content will arrive via git pull from the machine that ingested it.
-    // Writing stubs causes merge conflicts when the real content is pulled later.
-    if (!content) {
-      continue;
-    }
+    missingIds.push(sourceId);
+  }
 
-    // Create the source directory and content.md
-    try {
-      await mkdir(sourceDir, { recursive: true });
-      await writeFile(contentPath, content);
-      reconciled++;
-    } catch {
-      // Skip on write failure — will retry on next sync
+  // Phase 2: Fetch cloud content only for sources still missing
+  if (missingIds.length > 0) {
+    const cloudContentMap = await getSourceContentMap(dbPath, missingIds);
+
+    for (const sourceId of missingIds) {
+      const content = cloudContentMap.get(sourceId);
+      if (!content) continue;
+
+      const sourceDir = path.join(sourcesDir, sourceId);
+      const contentPath = path.join(sourceDir, 'content.md');
+
+      try {
+        await mkdir(sourceDir, { recursive: true });
+        await writeFile(contentPath, content);
+        reconciled++;
+      } catch {
+        // Skip on write failure — will retry on next sync
+      }
     }
+  }
+
+  // Phase 3: Backfill cloud content for pre-feature sources
+  // Sources with local content.md but no cloud content get pushed to Lore Cloud
+  try {
+    const idsWithoutCloud = await getSourceIdsWithoutContent(dbPath);
+    if (idsWithoutCloud.size > 0) {
+      const backfillUpdates: Array<{ id: string; content: string }> = [];
+      for (const sourceId of idsWithoutCloud) {
+        const contentPath = path.join(sourcesDir, sourceId, 'content.md');
+        if (!existsSync(contentPath)) continue;
+        try {
+          const content = await readFile(contentPath, 'utf-8');
+          if (content && !content.startsWith('<!-- lore:stub -->')) {
+            backfillUpdates.push({ id: sourceId, content });
+          }
+        } catch {
+          // Skip unreadable files
+        }
+      }
+      if (backfillUpdates.length > 0) {
+        await backfillSourceContent(dbPath, backfillUpdates);
+      }
+    }
+  } catch {
+    // Backfill is best-effort — don't fail reconciliation
   }
 
   return reconciled;
@@ -432,7 +476,7 @@ export async function handleSync(
 
     // Reconcile: ensure every Supabase source has local content.md
     await onProgress?.(80, undefined, 'Reconciling local content...');
-    result.reconciled = await reconcileLocalContent(dataDir);
+    result.reconciled = await reconcileLocalContent(dataDir, dbPath);
   }
 
   // 3. Git commit + push (also flushes any previously unpushed commits)

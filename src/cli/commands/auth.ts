@@ -234,20 +234,19 @@ export function registerAuthCommands(program: Command): void {
       const gitCheck = checkGit();
 
       if (!gitCheck.installed) {
-        console.log(`  ${c.error('✗')} git not installed`);
-        console.log(`    ${c.dim('Install: https://git-scm.com/downloads')}`);
+        console.log(`  ${c.warning('⚠')} git not installed`);
+        console.log(`    ${c.dim('Cross-machine sync will use Lore Cloud. Install git for local version history.')}`);
         console.log('');
-        process.exit(1);
-      }
+      } else {
+        console.log(`  ${c.success('✓')} git ${gitCheck.version || '(unknown version)'}`);
 
-      console.log(`  ${c.success('✓')} git ${gitCheck.version || '(unknown version)'}`);
-
-      if (!gitCheck.configured) {
-        console.log(`  ${c.warning('⚠')} git user not configured`);
-        console.log(`    ${c.dim('Fix: git config --global user.email "you@example.com"')}`);
-        console.log(`    ${c.dim('     git config --global user.name "Your Name"')}`);
+        if (!gitCheck.configured) {
+          console.log(`  ${c.warning('⚠')} git user not configured`);
+          console.log(`    ${c.dim('Fix: git config --global user.email "you@example.com"')}`);
+          console.log(`    ${c.dim('     git config --global user.name "Your Name"')}`);
+        }
+        console.log('');
       }
-      console.log('');
 
       // ── Step 1: Configuration ───────────────────────────────────────
       console.log(c.bold('Step 1: Configuration\n'));
@@ -400,6 +399,7 @@ export function registerAuthCommands(program: Command): void {
       console.log(c.bold('Step 3: Data Repository\n'));
 
       const { existsSync } = await import('fs');
+      const { mkdir: mkdirFs } = await import('fs/promises');
       const { initDataRepo, isGhAvailable, createGithubRepo, getGitRemoteUrl, isGitRepo } = await import('../../core/data-repo.js');
       const { getUserSetting, setUserSetting, SETTING_DATA_REPO_URL } = await import('../../core/user-settings.js');
       const { resetDatabaseConnection } = await import('../../core/vector-store.js');
@@ -409,63 +409,149 @@ export function registerAuthCommands(program: Command): void {
 
       const resolvedDataDir = expandPath(dataDir || '~/.lore');
 
-      const dirExists = existsSync(resolvedDataDir);
-      const hasGitRemote = dirExists && isGitRepo(resolvedDataDir) && !!getGitRemoteUrl(resolvedDataDir);
+      if (!gitCheck.installed) {
+        // No git — just create data directory, skip all git operations
+        if (!existsSync(resolvedDataDir)) {
+          await mkdirFs(resolvedDataDir, { recursive: true });
+          await mkdirFs(path.join(resolvedDataDir, 'sources'), { recursive: true });
+          console.log(c.success(`Created data directory at ${resolvedDataDir}`));
+          console.log(c.dim('Cross-machine sync uses Lore Cloud (no git required).\n'));
+        } else {
+          console.log(c.success(`Data directory exists at ${resolvedDataDir}\n`));
+        }
+      } else {
+        // Git is available — full git-based setup
+        const dirExists = existsSync(resolvedDataDir);
+        const hasGitRemote = dirExists && isGitRepo(resolvedDataDir) && !!getGitRemoteUrl(resolvedDataDir);
 
-      if (dirExists && hasGitRemote) {
-        // Already fully set up
-        const remoteUrl = getGitRemoteUrl(resolvedDataDir)!;
-        console.log(c.success(`Data repo already set up at ${resolvedDataDir}`));
-        console.log(c.dim(`Remote: ${remoteUrl}\n`));
+        if (dirExists && hasGitRemote) {
+          // Already fully set up
+          const remoteUrl = getGitRemoteUrl(resolvedDataDir)!;
+          console.log(c.success(`Data repo already set up at ${resolvedDataDir}`));
+          console.log(c.dim(`Remote: ${remoteUrl}\n`));
 
-        // Save URL to Supabase if not already saved
-        try {
-          const savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
-          if (!savedUrl) {
-            await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
-            console.log(c.dim('Saved repo URL to your account for cross-machine discovery.\n'));
+          // Save URL to Supabase if not already saved
+          try {
+            const savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
+            if (!savedUrl) {
+              await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
+              console.log(c.dim('Saved repo URL to your account for cross-machine discovery.\n'));
+            }
+          } catch (err) {
+            console.log(c.dim(`Note: Could not sync repo URL to account: ${err instanceof Error ? err.message : err}`));
           }
-        } catch (err) {
-          console.log(c.dim(`Note: Could not sync repo URL to account: ${err instanceof Error ? err.message : err}`));
-        }
-      } else if (!dirExists) {
-        // Check Supabase for saved repo URL (Machine B scenario)
-        let savedUrl: string | null = null;
-        try {
-          savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
-        } catch (err) {
-          console.log(c.dim(`Could not check for existing repo URL: ${err instanceof Error ? err.message : err}`));
-        }
+        } else if (!dirExists) {
+          // Check Supabase for saved repo URL (Machine B scenario)
+          let savedUrl: string | null = null;
+          try {
+            savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
+          } catch (err) {
+            console.log(c.dim(`Could not check for existing repo URL: ${err instanceof Error ? err.message : err}`));
+          }
 
-        if (savedUrl) {
-          // Machine B: clone existing repo
-          console.log(c.success(`Found your data repo URL: ${savedUrl}`));
-          const cloneIt = nonInteractive ? 'y' : await prompt('Clone it to ' + resolvedDataDir + '? (y/n)', 'y');
+          if (savedUrl) {
+            // Machine B: clone existing repo
+            console.log(c.success(`Found your data repo URL: ${savedUrl}`));
+            const cloneIt = nonInteractive ? 'y' : await prompt('Clone it to ' + resolvedDataDir + '? (y/n)', 'y');
 
-          if (cloneIt.toLowerCase() === 'y') {
-            try {
-              const { execSync } = await import('child_process');
-              execSync(`git clone ${savedUrl} ${resolvedDataDir}`, { stdio: 'inherit' });
-              console.log(c.success('Cloned successfully!\n'));
-            } catch {
-              console.log(c.warning('Clone failed. You can clone manually later.\n'));
+            if (cloneIt.toLowerCase() === 'y') {
+              try {
+                const { execFileSync } = await import('child_process');
+                execFileSync('git', ['clone', savedUrl, resolvedDataDir], { stdio: 'inherit' });
+                console.log(c.success('Cloned successfully!\n'));
+              } catch {
+                console.log(c.warning('Clone failed. You can clone manually later.\n'));
+              }
+            } else {
+              console.log(c.dim('Skipped. You can clone manually later.\n'));
             }
           } else {
-            console.log(c.dim('Skipped. You can clone manually later.\n'));
+            // Machine A: create fresh repo
+            console.log(c.dim(`Creating data repository at ${resolvedDataDir}...\n`));
+            const initResult = await initDataRepo(resolvedDataDir);
+            if (initResult.gitInitialized) {
+              console.log(c.success('Created data repository.\n'));
+            } else {
+              console.log(c.warning(`Created data directory, but git init failed: ${initResult.error}`));
+              console.log(c.dim('You can initialize git manually later.\n'));
+            }
+
+            // Try to set up GitHub remote
+            if (await isGhAvailable()) {
+              const createRepo = nonInteractive ? 'y' : await prompt('Create a private GitHub repo for cross-machine sync? (y/n)', 'y');
+
+              if (createRepo.toLowerCase() === 'y') {
+                const repoName = nonInteractive ? 'lore-data' : await prompt('Repository name', 'lore-data');
+                const url = await createGithubRepo(resolvedDataDir, repoName);
+
+                if (url) {
+                  console.log(c.success(`Created and pushed to ${url}\n`));
+                  try {
+                    await setUserSetting(SETTING_DATA_REPO_URL, url);
+                    console.log(c.dim('Saved repo URL for cross-machine discovery.\n'));
+                  } catch {
+                    // Non-fatal
+                  }
+                } else {
+                  console.log(c.warning('GitHub repo creation failed. You can set up a remote manually.\n'));
+                }
+              }
+            } else if (!nonInteractive) {
+              const remoteUrl = await prompt('Git remote URL for cross-machine sync (or press Enter to skip)');
+
+              if (remoteUrl) {
+                try {
+                  const { execFileSync } = await import('child_process');
+                  execFileSync('git', ['remote', 'add', 'origin', remoteUrl], { cwd: resolvedDataDir, stdio: 'pipe' });
+                  execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: resolvedDataDir, stdio: 'pipe' });
+                  console.log(c.success(`Remote added and pushed.\n`));
+                  try {
+                    await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
+                  } catch {
+                    // Non-fatal
+                  }
+                } catch {
+                  console.log(c.warning('Could not push to remote. You can push manually later.\n'));
+                }
+              } else {
+                console.log(c.dim('Skipped remote setup. You can add one later with:\n'));
+                console.log(c.dim(`  cd ${resolvedDataDir} && git remote add origin <url> && git push -u origin main\n`));
+              }
+            }
           }
         } else {
-          // Machine A: create fresh repo
-          console.log(c.dim(`Creating data repository at ${resolvedDataDir}...\n`));
-          const initResult = await initDataRepo(resolvedDataDir);
-          if (initResult.gitInitialized) {
-            console.log(c.success('Created data repository.\n'));
-          } else {
-            console.log(c.warning(`Created data directory, but git init failed: ${initResult.error}`));
-            console.log(c.dim('You can initialize git manually later.\n'));
+          // Dir exists but no git remote — check Supabase first, then offer setup
+          console.log(c.dim(`Data directory exists at ${resolvedDataDir}, ensuring git is set up...\n`));
+          const initResult2 = await initDataRepo(resolvedDataDir);
+          if (!initResult2.gitInitialized) {
+            console.log(c.warning(`Git init issue: ${initResult2.error || 'unknown'}\n`));
           }
 
-          // Try to set up GitHub remote
-          if (await isGhAvailable()) {
+          // Check Supabase for a saved repo URL before offering to create a new one
+          let savedUrl: string | null = null;
+          try {
+            savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
+          } catch (err) {
+            console.log(c.dim(`Could not check for existing repo URL: ${err instanceof Error ? err.message : err}`));
+          }
+
+          if (savedUrl) {
+            // Found existing repo — add as remote and pull
+            console.log(c.success(`Found your data repo: ${savedUrl}`));
+            const useIt = nonInteractive ? 'y' : await prompt('Add as remote and pull? (y/n)', 'y');
+
+            if (useIt.toLowerCase() === 'y') {
+              try {
+                const { execFileSync } = await import('child_process');
+                execFileSync('git', ['remote', 'add', 'origin', savedUrl], { cwd: resolvedDataDir, stdio: 'pipe' });
+                execFileSync('git', ['fetch', 'origin'], { cwd: resolvedDataDir, stdio: 'pipe' });
+                execFileSync('git', ['reset', '--hard', 'origin/main'], { cwd: resolvedDataDir, stdio: 'pipe' });
+                console.log(c.success('Synced with existing repo!\n'));
+              } catch {
+                console.log(c.warning('Could not sync. You may need to set up the remote manually.\n'));
+              }
+            }
+          } else if (await isGhAvailable()) {
             const createRepo = nonInteractive ? 'y' : await prompt('Create a private GitHub repo for cross-machine sync? (y/n)', 'y');
 
             if (createRepo.toLowerCase() === 'y') {
@@ -476,12 +562,11 @@ export function registerAuthCommands(program: Command): void {
                 console.log(c.success(`Created and pushed to ${url}\n`));
                 try {
                   await setUserSetting(SETTING_DATA_REPO_URL, url);
-                  console.log(c.dim('Saved repo URL for cross-machine discovery.\n'));
                 } catch {
                   // Non-fatal
                 }
               } else {
-                console.log(c.warning('GitHub repo creation failed. You can set up a remote manually.\n'));
+                console.log(c.warning('GitHub repo creation failed.\n'));
               }
             }
           } else if (!nonInteractive) {
@@ -489,9 +574,9 @@ export function registerAuthCommands(program: Command): void {
 
             if (remoteUrl) {
               try {
-                const { execSync } = await import('child_process');
-                execSync(`git remote add origin ${remoteUrl}`, { cwd: resolvedDataDir, stdio: 'pipe' });
-                execSync('git push -u origin main', { cwd: resolvedDataDir, stdio: 'pipe' });
+                const { execFileSync } = await import('child_process');
+                execFileSync('git', ['remote', 'add', 'origin', remoteUrl], { cwd: resolvedDataDir, stdio: 'pipe' });
+                execFileSync('git', ['push', '-u', 'origin', 'main'], { cwd: resolvedDataDir, stdio: 'pipe' });
                 console.log(c.success(`Remote added and pushed.\n`));
                 try {
                   await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
@@ -502,80 +587,8 @@ export function registerAuthCommands(program: Command): void {
                 console.log(c.warning('Could not push to remote. You can push manually later.\n'));
               }
             } else {
-              console.log(c.dim('Skipped remote setup. You can add one later with:\n'));
-              console.log(c.dim(`  cd ${resolvedDataDir} && git remote add origin <url> && git push -u origin main\n`));
+              console.log(c.dim('Skipped remote setup.\n'));
             }
-          }
-        }
-      } else {
-        // Dir exists but no git remote — check Supabase first, then offer setup
-        console.log(c.dim(`Data directory exists at ${resolvedDataDir}, ensuring git is set up...\n`));
-        const initResult2 = await initDataRepo(resolvedDataDir);
-        if (!initResult2.gitInitialized) {
-          console.log(c.warning(`Git init issue: ${initResult2.error || 'unknown'}\n`));
-        }
-
-        // Check Supabase for a saved repo URL before offering to create a new one
-        let savedUrl: string | null = null;
-        try {
-          savedUrl = await getUserSetting(SETTING_DATA_REPO_URL);
-        } catch (err) {
-          console.log(c.dim(`Could not check for existing repo URL: ${err instanceof Error ? err.message : err}`));
-        }
-
-        if (savedUrl) {
-          // Found existing repo — add as remote and pull
-          console.log(c.success(`Found your data repo: ${savedUrl}`));
-          const useIt = nonInteractive ? 'y' : await prompt('Add as remote and pull? (y/n)', 'y');
-
-          if (useIt.toLowerCase() === 'y') {
-            try {
-              const { execSync } = await import('child_process');
-              execSync(`git remote add origin ${savedUrl}`, { cwd: resolvedDataDir, stdio: 'pipe' });
-              execSync('git fetch origin', { cwd: resolvedDataDir, stdio: 'pipe' });
-              execSync('git reset --hard origin/main', { cwd: resolvedDataDir, stdio: 'pipe' });
-              console.log(c.success('Synced with existing repo!\n'));
-            } catch {
-              console.log(c.warning('Could not sync. You may need to set up the remote manually.\n'));
-            }
-          }
-        } else if (await isGhAvailable()) {
-          const createRepo = nonInteractive ? 'y' : await prompt('Create a private GitHub repo for cross-machine sync? (y/n)', 'y');
-
-          if (createRepo.toLowerCase() === 'y') {
-            const repoName = nonInteractive ? 'lore-data' : await prompt('Repository name', 'lore-data');
-            const url = await createGithubRepo(resolvedDataDir, repoName);
-
-            if (url) {
-              console.log(c.success(`Created and pushed to ${url}\n`));
-              try {
-                await setUserSetting(SETTING_DATA_REPO_URL, url);
-              } catch {
-                // Non-fatal
-              }
-            } else {
-              console.log(c.warning('GitHub repo creation failed.\n'));
-            }
-          }
-        } else if (!nonInteractive) {
-          const remoteUrl = await prompt('Git remote URL for cross-machine sync (or press Enter to skip)');
-
-          if (remoteUrl) {
-            try {
-              const { execSync } = await import('child_process');
-              execSync(`git remote add origin ${remoteUrl}`, { cwd: resolvedDataDir, stdio: 'pipe' });
-              execSync('git push -u origin main', { cwd: resolvedDataDir, stdio: 'pipe' });
-              console.log(c.success(`Remote added and pushed.\n`));
-              try {
-                await setUserSetting(SETTING_DATA_REPO_URL, remoteUrl);
-              } catch {
-                // Non-fatal
-              }
-            } catch {
-              console.log(c.warning('Could not push to remote. You can push manually later.\n'));
-            }
-          } else {
-            console.log(c.dim('Skipped remote setup.\n'));
           }
         }
       }
@@ -696,6 +709,9 @@ export function registerAuthCommands(program: Command): void {
             console.log(c.success(`Daemon already running (PID: ${result.pid})\n`));
           } else {
             console.log(c.success(`Daemon started (PID: ${result.pid}). Watches for new files and auto-indexes.\n`));
+          }
+          if (!gitCheck.installed) {
+            console.log(c.dim('Note: git not installed — daemon will sync to Lore Cloud only.\n'));
           }
         } catch (err) {
           console.log(c.warning(`Could not start daemon: ${err instanceof Error ? err.message : err}`));

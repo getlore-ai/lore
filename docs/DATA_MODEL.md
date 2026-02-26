@@ -211,6 +211,12 @@ Stores source document metadata with summary embedding.
 | themes_json | JSON string | Extracted themes |
 | quotes_json | JSON string | Extracted quotes |
 | has_full_content | boolean | If full content on disk |
+| content | text | Full document content (cloud sync, ≤500KB) |
+| content_size | integer | Content size in bytes |
+| content_hash | string | SHA256 hash for deduplication |
+| source_path | string | Original file path (if synced from disk) |
+| source_url | string | Original URL (if applicable) |
+| source_name | string | Human-readable source label |
 | vector | float[1536] | Summary embedding |
 
 ### Chunks Table

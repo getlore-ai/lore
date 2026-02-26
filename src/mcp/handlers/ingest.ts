@@ -268,6 +268,8 @@ export async function handleIngest(
       content_hash: contentHash,
       source_url,
       source_name,
+      content,
+      content_size: Buffer.byteLength(content, 'utf-8'),
     });
 
     // Auto-push to git if enabled
