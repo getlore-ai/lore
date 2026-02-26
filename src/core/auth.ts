@@ -81,7 +81,15 @@ async function getAuthClient(): Promise<SupabaseClient> {
     );
   }
 
-  return createClient(url, key);
+  return createClient(url, key, {
+    auth: {
+      // These clients are ephemeral (used for a single refresh/OTP call).
+      // Disable auto-refresh and persistence to avoid background timers or
+      // storage side-effects that could interfere with our own session management.
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
 // ============================================================================
@@ -197,8 +205,61 @@ function toAuthSession(
 // ============================================================================
 
 /**
+ * Attempt a single token refresh. Returns the new session or null on failure.
+ * Does NOT fall back or retry — that's the caller's job.
+ */
+async function attemptRefresh(session: AuthSession): Promise<AuthSession | null> {
+  let refreshed: AuthSession | null = null;
+
+  try {
+    const client = await getAuthClient();
+    const { data, error } = await client.auth.refreshSession({
+      refresh_token: session.refresh_token,
+    });
+
+    if (error || !data.session || !data.user) {
+      console.error(`[auth] Token refresh failed: ${error?.message || 'no session returned'}`);
+      return null;
+    }
+
+    refreshed = {
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_at: data.session.expires_at || 0,
+      user: {
+        id: data.user.id,
+        email: data.user.email || session.user.email,
+      },
+    };
+  } catch (err) {
+    console.error(`[auth] Token refresh error: ${err}`);
+    return null;
+  }
+
+  // Save outside the try/catch so a disk write failure doesn't discard
+  // the successfully refreshed session (the old refresh token is already
+  // invalidated by Supabase's token rotation).
+  try {
+    await saveAuthSession(refreshed);
+  } catch (err) {
+    console.error(`[auth] Failed to save refreshed session to disk: ${err}`);
+    // Still return the refreshed session — it's valid in memory even if
+    // the disk write failed. Next refresh will re-read the old file and
+    // fail, but at least THIS request won't unnecessarily fail.
+  }
+
+  return refreshed;
+}
+
+/**
  * Get a valid session, auto-refreshing if near expiry (within 5 minutes).
- * Returns null if no session or refresh fails.
+ *
+ * Handles race conditions with other processes (CLI + MCP server) that may
+ * have already refreshed the token via Supabase's refresh token rotation.
+ * On refresh failure, re-reads auth.json to pick up tokens saved by other
+ * processes, and retries once.
+ *
+ * We never delete auth.json here — preserves refresh_token for later retry.
  */
 export async function getValidSession(): Promise<AuthSession | null> {
   const session = await loadAuthSession();
@@ -212,47 +273,36 @@ export async function getValidSession(): Promise<AuthSession | null> {
     return session;
   }
 
-  // Try to refresh the token.
-  // If refresh fails but token hasn't technically expired yet, return it.
-  // If refresh fails AND token is past expires_at, return null (unusable).
-  // We never delete auth.json here — preserves refresh_token for later retry.
-  try {
-    const client = await getAuthClient();
-    const { data, error } = await client.auth.refreshSession({
-      refresh_token: session.refresh_token,
-    });
+  // Attempt 1: refresh with the token we have
+  const refreshed = await attemptRefresh(session);
+  if (refreshed) return refreshed;
 
-    if (error || !data.session || !data.user) {
-      console.error(`[auth] Token refresh failed: ${error?.message || 'no session returned'}`);
-      // Token hasn't expired yet — still usable despite refresh failure
-      if (session.expires_at > now) {
-        return session;
-      }
-      // Token is actually expired AND refresh failed — unusable
-      console.error('[auth] Session expired and refresh failed. Run \'lore auth login\' to re-authenticate.');
-      return null;
+  // Refresh failed. Another process (CLI or MCP server) may have already
+  // refreshed and saved a new token to auth.json (Supabase rotates refresh
+  // tokens, so our token is now invalidated). Re-read auth.json to check.
+  const freshSession = await loadAuthSession();
+  if (freshSession && freshSession.refresh_token !== session.refresh_token) {
+    // auth.json was updated by another process
+    if (freshSession.expires_at > now + bufferSeconds) {
+      // The other process's access token is still valid — use it directly
+      return freshSession;
     }
-
-    const refreshed: AuthSession = {
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-      expires_at: data.session.expires_at || 0,
-      user: {
-        id: data.user.id,
-        email: data.user.email || session.user.email,
-      },
-    };
-
-    await saveAuthSession(refreshed);
-    return refreshed;
-  } catch (err) {
-    console.error(`[auth] Token refresh error: ${err}`);
-    if (session.expires_at > now) {
-      return session;
-    }
-    console.error('[auth] Session expired and refresh failed. Run \'lore auth login\' to re-authenticate.');
-    return null;
+    // The other process refreshed but its access token is also near expiry —
+    // try refreshing with the new refresh token
+    const retried = await attemptRefresh(freshSession);
+    if (retried) return retried;
   }
+
+  // All refresh attempts failed.
+  // If the access token hasn't technically expired yet, return it —
+  // let the actual API call decide if it's usable.
+  const bestSession = freshSession || session;
+  if (bestSession.expires_at > now) {
+    return bestSession;
+  }
+
+  console.error('[auth] Session expired and all refresh attempts failed. Run \'lore auth login\' to re-authenticate.');
+  return null;
 }
 
 /**

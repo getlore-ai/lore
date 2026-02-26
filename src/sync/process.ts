@@ -19,7 +19,7 @@ import type { DiscoveredFile } from './discover.js';
 import type { ContentType, SourceRecord } from '../core/types.js';
 import { processFile, type ProcessedContent, type ImageMediaType } from './processors.js';
 import { generateEmbedding, createSearchableText } from '../core/embedder.js';
-import { addSource } from '../core/vector-store.js';
+import { addSource, resetDatabaseConnection } from '../core/vector-store.js';
 import { gitCommitAndPush } from '../core/git.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
 
@@ -405,7 +405,9 @@ export async function processFiles(
             || errObj?.message?.includes('Invalid JWT')
             || errObj?.message?.includes('Not authenticated');
           if (isAuthError) {
-            // Auth errors will affect ALL remaining files — abort to prevent wasted LLM spend
+            // Auth errors will affect ALL remaining files — abort to prevent wasted LLM spend.
+            // Reset the cached client so the next sync cycle starts with a fresh auth check.
+            resetDatabaseConnection();
             console.error(`[process] Auth error for ${file.relativePath}: ${supabaseError}`);
             throw new Error(`Auth failed (JWT expired or invalid). Aborting sync to prevent wasted API spend. Run 'lore auth login' to re-authenticate.`);
           }
@@ -465,6 +467,12 @@ export async function processFiles(
         );
       }
     }
+
+    // Abort all remaining batches if an auth error was detected.
+    // Auth errors affect every subsequent Supabase call, so continuing
+    // would only waste LLM spend on files that can't be indexed.
+    const authAbort = result.errors.some(e => e.error.startsWith('Auth failed'));
+    if (authAbort) break;
 
     // Small delay between batches to avoid rate limits
     if (i + concurrency < files.length) {
