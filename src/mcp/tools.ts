@@ -145,9 +145,17 @@ const ResearchSchema = z.object({
 // ============================================================================
 
 const IngestSchema = z.object({
-  content: z.string().describe('The document content to ingest'),
+  action: z
+    .enum(['add', 'update', 'delete'])
+    .optional()
+    .describe('Action: add (default), update (requires id + content), delete (requires id)'),
+  id: z
+    .string()
+    .optional()
+    .describe('Source ID (required for update and delete)'),
+  content: z.string().optional().describe('The document content. Required for add and update; ignored for delete.'),
   title: z.string().optional().describe('Title for the document. Auto-generated from content if not provided.'),
-  project: z.string().describe('Project this document belongs to'),
+  project: z.string().optional().describe('Project this document belongs to (required for add)'),
   source_type: z
     .string()
     .optional()
@@ -254,7 +262,7 @@ export const toolDefinitions = [
   },
   {
     name: 'ingest',
-    description: `Add content to the knowledge base. Idempotent (SHA256 dedup). Pass source_url and source_name when available for citation linking. Title and source_type are optional.`,
+    description: `Manage content in the knowledge base. Actions: add (default, requires content + project, SHA256 dedup), update (requires id + content, replaces content and re-embeds), delete (requires id, soft-deletes — recoverable via CLI). Pass source_url and source_name when available for citation linking.`,
     inputSchema: zodToJsonSchema(IngestSchema),
   },
   {

@@ -109,20 +109,7 @@ async function handleLogDelete(
   const result = await deleteSource(dbPath, args.id);
   if (!result.deleted) throw new Error('Failed to delete log entry.');
 
-  // Clean up on-disk source directory + path index
-  const { resolveSourceDir, removeFromPathIndex } = await import('../../core/source-paths.js');
-  const { rm } = await import('fs/promises');
-  try {
-    const loreSourcePath = await resolveSourceDir(dataDir, args.id);
-    await rm(loreSourcePath, { recursive: true });
-  } catch {
-    // Directory may not exist on disk — not fatal
-  }
-  try {
-    await removeFromPathIndex(dataDir, args.id);
-  } catch {
-    // Path index update is best-effort
-  }
+  // Disk files are kept intact for restore (soft delete)
 
   // Add to blocklist so sync won't re-ingest
   if (result.contentHash) {

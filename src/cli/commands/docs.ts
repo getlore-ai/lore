@@ -1,7 +1,7 @@
 /**
  * Documents CLI Commands
  *
- * CRUD operations for documents: list, get, create, delete
+ * CRUD operations for documents: list, get, create, delete, restore
  */
 
 import type { Command } from 'commander';
@@ -21,11 +21,42 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
     .option('-p, --project <project>', 'Filter by project')
     .option('-t, --type <type>', 'Filter by source type')
     .option('-l, --limit <limit>', 'Max results (omit to show all)')
+    .option('--deleted', 'Show soft-deleted documents instead')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (options) => {
-      const { handleListSources } = await import('../../mcp/handlers/list-sources.js');
       const dataDir = options.dataDir;
       const dbPath = path.join(dataDir, 'lore.lance');
+
+      if (options.deleted) {
+        const { getDeletedSources } = await import('../../core/vector-store.js');
+        const sources = await getDeletedSources(dbPath, {
+          project: options.project,
+          limit: options.limit ? parseInt(options.limit) : undefined,
+        });
+
+        console.log(`\nDeleted documents (${sources.length}):`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+        if (sources.length === 0) {
+          console.log('No deleted documents found.');
+          return;
+        }
+
+        for (const source of sources) {
+          const created = new Date(source.created_at).toLocaleDateString();
+          const deleted = new Date(source.deleted_at).toLocaleDateString();
+          console.log(`\n🗑️  ${source.title}`);
+          console.log(`   ID: ${source.id}`);
+          console.log(`   Type: ${source.source_type}`);
+          console.log(`   Projects: ${source.projects.join(', ') || '(none)'}`);
+          console.log(`   Created: ${created} | Deleted: ${deleted}`);
+        }
+        console.log('\nRestore with: lore docs restore <id>');
+        console.log('');
+        return;
+      }
+
+      const { handleListSources } = await import('../../mcp/handlers/list-sources.js');
 
       const result = await handleListSources(dbPath, {
         project: options.project,
@@ -163,10 +194,10 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
       }
     });
 
-  // Delete document
+  // Delete document (soft delete)
   docsCmd
     .command('delete')
-    .description('Delete a document')
+    .description('Soft-delete a document (recoverable via restore)')
     .argument('<id>', 'Document ID')
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .option('--force', 'Skip confirmation')
@@ -199,31 +230,67 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
         }
       }
 
-      // Delete from vector store
+      // Soft-delete from vector store (keeps row with deleted_at set)
       const { deleteSource } = await import('../../core/vector-store.js');
-      const { sourcePath: originalPath } = await deleteSource(dbPath, docId);
+      const result = await deleteSource(dbPath, docId);
 
-      // Delete from disk (lore-data copy)
-      const { rm } = await import('fs/promises');
-      const { resolveSourceDir, removeFromPathIndex } = await import('../../core/source-paths.js');
-      const loreSourcePath = await resolveSourceDir(dataDir, docId);
-      try {
-        await rm(loreSourcePath, { recursive: true });
-      } catch {
-        // File may not exist on disk
-      }
-      await removeFromPathIndex(dataDir, docId);
-
-      // Delete original source file from sync directory (and commit to its repo)
-      if (originalPath) {
-        const { deleteFileAndCommit } = await import('../../core/git.js');
-        await deleteFileAndCommit(originalPath, `Delete: ${source.title.slice(0, 50)}`);
+      if (!result.deleted) {
+        console.error('Failed to delete document.');
+        process.exit(1);
       }
 
-      // Git commit the lore-data changes
-      const { gitCommitAndPush } = await import('../../core/git.js');
-      await gitCommitAndPush(dataDir, `Delete source: ${source.title.slice(0, 50)}`);
+      // Add to blocklist so sync won't re-ingest while deleted
+      if (result.contentHash) {
+        const { addToBlocklist } = await import('../../core/blocklist.js');
+        await addToBlocklist(dataDir, result.contentHash);
+      }
+
+      // Disk files are kept intact for restore — no rm, no path index removal
 
       console.log(`\n✓ Deleted: ${source.title}`);
+      console.log(`  Restore with: lore docs restore ${docId}`);
+    });
+
+  // Restore a soft-deleted document
+  docsCmd
+    .command('restore')
+    .description('Restore a soft-deleted document')
+    .argument('<id>', 'Document ID')
+    .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
+    .action(async (docId, options) => {
+      const dataDir = options.dataDir;
+      const dbPath = path.join(dataDir, 'lore.lance');
+
+      // Look up the source including deleted ones
+      const source = await getSourceById(dbPath, docId, { includeDeleted: true });
+      if (!source) {
+        console.error(`Document not found: ${docId}`);
+        process.exit(1);
+      }
+
+      if (!source.deleted_at) {
+        console.error(`Document is not deleted: ${source.title}`);
+        process.exit(1);
+      }
+
+      // Restore in database
+      const { restoreSource } = await import('../../core/vector-store.js');
+      const restored = await restoreSource(dbPath, docId);
+      if (!restored) {
+        console.error('Failed to restore document.');
+        process.exit(1);
+      }
+
+      // Remove from blocklist so sync can re-discover it
+      if (source.content_hash) {
+        try {
+          const { removeFromBlocklist } = await import('../../core/blocklist.js');
+          await removeFromBlocklist(dataDir, source.content_hash);
+        } catch {
+          // Blocklist cleanup is best-effort
+        }
+      }
+
+      console.log(`\n✓ Restored: ${source.title}`);
     });
 }

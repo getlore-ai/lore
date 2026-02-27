@@ -81,9 +81,7 @@ export function registerLogCommand(program: Command, defaultDataDir: string): vo
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (id, options) => {
       const { deleteSource, getSourceById, resolveSourceId } = await import('../../core/vector-store.js');
-      const { resolveSourceDir, removeFromPathIndex } = await import('../../core/source-paths.js');
       const { addToBlocklist } = await import('../../core/blocklist.js');
-      const { rm } = await import('fs/promises');
 
       const dbPath = path.join(options.dataDir, 'lore.lance');
 
@@ -110,14 +108,7 @@ export function registerLogCommand(program: Command, defaultDataDir: string): vo
         process.exit(1);
       }
 
-      // Clean up disk + blocklist
-      try {
-        const loreSourcePath = await resolveSourceDir(options.dataDir, resolvedId);
-        await rm(loreSourcePath, { recursive: true });
-      } catch { /* may not exist */ }
-      try {
-        await removeFromPathIndex(options.dataDir, resolvedId);
-      } catch { /* best-effort */ }
+      // Disk files are kept intact for restore (soft delete)
       if (result.contentHash) {
         await addToBlocklist(options.dataDir, result.contentHash);
       }
@@ -134,9 +125,7 @@ export function registerLogCommand(program: Command, defaultDataDir: string): vo
     .option('-d, --data-dir <dir>', 'Data directory', defaultDataDir)
     .action(async (project, options) => {
       const { getAllSources, deleteSource } = await import('../../core/vector-store.js');
-      const { resolveSourceDir, removeFromPathIndex } = await import('../../core/source-paths.js');
       const { addToBlocklist } = await import('../../core/blocklist.js');
-      const { rm } = await import('fs/promises');
       const readline = await import('readline');
 
       const dbPath = path.join(options.dataDir, 'lore.lance');
@@ -173,11 +162,6 @@ export function registerLogCommand(program: Command, defaultDataDir: string): vo
         if (result.deleted) {
           deleted++;
           hashes.push(result.contentHash);
-          try {
-            const loreSourcePath = await resolveSourceDir(options.dataDir, source.id);
-            await rm(loreSourcePath, { recursive: true });
-          } catch { /* may not exist */ }
-          await removeFromPathIndex(options.dataDir, source.id);
         }
       }
 

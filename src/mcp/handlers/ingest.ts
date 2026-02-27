@@ -9,7 +9,14 @@
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { randomUUID, createHash } from 'crypto';
-import { addSource, checkContentHashExists } from '../../core/vector-store.js';
+import {
+  addSource,
+  checkContentHashExists,
+  getSourceById,
+  deleteSource,
+  updateSourceContent,
+  updateSourceTitle,
+} from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { extractInsights } from '../../core/insight-extractor.js';
 import { gitCommitAndPush } from '../../core/git.js';
@@ -19,9 +26,11 @@ import { getExtensionRegistry } from '../../extensions/registry.js';
 import { scheduleBriefUpdate } from '../../core/brief-auto-update.js';
 
 interface IngestArgs {
-  content: string;
+  action?: 'add' | 'update' | 'delete';
+  id?: string;
+  content?: string;
   title?: string;
-  project: string;
+  project?: string;
   source_type?: string;
   date?: string;
   participants?: string[];
@@ -147,9 +156,32 @@ export async function handleIngest(
   args: IngestArgs,
   options: { autoPush?: boolean; hookContext?: { mode: 'mcp' | 'cli' } } = {}
 ): Promise<unknown> {
+  const action: string = args.action || 'add';
+
+  switch (action) {
+    case 'add':
+      return handleIngestAdd(dbPath, dataDir, args, options);
+    case 'update':
+      return handleIngestUpdate(dbPath, dataDir, args);
+    case 'delete':
+      return handleIngestDelete(dbPath, dataDir, args);
+    default:
+      throw new Error(`Unknown ingest action: ${action}. Use add, update, or delete.`);
+  }
+}
+
+async function handleIngestAdd(
+  dbPath: string,
+  dataDir: string,
+  args: IngestArgs,
+  options: { autoPush?: boolean; hookContext?: { mode: 'mcp' | 'cli' } } = {}
+): Promise<unknown> {
+  if (!args.content) throw new Error('content is required for ingest add');
+  if (!args.project) throw new Error('project is required for ingest add');
+
+  const content = args.content;
+  const rawProject = args.project;
   const {
-    content,
-    project: rawProject,
     source_type: raw_source_type,
     date,
     participants = [],
@@ -363,6 +395,71 @@ export async function handleIngest(
 
     return result;
   }
+}
+
+async function handleIngestUpdate(
+  dbPath: string,
+  _dataDir: string,
+  args: IngestArgs
+): Promise<unknown> {
+  if (!args.id) throw new Error('id is required for ingest update');
+  if (!args.content) throw new Error('content is required for ingest update');
+
+  const source = await getSourceById(dbPath, args.id);
+  if (!source) throw new Error(`Source not found: ${args.id}`);
+
+  const project = source.projects[0] || undefined;
+  const isShort = args.content.trim().length <= 500;
+  const summary = isShort
+    ? args.content
+    : args.content.slice(0, 200) + (args.content.length > 200 ? '...' : '');
+
+  const searchableText = createSearchableText({
+    type: 'summary',
+    text: summary,
+    project,
+  });
+  const embedding = await generateEmbedding(searchableText);
+
+  const contentOk = await updateSourceContent(dbPath, args.id, args.content, embedding, { summary });
+  if (!contentOk) throw new Error('Failed to update source content.');
+
+  if (args.title) {
+    await updateSourceTitle(dbPath, args.id, args.title);
+  }
+
+  return {
+    success: true,
+    id: args.id,
+    title: args.title || source.title,
+    project,
+  };
+}
+
+async function handleIngestDelete(
+  dbPath: string,
+  dataDir: string,
+  args: IngestArgs
+): Promise<unknown> {
+  if (!args.id) throw new Error('id is required for ingest delete');
+
+  const source = await getSourceById(dbPath, args.id);
+  if (!source) throw new Error(`Source not found: ${args.id}`);
+
+  const result = await deleteSource(dbPath, args.id);
+  if (!result.deleted) throw new Error('Failed to delete source.');
+
+  // Add to blocklist so sync won't re-ingest
+  if (result.contentHash) {
+    const { addToBlocklist } = await import('../../core/blocklist.js');
+    await addToBlocklist(dataDir, result.contentHash);
+  }
+
+  return {
+    success: true,
+    id: args.id,
+    deleted_title: source.title,
+  };
 }
 
 async function runSourceCreatedHook(

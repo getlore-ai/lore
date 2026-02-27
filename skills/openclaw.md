@@ -19,8 +19,9 @@ Lore is a research knowledge repository you have access to via MCP tools. It sto
 
 ## When to Ingest Content into Lore
 
-Push content into Lore using the `ingest` tool whenever you encounter information worth preserving:
+Use the `ingest` tool to manage content. Actions: `add` (default), `update`, `delete`.
 
+**Add** — push new content whenever you encounter information worth preserving:
 - **After conversations**: When a user shares meeting notes, interview transcripts, or important documents, ingest them so they're searchable later.
 - **External content**: When you fetch content from Slack, Notion, GitHub, email, or other systems, ingest the relevant parts into Lore.
 - **Decisions and context**: When important decisions are made or context is shared that future conversations will need.
@@ -30,7 +31,11 @@ Always include:
 - `source_name`: A human-readable label like "Slack #product-team" or "GitHub issue #42".
 - `project`: The project this content belongs to.
 
-Ingestion is idempotent — calling `ingest` with the same content twice is safe and cheap (returns immediately with `deduplicated: true`).
+Add is idempotent — calling `ingest` with the same content twice is safe and cheap (returns immediately with `deduplicated: true`).
+
+**Update** — replace content on an existing source: `ingest(action: "update", id: "source-id", content: "...")`
+
+**Delete** — soft-delete a source (recoverable via CLI): `ingest(action: "delete", id: "source-id")`
 
 ## When to Search Lore
 

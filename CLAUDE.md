@@ -53,11 +53,11 @@ WORKING CONTEXT (research packages, project summaries for agents)
 | `list_projects` | Simple | Project overview |
 | `get_brief` | Simple | Get living project brief with staleness info |
 | `log` | Simple | Log entries: add/update/delete via `action` param (hidden from list_sources) |
-| `ingest` | Simple | Add content — documents, insights, decisions |
+| `ingest` | Simple | Manage content: add/update/delete via `action` param (soft-delete, recoverable) |
 | `research` | Agentic | Async research job with `depth` (quick/standard/deep) |
 | `research_status` | Simple | Poll for research results (long-polls up to 20s) |
 
-CLI-only tools (not exposed via MCP): `sync`, `archive_project`, `brief generate`, `brief status`, `log show/clear` (view/manage log)
+CLI-only tools (not exposed via MCP): `sync`, `archive_project`, `brief generate`, `brief status`, `log show/clear` (view/manage log), `docs restore` (restore soft-deleted sources), `docs list --deleted`
 
 ## Project Structure
 

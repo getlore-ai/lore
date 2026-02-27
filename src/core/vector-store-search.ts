@@ -145,7 +145,8 @@ export async function getSourceCount(
 
   let query = client
     .from('sources')
-    .select('*', { count: 'exact', head: true });
+    .select('*', { count: 'exact', head: true })
+    .is('deleted_at', null);
 
   if (source_type) {
     query = query.eq('source_type', source_type);

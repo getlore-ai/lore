@@ -14,7 +14,7 @@ export async function getThemeStats(
   const client = await getSupabase();
   const stats = new Map<string, { source_count: number; quote_count: number }>();
 
-  let query = client.from('sources').select('themes_json, quotes_json, projects');
+  let query = client.from('sources').select('themes_json, quotes_json, projects').is('deleted_at', null);
 
   if (project) {
     query = query.contains('projects', [project]);
@@ -58,7 +58,8 @@ export async function getProjectStats(
 
   const { data, error } = await client
     .from('sources')
-    .select('projects, quotes_json, created_at');
+    .select('projects, quotes_json, created_at')
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error getting project stats:', error);

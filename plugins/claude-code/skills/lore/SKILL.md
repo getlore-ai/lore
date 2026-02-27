@@ -38,7 +38,7 @@ After setup, Lore works autonomously.
 | `list_projects` | Low | Discover available knowledge domains |
 | `get_brief` | Low | Get the living project brief — start here for project context |
 | `log` | Low | Log entries: add/update/delete (hidden from list_sources by default) |
-| `ingest` | Low-Medium | Push content — documents, insights, or decisions |
+| `ingest` | Low-Medium | Manage content — add/update/delete documents, insights, or decisions |
 | `research` | High | Cross-reference sources, synthesize (depth: quick/standard/deep) |
 | `research_status` | Low | Poll for research results (long-polls up to 20s) |
 
@@ -52,7 +52,9 @@ After setup, Lore works autonomously.
 
 ## When to Ingest
 
-Use `ingest` to push content into Lore when:
+Use `ingest` to manage content in Lore. Actions: `add` (default), `update`, `delete`.
+
+**Add** — push new content:
 - Working context should be preserved for future sessions
 - Documents, specs, or research are shared that the team needs to reference later
 - You encounter important external content (from integrations, web, etc.)
@@ -62,6 +64,16 @@ Always pass `source_url` (original URL for linking) and `source_name` (human-rea
 For short insights, decisions, or notes — title and source_type are optional:
 ```
 ingest(content: "We chose JWT for auth", project: "auth-system")
+```
+
+**Update** — replace content on an existing source (requires `id` + `content`):
+```
+ingest(action: "update", id: "source-id", content: "Updated content...")
+```
+
+**Delete** — soft-delete a source (requires `id`, recoverable via `lore docs restore`):
+```
+ingest(action: "delete", id: "source-id")
 ```
 
 ## When to Search

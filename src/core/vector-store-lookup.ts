@@ -20,6 +20,7 @@ export async function findSourceByPath(
     .from('sources')
     .select('id, content_hash')
     .eq('source_path', sourcePath)
+    .is('deleted_at', null)
     .limit(1)
     .single();
 
@@ -50,7 +51,8 @@ export async function getSourcePathMappings(
     const { data, error } = await client
       .from('sources')
       .select('id, source_path, content_hash')
-      .in('source_path', batch);
+      .in('source_path', batch)
+      .is('deleted_at', null);
 
     if (error) {
       console.error('Error getting source path mappings:', error);
@@ -84,6 +86,7 @@ export async function checkContentHashExists(
     .from('sources')
     .select('id')
     .eq('content_hash', contentHash)
+    .is('deleted_at', null)
     .limit(1);
 
   if (error) {
@@ -111,7 +114,8 @@ export async function getExistingContentHashes(
     const { data, error } = await client
       .from('sources')
       .select('content_hash')
-      .in('content_hash', batch);
+      .in('content_hash', batch)
+      .is('deleted_at', null);
 
     if (error) {
       console.error('Error checking content hashes:', error);

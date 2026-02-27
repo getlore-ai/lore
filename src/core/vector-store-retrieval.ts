@@ -25,6 +25,7 @@ export async function getAllSourceIds(_dbPath: string): Promise<Set<string>> {
     const { data, error } = await client
       .from('sources')
       .select('id')
+      .is('deleted_at', null)
       .range(offset, offset + pageSize - 1);
 
     if (error) {
@@ -72,6 +73,7 @@ export async function getAllSources(
   let query = client
     .from('sources')
     .select('id, title, source_type, content_type, projects, created_at, indexed_at, summary')
+    .is('deleted_at', null)
     .order(sort_by, { ascending: false });
 
   if (source_type) {
@@ -128,7 +130,8 @@ export async function getSourcesWithPaths(
   const { data, error } = await client
     .from('sources')
     .select('id, title, summary, source_path')
-    .not('source_path', 'is', null);
+    .not('source_path', 'is', null)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error getting sources with paths:', error);
@@ -167,7 +170,8 @@ export async function getSourceContentMap(
       .from('sources')
       .select('id, content')
       .in('id', batch)
-      .not('content', 'is', null);
+      .not('content', 'is', null)
+      .is('deleted_at', null);
 
     if (error) {
       console.error('Error getting source content map:', error);
@@ -197,6 +201,7 @@ export async function getSourceIdsWithoutContent(
     .from('sources')
     .select('id')
     .is('content', null)
+    .is('deleted_at', null)
     .limit(200);
 
   if (error) {
@@ -228,7 +233,8 @@ export async function backfillSourceContent(
       .from('sources')
       .update({ content, content_size: size })
       .eq('id', id)
-      .is('content', null); // Only update if still NULL (no race)
+      .is('content', null) // Only update if still NULL (no race)
+      .is('deleted_at', null);
 
     if (error) {
       console.error(`[backfillSourceContent] Error updating ${id}:`, error.message);
@@ -259,6 +265,7 @@ export async function getSourceContentSizes(
       .from('sources')
       .select('id, content_size')
       .not('content', 'is', null)
+      .is('deleted_at', null)
       .range(offset, offset + pageSize - 1);
 
     if (project) {
@@ -290,7 +297,7 @@ export async function getSourceContentSizes(
 export async function getSourceById(
   _dbPath: string,
   sourceId: string,
-  options?: { includeContent?: boolean }
+  options?: { includeContent?: boolean; includeDeleted?: boolean }
 ): Promise<{
   id: string;
   title: string;
@@ -305,21 +312,29 @@ export async function getSourceById(
   source_url?: string;
   source_name?: string;
   source_path?: string;
+  content_hash?: string;
   content?: string;
   content_size?: number;
+  deleted_at?: string;
 } | null> {
   const client = await getSupabase();
 
   // Exclude the large content column by default
+  const baseColumns = 'id, title, source_type, content_type, projects, tags, created_at, summary, themes_json, quotes_json, source_url, source_name, source_path, content_hash, deleted_at';
   const columns = options?.includeContent
-    ? 'id, title, source_type, content_type, projects, tags, created_at, summary, themes_json, quotes_json, source_url, source_name, source_path, content, content_size'
-    : 'id, title, source_type, content_type, projects, tags, created_at, summary, themes_json, quotes_json, source_url, source_name, source_path';
+    ? baseColumns + ', content, content_size'
+    : baseColumns;
 
-  const { data, error } = await client
+  let query = client
     .from('sources')
     .select(columns)
-    .eq('id', sourceId)
-    .single();
+    .eq('id', sourceId);
+
+  if (!options?.includeDeleted) {
+    query = query.is('deleted_at', null);
+  }
+
+  const { data, error } = await query.single();
 
   if (error || !data) {
     console.error('Error getting source by ID:', error);
@@ -342,6 +357,8 @@ export async function getSourceById(
     source_url: (row.source_url as string) || undefined,
     source_name: (row.source_name as string) || undefined,
     source_path: (row.source_path as string) || undefined,
+    content_hash: (row.content_hash as string) || undefined,
+    deleted_at: (row.deleted_at as string) || undefined,
     ...(options?.includeContent ? {
       content: (row.content as string) || undefined,
       content_size: (row.content_size as number) || undefined,
@@ -364,6 +381,7 @@ export async function resolveSourceId(
     .from('sources')
     .select('id')
     .eq('id', idOrPrefix)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (exact) return exact.id;
@@ -374,6 +392,7 @@ export async function resolveSourceId(
       .from('sources')
       .select('id')
       .like('id', `${idOrPrefix}%`)
+      .is('deleted_at', null)
       .limit(2);
 
     if (prefixMatches?.length === 1) return prefixMatches[0].id;
@@ -392,21 +411,28 @@ export async function deleteSource(
 ): Promise<{ deleted: boolean; contentHash?: string; sourcePath?: string }> {
   const client = await getSupabase();
 
-  // Fetch content_hash and source_path before deleting so callers can
-  // record the hash in the blocklist and remove the original file
+  // Fetch content_hash and source_path from non-deleted row only
   const { data } = await client
     .from('sources')
     .select('content_hash, source_path')
     .eq('id', sourceId)
+    .is('deleted_at', null)
     .single();
 
-  const contentHash = data?.content_hash as string | undefined;
-  const sourcePath = data?.source_path as string | undefined;
+  if (!data) {
+    // Row doesn't exist or is already deleted
+    return { deleted: false };
+  }
 
+  const contentHash = data.content_hash as string | undefined;
+  const sourcePath = data.source_path as string | undefined;
+
+  // Soft delete — set deleted_at timestamp instead of removing the row
   const { error } = await client
     .from('sources')
-    .delete()
-    .eq('id', sourceId);
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', sourceId)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error deleting source:', error);
@@ -414,6 +440,79 @@ export async function deleteSource(
   }
 
   return { deleted: true, contentHash, sourcePath };
+}
+
+/**
+ * Restore a soft-deleted source by clearing its deleted_at timestamp.
+ */
+export async function restoreSource(
+  _dbPath: string,
+  sourceId: string
+): Promise<boolean> {
+  const client = await getSupabase();
+
+  const { error } = await client
+    .from('sources')
+    .update({ deleted_at: null })
+    .eq('id', sourceId)
+    .not('deleted_at', 'is', null); // Only restore actually-deleted rows
+
+  if (error) {
+    console.error('Error restoring source:', error);
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Get all soft-deleted sources.
+ */
+export async function getDeletedSources(
+  _dbPath: string,
+  options: { project?: string; limit?: number } = {}
+): Promise<
+  Array<{
+    id: string;
+    title: string;
+    source_type: string;
+    projects: string[];
+    created_at: string;
+    deleted_at: string;
+  }>
+> {
+  const client = await getSupabase();
+  const { project, limit } = options;
+
+  let query = client
+    .from('sources')
+    .select('id, title, source_type, projects, created_at, deleted_at')
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false });
+
+  if (project) {
+    query = query.contains('projects', [project]);
+  }
+
+  if (limit) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error getting deleted sources:', error);
+    return [];
+  }
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    title: row.title,
+    source_type: row.source_type,
+    projects: row.projects,
+    created_at: row.created_at,
+    deleted_at: row.deleted_at,
+  }));
 }
 
 
@@ -430,7 +529,8 @@ export async function updateSourceProjects(
   const { error } = await client
     .from('sources')
     .update({ projects })
-    .eq('id', sourceId);
+    .eq('id', sourceId)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error updating source projects:', error);
@@ -453,7 +553,8 @@ export async function updateSourceTitle(
   const { error } = await client
     .from('sources')
     .update({ title })
-    .eq('id', sourceId);
+    .eq('id', sourceId)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error updating source title:', error);
@@ -466,13 +567,15 @@ export async function updateSourceTitle(
 
 /**
  * Update a source's content and re-embed for search.
- * Used by log update to fix content while preserving the original timestamp.
+ * Used by log update and ingest update. Pass `summary` for long content;
+ * defaults to full content (fine for short log entries).
  */
 export async function updateSourceContent(
   _dbPath: string,
   sourceId: string,
   content: string,
-  embedding: number[]
+  embedding: number[],
+  options?: { summary?: string }
 ): Promise<boolean> {
   const client = await getSupabase();
   const contentSize = Buffer.byteLength(content, 'utf-8');
@@ -484,10 +587,11 @@ export async function updateSourceContent(
       content,
       content_size: contentSize,
       content_hash: contentHash,
-      summary: content,
+      summary: options?.summary ?? content,
       embedding,
     })
-    .eq('id', sourceId);
+    .eq('id', sourceId)
+    .is('deleted_at', null);
 
   if (error) {
     if ((error as any).code === '23505') {
@@ -514,7 +618,8 @@ export async function updateSourceContentType(
   const { error } = await client
     .from('sources')
     .update({ content_type: contentType })
-    .eq('id', sourceId);
+    .eq('id', sourceId)
+    .is('deleted_at', null);
 
   if (error) {
     console.error('Error updating source content type:', error);

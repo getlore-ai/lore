@@ -54,3 +54,23 @@ export async function addToBlocklist(
   const filePath = blocklistPath(dataDir);
   await writeFile(filePath, JSON.stringify([...existing], null, 2) + '\n');
 }
+
+/**
+ * Remove a content hash from the blocklist (e.g. when restoring a soft-deleted source).
+ */
+export async function removeFromBlocklist(
+  dataDir: string,
+  hash: string
+): Promise<void> {
+  const existing = await loadBlocklist(dataDir);
+  if (!existing.has(hash)) return;
+
+  existing.delete(hash);
+
+  const filePath = blocklistPath(dataDir);
+  if (existing.size === 0) {
+    await writeFile(filePath, '[]\n');
+  } else {
+    await writeFile(filePath, JSON.stringify([...existing], null, 2) + '\n');
+  }
+}

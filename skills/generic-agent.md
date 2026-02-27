@@ -53,9 +53,10 @@ Quick status updates, decisions, and progress notes. Supports `action`: `add` (d
 
 Log entries are searchable via `search` and included in project briefs. Hidden from `list_sources` by default (pass `include_logs: true` to see them).
 
-### `ingest` — Push content into Lore
-The primary way to add content. Accepts any document with metadata.
+### `ingest` — Manage content in Lore
+Add, update, or delete content. Supports `action`: `add` (default), `update`, `delete`.
 
+**Add** (default) — push new content:
 ```json
 {
   "content": "Full document text...",
@@ -77,7 +78,24 @@ For short insights, decisions, or notes — title and source_type are optional:
 }
 ```
 
-- **Idempotent**: Duplicate content returns `{deduplicated: true}` with no processing cost.
+**Update** — replace content on an existing source:
+```json
+{
+  "action": "update",
+  "id": "source-id",
+  "content": "Updated content with new information..."
+}
+```
+
+**Delete** — soft-delete a source (recoverable via `lore docs restore` in CLI):
+```json
+{
+  "action": "delete",
+  "id": "source-id"
+}
+```
+
+- **Idempotent**: Duplicate content on add returns `{deduplicated: true}` with no processing cost.
 - **source_type**: Free-form string. Common values: `meeting`, `interview`, `document`, `notes`, `analysis`, `conversation`, `slack`, `email`, `github-issue`, `notion`.
 - **source_url**: Always pass when available — enables citation linking.
 - **source_name**: Human-readable origin label.

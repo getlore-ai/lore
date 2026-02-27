@@ -37,7 +37,7 @@ After setup, Lore works autonomously.
 | `list_projects` | Low | Discover available knowledge domains |
 | `get_brief` | Low | Get the living project brief — start here for project context |
 | `log` | Low | Log entries: add/update/delete (hidden from list_sources by default) |
-| `ingest` | Low-Medium | Push content — documents, insights, or decisions |
+| `ingest` | Low-Medium | Manage content — add/update/delete documents, insights, or decisions |
 | `research` | High | Cross-reference sources, synthesize (depth: quick/standard/deep) |
 | `research_status` | Low | Poll for research results (long-polls up to 20s) |
 
@@ -51,7 +51,7 @@ After setup, Lore works autonomously.
 
 ## When to Ingest
 
-Use `ingest` to push content into Lore when working context should be preserved, documents are shared, or you encounter important external content. Always pass `source_url` and `source_name` when available. Ingestion is idempotent.
+Use `ingest` to manage content in Lore. Actions: `add` (default), `update` (requires `id` + `content`), `delete` (requires `id`, soft-deletes — recoverable via CLI). Always pass `source_url` and `source_name` when available. Add is idempotent (SHA256 dedup).
 
 ## When to Search
 
