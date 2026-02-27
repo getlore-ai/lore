@@ -5,7 +5,14 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const _execAsync = promisify(exec);
+
+// Wrapper with increased maxBuffer — large repos (thousands of files) can
+// exceed Node's default 1MB limit on git status/pull/push output.
+const MAX_BUFFER = 50 * 1024 * 1024; // 50MB
+function execAsync(command: string, options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
+  return _execAsync(command, { ...options, maxBuffer: MAX_BUFFER });
+}
 
 /**
  * Check if a rebase is in progress (e.g. from a crashed process)
