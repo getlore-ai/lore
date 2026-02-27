@@ -16,6 +16,7 @@ import { gitCommitAndPush } from '../../core/git.js';
 import { computeSourcePath, addToPathIndex } from '../../core/source-paths.js';
 import type { SourceRecord, ContentType } from '../../core/types.js';
 import { getExtensionRegistry } from '../../extensions/registry.js';
+import { scheduleBriefUpdate } from '../../core/brief-auto-update.js';
 
 interface IngestArgs {
   content: string;
@@ -314,6 +315,8 @@ export async function handleIngest(
         dbPath,
       }
     );
+
+    scheduleBriefUpdate(dbPath, dataDir, project);
 
     return result;
   } catch (error) {
