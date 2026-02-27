@@ -34,6 +34,8 @@ import { registerAuthCommands } from './cli/commands/auth.js';
 import { registerSkillsCommand } from './cli/commands/skills.js';
 import { registerUpdateCommand } from './cli/commands/update.js';
 import { registerIngestCommand } from './cli/commands/ingest.js';
+import { registerBriefCommand } from './cli/commands/brief.js';
+import { registerLogCommand } from './cli/commands/log.js';
 import { getExtensionRegistry, getLoreVersionString } from './extensions/registry.js';
 import { bridgeConfigToEnv } from './core/config.js';
 import { expandPath } from './sync/config.js';
@@ -88,6 +90,8 @@ registerAuthCommands(program);
 registerSkillsCommand(program);
 registerUpdateCommand(program, DEFAULT_DATA_DIR);
 registerIngestCommand(program, DEFAULT_DATA_DIR);
+registerBriefCommand(program, DEFAULT_DATA_DIR);
+registerLogCommand(program, DEFAULT_DATA_DIR);
 
 // Extension system — hidden from top-level help for now
 const extensionCmd = registerExtensionCommands(program);

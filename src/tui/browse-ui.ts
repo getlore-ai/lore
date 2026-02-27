@@ -250,6 +250,7 @@ export function createUIComponents(): UIComponents {
   C-p        Show all projects
   c          Content type filter
   C-c        Clear type filter
+  L          Toggle log entries
   s          Sync now (git pull + index)
   m          Move doc to different project
   i          Edit document title
@@ -425,7 +426,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ Esc Quit │ ? Help',
+    content: ' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ L Logs │ m Move │ i Edit │ Esc Quit │ ? Help',
     tags: true,
     style: {
       fg: 'white',

@@ -126,6 +126,8 @@ export interface BrowserState {
   // Content type filter state (for filtering the list)
   contentTypeFilterIndex: number;
   currentContentType?: string; // Active content type filter
+  // Log visibility toggle
+  showLogs: boolean;
   // Return mode after picker (for use from ask/research modes)
   pickerReturnMode?: 'ask' | 'research';
   // Load limit for getAllSources queries (undefined = load all)

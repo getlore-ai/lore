@@ -15,6 +15,7 @@ import { generateEmbedding } from '../../core/embedder.js';
 import { loadArchivedProjects } from './archive-project.js';
 import type { ResearchPackage, Quote, SourceType, Theme } from '../../core/types.js';
 import type { ProgressCallback } from './research.js';
+import type { ProjectBrief } from '../../core/brief.js';
 
 export type ResearchDepth = 'quick' | 'standard' | 'deep';
 
@@ -172,6 +173,7 @@ ${quotes || 'No quotes extracted'}`,
             const sources = await getAllSources(dbPath, {
               source_type: args.source_type as SourceType | undefined,
               project: args.project,
+              exclude_source_type: 'log',
               limit: args.limit || 20,
             });
 
@@ -212,7 +214,7 @@ ${quotes || 'No quotes extracted'}`,
 /**
  * Research agent system prompt
  */
-function getResearchSystemPrompt(task: string, project?: string, depth: ResearchDepth = 'standard'): string {
+function getResearchSystemPrompt(task: string, project?: string, depth: ResearchDepth = 'standard', brief?: ProjectBrief | null): string {
   const depthGuidance: Record<ResearchDepth, string> = {
     quick: `\n## Depth: Quick
 Be focused. Find 3-5 key sources that directly address the question, then synthesize immediately. Do not explore tangential leads.`,
@@ -222,10 +224,26 @@ Balance thoroughness with speed. Aim for 5-10 sources. Follow the most promising
 Be exhaustive. Explore multiple search angles, follow all promising leads, and cross-reference extensively. Aim for comprehensive coverage.`,
   };
 
+  // Build optional brief context for warm-start
+  const briefContext = brief
+    ? `\n## Project Context (from living brief, v${brief.version}, generated ${new Date(brief.generated_at).toLocaleDateString()})
+
+${brief.current_state}
+
+Key evidence established so far:
+${brief.key_evidence.slice(0, 5).map((e) => `- ${e.claim} (${e.source_title}, ${e.date})`).join('\n')}
+
+Open questions:
+${brief.open_questions.map((q) => `- ${q}`).join('\n')}
+
+Use this context as a starting point. You don't need to re-discover what's already established unless the research task specifically requires re-evaluation. Focus your search on answering the task, building on this foundation.
+`
+    : '';
+
   return `You are a research agent for Lore, a knowledge repository containing user interviews, meeting transcripts, AI conversations, and documents.
 
 Your task is to conduct comprehensive research and produce a well-cited research package.
-
+${briefContext}
 ## Research Task
 ${task}
 ${project ? `\nFocus on project: ${project}` : ''}
@@ -304,8 +322,22 @@ export async function runResearchAgent(
   // Create the Lore tools server
   const loreTools = createLoreToolsServer(dbPath, dataDir, archivedProjects);
 
+  // Fetch project brief for warm-start (best-effort, don't block on failure)
+  let brief: ProjectBrief | null = null;
+  if (project) {
+    try {
+      const { getLatestBrief } = await import('../../core/brief.js');
+      brief = await getLatestBrief(dbPath, project);
+      if (brief) {
+        await onProgress?.(0, undefined, `Loaded project brief v${brief.version} for warm-start`);
+      }
+    } catch {
+      // Brief fetch failed — continue without it
+    }
+  }
+
   // System prompt
-  const systemPrompt = getResearchSystemPrompt(task, project, depth);
+  const systemPrompt = getResearchSystemPrompt(task, project, depth, brief);
 
   let finalResult: ResearchPackage | null = null;
   let lastAssistantMessage = '';

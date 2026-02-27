@@ -76,6 +76,8 @@ import {
   applyContentTypeFilter,
   cancelContentTypeFilter,
   clearContentTypeFilter,
+  // Log visibility
+  toggleLogs,
 } from './browse-handlers.js';
 import {
   showExtensions,
@@ -157,6 +159,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     // Content type filter state
     contentTypeFilterIndex: 0,
     currentContentType: undefined,
+    // Log visibility toggle
+    showLogs: false,
     // Return mode after picker
     pickerReturnMode: undefined,
     // Load limit for getAllSources queries
@@ -211,9 +215,9 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       cancelDelete(state, ui);
     } else if (state.mode === 'extensions') {
       state.mode = 'list';
-      ui.listTitle.setContent(' Documents');
+      ui.listTitle.setContent(state.showLogs ? ' Logs' : ' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ Esc Quit │ ? Help');
+      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ L Logs │ m Move │ i Edit │ Esc Quit │ ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
@@ -489,6 +493,13 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
+  // Toggle log visibility
+  screen.key(['S-l'], () => {
+    if (state.mode === 'list') {
+      toggleLogs(state, ui, dbPath, dataDir, sourceType);
+    }
+  });
+
   screen.key(['a'], () => {
     if (state.mode === 'list') {
       enterAskMode(state, ui);
@@ -687,6 +698,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     state.sources = await getAllSources(dbPath, {
       project,
       source_type: sourceType,
+      exclude_source_type: state.showLogs ? undefined : 'log',
       limit,
     });
     state.filtered = [...state.sources];

@@ -44,6 +44,8 @@ export function showWelcomeScreen(): void {
   console.log(`  ${c.bold('Documents & Projects:')}`);
   console.log(`  ${c.dim('•')} lore docs list          ${c.dim('— list indexed documents')}`);
   console.log(`  ${c.dim('•')} lore docs get <id>      ${c.dim('— view a document')}`);
+  console.log(`  ${c.dim('•')} lore log <project>      ${c.dim('— view project log')}`);
+  console.log(`  ${c.dim('•')} lore brief <project>    ${c.dim('— view project brief')}`);
   console.log(`  ${c.dim('•')} lore projects           ${c.dim('— list projects')}`);
   console.log(`  ${c.dim('•')} lore projects archive   ${c.dim('— archive a project')}`);
   console.log('');

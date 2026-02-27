@@ -16,7 +16,8 @@
 
 import type { BrowserState, UIComponents } from './browse-types.js';
 import { handleResearch } from '../mcp/handlers/research.js';
-import { showProjectPicker, showContentTypeFilter } from './browse-handlers.js';
+import { showProjectPicker } from './browse-handlers-project-picker.js';
+import { showContentTypeFilter } from './browse-handlers-filters.js';
 import type { ResearchPackage } from '../core/types.js';
 
 const CONTENT_TYPES = ['interview', 'meeting', 'conversation', 'document', 'note', 'analysis'];

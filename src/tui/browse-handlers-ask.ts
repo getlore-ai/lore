@@ -16,7 +16,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { BrowserState, UIComponents } from './browse-types.js';
 import { searchSources, getAllSources } from '../core/vector-store.js';
 import { generateEmbedding } from '../core/embedder.js';
-import { showProjectPicker, showContentTypeFilter } from './browse-handlers.js';
+import { showProjectPicker } from './browse-handlers-project-picker.js';
+import { showContentTypeFilter } from './browse-handlers-filters.js';
 import { detectTemporalIntent, sortByRecency, formatDate } from '../core/temporal.js';
 
 const SYSTEM_PROMPT = `You are a research assistant with access to a knowledge base.

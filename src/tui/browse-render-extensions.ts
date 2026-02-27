@@ -5,7 +5,7 @@
  */
 
 import type { BrowserState, UIComponents } from './browse-types.js';
-import { escapeForBlessed, truncate } from './browse-render.js';
+import { escapeForBlessed, truncate } from './browse-render-utils.js';
 
 /**
  * Render the extensions list

@@ -31,12 +31,14 @@ Lore enables:
 4. Package context for agent delegation
 ```
 
-## Architecture: Three Layers
+## Architecture: Four Layers
 
 ```
 SOURCE DOCUMENTS (immutable originals)
     ↓
 EXTRACTED INSIGHTS (quotes, themes, decisions - with citations back to sources)
+    ↓
+PROJECT BRIEFS (living synthesis, auto-updated per project)
     ↓
 WORKING CONTEXT (research packages, project summaries for agents)
 ```
@@ -49,11 +51,13 @@ WORKING CONTEXT (research packages, project summaries for agents)
 | `get_source` | Simple | Full source with original content |
 | `list_sources` | Simple | Browse by project/type |
 | `list_projects` | Simple | Project overview |
+| `get_brief` | Simple | Get living project brief with staleness info |
+| `log` | Simple | Log entries: add/update/delete via `action` param (hidden from list_sources) |
 | `ingest` | Simple | Add content — documents, insights, decisions |
-| `sync` | Simple | Refresh index (git pull + index new sources) |
-| `archive_project` | Simple | Archive a project (human-triggered curation) |
 | `research` | Agentic | Async research job with `depth` (quick/standard/deep) |
 | `research_status` | Simple | Poll for research results (long-polls up to 20s) |
+
+CLI-only tools (not exposed via MCP): `sync`, `archive_project`, `brief generate`, `brief status`, `log show/clear` (view/manage log)
 
 ## Project Structure
 
@@ -63,6 +67,7 @@ src/
 │   ├── types.ts       # Full data model with Citation type
 │   ├── config.ts      # Centralized config (~/.config/lore/config.json)
 │   ├── auth.ts        # Supabase Auth session management (OTP login)
+│   ├── brief.ts       # Project briefs: types, generation, Supabase CRUD
 │   ├── embedder.ts    # OpenAI embeddings
 │   ├── vector-store.ts # Supabase + pgvector (auth-aware, RLS-compatible)
 │   ├── insight-extractor.ts # Summary generation
@@ -75,6 +80,7 @@ src/
 │   └── process.ts     # Phase 2: Claude metadata extraction
 ├── cli/commands/      # CLI command modules
 │   ├── auth.ts        # login, logout, whoami, setup commands
+│   ├── brief.ts       # Brief management (show, generate, list, history, diff)
 │   ├── sync.ts        # Sync/daemon/watch/sources commands
 │   ├── search.ts      # Search command
 │   └── ...            # docs, projects, ask, etc.
@@ -139,12 +145,14 @@ The `LORE_DATA_DIR` should point to a separate directory. Document content is sy
 
 ~/lore-data/              # Your data directory (git optional)
 ├── sources/              # Ingested documents (cached locally)
+├── briefs/               # Cached project briefs (JSON, mirrors Supabase)
 ├── retained/             # Explicitly saved insights
 └── archived-projects.json
 
 Lore Cloud (Supabase):    # Primary sync layer - shared across all machines
 ├── sources table         # Document metadata + content + embeddings + user_id (RLS)
-└── chunks table          # Quotes/chunks + embeddings + user_id (RLS)
+├── chunks table          # Quotes/chunks + embeddings + user_id (RLS)
+└── project_briefs table  # Versioned project briefs + user_id (RLS)
 ```
 
 ## Implementation Status
@@ -152,9 +160,10 @@ Lore Cloud (Supabase):    # Primary sync layer - shared across all machines
 All 9 MCP tools and core features are implemented:
 
 - **Universal Sync**: Two-phase sync with content hash deduplication
-- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `mcp`, `auth login`, `auth logout`, `auth whoami`, `setup`
-- **MCP Tools**: All 9 tools fully functional
-- **LLM-powered Research**: Uses Claude for extraction and research
+- **CLI Commands**: `sync`, `sources`, `search`, `projects`, `brief`, `mcp`, `auth login`, `auth logout`, `auth whoami`, `setup`
+- **MCP Tools**: All 9 tools fully functional (search, get_source, list_sources, list_projects, get_brief, log, ingest, research, research_status)
+- **Project Briefs**: Living synthesis documents per project, versioned, with staleness detection
+- **LLM-powered Research**: Uses Claude for extraction and research (with brief warm-start)
 - **Multi-machine Support**: Content hash dedup works across machines
 - **Multi-tenant Auth**: Supabase Auth (email OTP) with RLS data isolation
 
@@ -176,6 +185,14 @@ lore sync
 
 # Search
 lore search "user pain points"
+
+# Project briefs
+lore brief ridekick                        # View current brief
+lore brief generate ridekick               # Generate/refresh brief
+lore brief generate ridekick --focus "UX"  # Brief focused on specific area
+lore brief list                            # List all briefs with staleness
+lore brief history ridekick                # Version history
+lore brief diff ridekick                   # Diff latest vs previous
 
 # Start MCP server
 lore mcp
@@ -261,6 +278,30 @@ research("What authentication approach should we use?")
 **Configuration:**
 - Default: Agentic mode (Claude Agent SDK) - agent self-terminates when it has enough evidence
 - Fallback: `LORE_RESEARCH_MODE=simple` for single-pass GPT-4o-mini synthesis
+- **Warm-start**: When a project brief exists, it's injected into the research agent's system prompt so it starts with established context instead of searching blind
+
+## Project Briefs (Living Synthesis)
+
+Project briefs are auto-maintained synthesis documents — one per project. They provide a "warm start" for agents and a high-level view for humans.
+
+```
+generate_brief("ridekick")
+    │
+    ├─→ Fetch all source summaries for project (chronological)
+    ├─→ Fetch existing brief (if any, for continuity)
+    └─→ Single Claude call → structured ProjectBrief
+         ├── current_state: "What is this project and where is it now?"
+         ├── key_evidence: [{claim, source_id, source_title, quote, date}]
+         ├── open_questions: ["Unresolved questions..."]
+         ├── trajectory: "How understanding has evolved"
+         └── recent_changes: "What changed since last brief"
+```
+
+**Storage:** `project_briefs` table in Supabase (versioned, RLS-protected). Disk cache at `$LORE_DATA_DIR/briefs/{project}.json`.
+
+**Staleness:** Briefs track `source_count_at_generation`. When new sources are added, the brief is marked stale. No auto-regeneration — staleness is reported and the user/agent decides when to refresh.
+
+**Research integration:** When the research agent runs for a specific project, it reads the project brief and includes it in its system prompt. This means fewer exploration turns and more focused results.
 
 ## Key Design Decisions
 

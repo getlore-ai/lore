@@ -26,10 +26,11 @@ import { handleSearch } from './handlers/search.js';
 import { handleGetSource } from './handlers/get-source.js';
 import { handleListSources } from './handlers/list-sources.js';
 import { handleIngest } from './handlers/ingest.js';
-import { handleResearch, startResearchJob, getResearchJobStatus } from './handlers/research.js';
+import { startResearchJob, getResearchJobStatus } from './handlers/research.js';
 import { handleListProjects } from './handlers/list-projects.js';
 import { handleSync } from './handlers/sync.js';
-import { handleArchiveProject } from './handlers/archive-project.js';
+import { handleGetBrief } from './handlers/get-brief.js';
+import { handleLog } from './handlers/log.js';
 import { indexExists, getAllSources } from '../core/vector-store.js';
 import { expandPath } from '../sync/config.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
@@ -266,6 +267,11 @@ async function main() {
             });
             break;
 
+          // Log entries (add/update/delete via action param)
+          case 'log':
+            result = await handleLog(DB_PATH, LORE_DATA_DIR, args as any);
+            break;
+
           // Agentic research tool — runs async, returns job_id immediately
           case 'research':
             result = startResearchJob(DB_PATH, LORE_DATA_DIR, args as any, {
@@ -279,19 +285,9 @@ async function main() {
             result = await getResearchJobStatus((args as any)?.job_id);
             break;
 
-          // Sync tool
-          case 'sync':
-            result = await handleSync(DB_PATH, LORE_DATA_DIR, args as any, {
-              hookContext: { mode: 'mcp' },
-              onProgress,
-            });
-            break;
-
-          // Project management
-          case 'archive_project':
-            result = await handleArchiveProject(DB_PATH, LORE_DATA_DIR, args as any, {
-              autoPush: AUTO_GIT_PUSH,
-            });
+          // Project briefs
+          case 'get_brief':
+            result = await handleGetBrief(DB_PATH, LORE_DATA_DIR, args as any);
             break;
 
           default:

@@ -113,6 +113,10 @@ const ListSourcesSchema = z.object({
     .optional()
     .describe('Filter by source type (matches the source_type passed during ingest, e.g. "meeting", "slack", "github-issue")'),
   limit: z.number().optional().describe('Max results (default 20). Pass a high number like 1000 to get all.'),
+  include_logs: z
+    .boolean()
+    .optional()
+    .describe('Include log entries from the log tool (default: false)'),
 });
 
 // ============================================================================
@@ -165,46 +169,38 @@ const IngestSchema = z.object({
 });
 
 // ============================================================================
-// Sync Tool
+// Project Brief Tools
 // ============================================================================
 
-const SyncSchema = z.object({
-  git_pull: z
+const GetBriefSchema = z.object({
+  project: z.string().describe('Project name'),
+  include_history: z
     .boolean()
     .optional()
-    .describe('Pull latest changes from git remote (default: true)'),
-  git_push: z
-    .boolean()
-    .optional()
-    .describe('Push local changes to git remote (default: true)'),
-  index_new: z
-    .boolean()
-    .optional()
-    .describe('Index any new sources found on disk (default: true)'),
-  dry_run: z
-    .boolean()
-    .optional()
-    .describe('Show what would be synced without actually processing (default: false)'),
-  use_legacy: z
-    .boolean()
-    .optional()
-    .describe('Use only legacy disk-based sync, skip universal sync (default: false)'),
+    .describe('Include version history metadata (default: false)'),
 });
 
 // ============================================================================
-// Project Management Tools
+// Log Tool (lightweight log entries)
 // ============================================================================
 
-const ArchiveProjectSchema = z.object({
-  project: z.string().describe('Name of the project to archive'),
-  reason: z
+const LogSchema = z.object({
+  action: z
+    .enum(['add', 'update', 'delete'])
+    .describe('Action to perform (default: add)')
+    .optional(),
+  message: z
     .string()
-    .optional()
-    .describe('Reason for archiving (e.g., "Pivoted to new approach", "Project completed")'),
-  successor_project: z
+    .describe('Log message content. Required for add and update; ignored for delete.')
+    .optional(),
+  project: z
     .string()
-    .optional()
-    .describe('Name of the project that supersedes this one, if any'),
+    .describe('Project this relates to (required for add)')
+    .optional(),
+  id: z
+    .string()
+    .describe('Source ID of the log entry (required for update and delete)')
+    .optional(),
 });
 
 // ============================================================================
@@ -212,129 +208,58 @@ const ArchiveProjectSchema = z.object({
 // ============================================================================
 
 export const toolDefinitions = [
-  // Simple tools
   {
     name: 'search',
-    description: `Search the Lore knowledge base. Returns source summaries with relevance scores, matching quotes, and themes.
-
-SEARCH MODES (pick based on your query):
-- hybrid (default): Best for most queries. Combines vector similarity + full-text search via RRF fusion.
-- semantic: Vector similarity only. Use for conceptual queries ("pain points", "user frustrations") where exact terms don't matter.
-- keyword: Full-text search only. Use for exact terms, identifiers, or proper nouns ("TS-01", "OAuth", specific names).
-- regex: Pattern matching in local files. Use for code patterns or complex text matching ("OAuth.*config").
-
-WHEN TO USE THIS TOOL:
-- Quick lookups of specific information
-- Finding sources related to a topic
-- Gathering context before answering a question
-- Any query where you expect 1-3 relevant sources to answer it
-
-USE 'research' INSTEAD when the question requires cross-referencing multiple sources, detecting patterns across documents, or synthesizing findings with citations. 'research' costs more API calls — avoid it for simple lookups.`,
+    description: `Search the knowledge base. Returns source summaries with relevance scores, quotes, and themes. Supports date filtering via since/before and sort by relevance or recency. Use 'research' instead for questions requiring cross-referencing across many sources.`,
     inputSchema: zodToJsonSchema(SearchSchema),
   },
   {
     name: 'get_source',
-    description: `Retrieve full details of a specific source document by ID. Returns metadata, summary, quotes, themes, and optionally the complete original content.
-
-Set include_content=true to get the full raw text (transcript, document body, etc.). By default only metadata and summary are returned.
-
-USE THIS AFTER 'search' returns a relevant source_id and you need the full document for detailed analysis or quoting.`,
+    description: `Get full details of a source document by ID. Set include_content=true for the complete original text.`,
     inputSchema: zodToJsonSchema(GetSourceSchema),
   },
   {
     name: 'list_sources',
-    description: `List all sources in the knowledge base, optionally filtered by project or type. Returns summaries sorted by date (newest first).
-
-Use this to browse what exists in a project, understand the scope of available knowledge, or check if content has already been ingested before calling 'ingest'.`,
+    description: `List sources, optionally filtered by project or type. Sorted by date (newest first).`,
     inputSchema: zodToJsonSchema(ListSourcesSchema),
   },
   {
     name: 'list_projects',
-    description: `List all projects with source counts and latest activity dates. Use this to discover what knowledge domains exist before searching or ingesting content.`,
+    description: `List all projects with source counts and latest activity dates.`,
     inputSchema: {
       type: 'object',
       properties: {},
     },
   },
-  // Agentic tool
+  {
+    name: 'get_brief',
+    description: `Get the project brief — a synthesis of all knowledge in a project with current state, key evidence, open questions, and trajectory. Start here for project context. Reports staleness when new sources exist since last generation.`,
+    inputSchema: zodToJsonSchema(GetBriefSchema),
+  },
   {
     name: 'research',
-    description: `Run a comprehensive research query across the knowledge base. An internal agent iteratively searches, reads sources, cross-references findings, and synthesizes a research package with full citations.
-
-ASYNC: This tool returns immediately with a job_id. You MUST then poll 'research_status' with that job_id to get results. Poll every 15-20 seconds. Do NOT assume it is stuck — check the 'activity' array in the status response to see what the agent is doing.
-
-DEPTH CONTROL (optional):
-- quick: ~30-60 seconds, finds 3-5 key sources. Good for focused questions.
-- standard (default): ~1-2 minutes, 5-10 sources. Good for most queries.
-- deep: ~4-8 minutes, exhaustive search. Use for comprehensive audits.
-
-WHEN TO USE:
-- Questions that span multiple sources ("What do we know about authentication?")
-- Detecting patterns or contradictions across documents
-- Building a cited research package for decision-making
-- Open-ended exploration of a topic
-
-COST: This tool makes multiple LLM calls internally. For simple lookups, use 'search' instead — it's 10x cheaper and faster.`,
+    description: `Async research across the knowledge base. An agent iteratively searches, reads sources, cross-references, and synthesizes findings with citations. Returns a job_id — poll research_status for results. Depth: quick (~30-60s), standard (~1-2min, default), deep (~4-8min).`,
     inputSchema: zodToJsonSchema(ResearchSchema),
   },
-
-  // Research status (polling for async results)
   {
     name: 'research_status',
-    description: `Check the status of a running research job. Returns the full research package when complete.
-
-Call this after 'research' returns a job_id. Poll every 15-20 seconds. The response includes an 'activity' array showing exactly what the research agent is doing (searches, sources being read, reasoning). Completion time depends on depth: quick ~30-60s, standard ~1-2 min, deep ~4-8 min. As long as 'total_steps' is increasing, the research is progressing normally — do NOT abandon it.`,
+    description: `Poll for research job results. Long-polls up to 20s. Check 'activity' array to see agent progress.`,
     inputSchema: {
       type: 'object',
       properties: {
-        job_id: { type: 'string', description: 'The job_id returned by the research tool' },
+        job_id: { type: 'string', description: 'The job_id from research' },
       },
       required: ['job_id'],
     },
   },
-
-  // Ingest tool
   {
     name: 'ingest',
-    description: `Push content into the Lore knowledge base. This is the primary way to add documents from external systems (Slack threads, Notion pages, GitHub issues, meeting notes, emails, etc.).
-
-IDEMPOTENT: Content is deduplicated by SHA256 hash. Calling ingest with identical content returns {deduplicated: true} immediately — no LLM calls, no disk writes. Safe to call repeatedly.
-
-WHAT HAPPENS:
-1. Content hash checked for deduplication
-2. Document saved to disk
-3. LLM extracts summary, themes, and key quotes (skipped for short content ≤500 chars)
-4. Embedding generated for semantic search
-5. Indexed in Supabase for instant retrieval
-
-BEST PRACTICES:
-- Always pass source_url when available (enables citation linking back to the original)
-- Use source_name for human-readable origin context (e.g., "Slack #product-team")
-- source_type is a free-form hint — use whatever describes the content (slack, email, notion, github-issue, etc.)
-- For short insights, decisions, or notes — just pass the content. Title and source_type are optional.`,
+    description: `Add content to the knowledge base. Idempotent (SHA256 dedup). Pass source_url and source_name when available for citation linking. Title and source_type are optional.`,
     inputSchema: zodToJsonSchema(IngestSchema),
   },
-
-  // Sync tool
   {
-    name: 'sync',
-    description: `Sync the knowledge base from configured source directories. Two-phase process:
-
-Phase 1 (Discovery — free, no LLM calls): Scans configured directories, computes content hashes, identifies new files.
-Phase 2 (Processing — only new files): Extracts metadata via LLM, generates embeddings, stores in Supabase.
-
-Use this when source directories have been updated externally, or to refresh the index after manual file changes. Source directories are configured via 'lore sync add' CLI command.
-
-Note: For pushing content from agents, use 'ingest' instead — it's the direct path.`,
-    inputSchema: zodToJsonSchema(SyncSchema),
-  },
-
-  // Project management
-  {
-    name: 'archive_project',
-    description: `Archive a project and exclude its sources from default search results. Archived sources are preserved for historical reference and can be included with include_archived=true in search.
-
-Only use when explicitly requested — this is a curation action, not an automatic cleanup.`,
-    inputSchema: zodToJsonSchema(ArchiveProjectSchema),
+    name: 'log',
+    description: `Manage project log entries — progress updates, decisions, and status notes. Actions: add (default, requires message + project), update (requires id + message, preserves timestamp), delete (requires id). Log entries are searchable and included in briefs, but hidden from list_sources by default.`,
+    inputSchema: zodToJsonSchema(LogSchema),
   },
 ];
