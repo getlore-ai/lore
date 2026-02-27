@@ -13,6 +13,7 @@ import { addSource, checkContentHashExists } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { extractInsights } from '../../core/insight-extractor.js';
 import { gitCommitAndPush } from '../../core/git.js';
+import { computeSourcePath, addToPathIndex } from '../../core/source-paths.js';
 import type { SourceRecord, ContentType } from '../../core/types.js';
 import { getExtensionRegistry } from '../../extensions/registry.js';
 
@@ -184,11 +185,13 @@ export async function handleIngest(
   const timestamp = date || new Date().toISOString();
   const contentType = mapContentType(source_type);
 
-  // Create source directory structure (matches CLI ingest format)
-  const sourceDir = path.join(dataDir, 'sources', id);
+  // Create source directory structure (human-friendly layout)
+  const relativePath = computeSourcePath(project, title, timestamp, id);
+  const sourceDir = path.join(dataDir, 'sources', relativePath);
   await mkdir(sourceDir, { recursive: true });
 
-  // Save metadata.json
+  // Save metadata.json BEFORE updating path index — ensures rebuildPathIndex
+  // can always recover from the on-disk state if addToPathIndex fails
   const metadata: Record<string, unknown> = {
     id,
     title,
@@ -208,6 +211,7 @@ export async function handleIngest(
     metadata.source_name = source_name;
   }
   await writeFile(path.join(sourceDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
+  await addToPathIndex(dataDir, id, relativePath);
 
   // Save content.md
   await writeFile(path.join(sourceDir, 'content.md'), content);
@@ -285,7 +289,7 @@ export async function handleIngest(
       title,
       project,
       source_type,
-      filepath: `sources/${id}`,
+      filepath: `sources/${relativePath}`,
       summary,
       indexed: true,
       synced: pushed,
@@ -301,7 +305,7 @@ export async function handleIngest(
         imported_at: new Date().toISOString(),
         projects: [project],
         tags,
-        source_path: path.join(dataDir, 'sources', id),
+        source_path: sourceDir,
         content_hash: contentHash,
       },
       {
@@ -328,7 +332,7 @@ export async function handleIngest(
       title,
       project,
       source_type,
-      filepath: `sources/${id}`,
+      filepath: `sources/${relativePath}`,
       indexed: false,
       synced: pushed,
       note: 'Saved to disk but indexing failed. Run "lore sync" to index.',
@@ -344,7 +348,7 @@ export async function handleIngest(
         imported_at: new Date().toISOString(),
         projects: [project],
         tags,
-        source_path: path.join(dataDir, 'sources', id),
+        source_path: sourceDir,
         content_hash: contentHash,
       },
       {

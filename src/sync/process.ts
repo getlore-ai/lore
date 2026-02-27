@@ -21,6 +21,7 @@ import { processFile, type ProcessedContent, type ImageMediaType } from './proce
 import { generateEmbedding, createSearchableText } from '../core/embedder.js';
 import { addSource, resetDatabaseConnection } from '../core/vector-store.js';
 import { gitCommitAndPush } from '../core/git.js';
+import { computeSourcePath, addToPathIndex } from '../core/source-paths.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
 
 // ============================================================================
@@ -221,29 +222,21 @@ async function storeSourceToDisk(
   processedContent: string,
   dataDir: string
 ): Promise<void> {
-  const sourcesDir = path.join(dataDir, 'sources');
-  const sourceDir = path.join(sourcesDir, sourceId);
+  const createdAt = metadata.date || new Date().toISOString();
+  const relativePath = computeSourcePath(file.project, metadata.title, createdAt, sourceId);
+  const sourceDir = path.join(dataDir, 'sources', relativePath);
 
   // Create source directory
   await mkdir(sourceDir, { recursive: true });
 
-  // Copy original file (skip binary formats — knowledge store is text-based)
-  const originalExt = path.extname(file.absolutePath).toLowerCase();
-  const binaryExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.ico', '.svg'];
-  if (!binaryExts.includes(originalExt)) {
-    await copyFile(file.absolutePath, path.join(sourceDir, `original${originalExt}`));
-  }
-
-  // Save processed content
-  await writeFile(path.join(sourceDir, 'content.md'), processedContent);
-
-  // Save metadata
+  // Save metadata BEFORE updating path index — ensures rebuildPathIndex
+  // can always recover from the on-disk state if addToPathIndex fails
   const sourceMetadata = {
     id: sourceId,
     title: metadata.title,
     source_type: 'document',  // Universal type for sync-ingested sources
     content_type: metadata.content_type,
-    created_at: metadata.date || new Date().toISOString(),
+    created_at: createdAt,
     imported_at: new Date().toISOString(),
     projects: [file.project],
     tags: [],
@@ -257,6 +250,17 @@ async function storeSourceToDisk(
     path.join(sourceDir, 'metadata.json'),
     JSON.stringify(sourceMetadata, null, 2)
   );
+  await addToPathIndex(dataDir, sourceId, relativePath);
+
+  // Copy original file (skip binary formats — knowledge store is text-based)
+  const originalExt = path.extname(file.absolutePath).toLowerCase();
+  const binaryExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.ico', '.svg'];
+  if (!binaryExts.includes(originalExt)) {
+    await copyFile(file.absolutePath, path.join(sourceDir, `original${originalExt}`));
+  }
+
+  // Save processed content
+  await writeFile(path.join(sourceDir, 'content.md'), processedContent);
 
   // Save insights (summary + themes placeholder)
   await writeFile(

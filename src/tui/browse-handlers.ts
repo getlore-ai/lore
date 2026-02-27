@@ -28,6 +28,7 @@ import { searchLocalFiles } from '../core/local-search.js';
 import { gitCommitAndPush, deleteFileAndCommit } from '../core/git.js';
 import { addToBlocklist } from '../core/blocklist.js';
 import { computeFileHash, findFileByHash } from '../sync/discover.js';
+import { resolveSourceDir, removeFromPathIndex } from '../core/source-paths.js';
 import type { SearchMode, SourceType, SourceRecord, ContentType } from '../core/types.js';
 
 /**
@@ -110,7 +111,8 @@ export async function loadFullContent(
   if (!source) return;
 
   // Try to load from disk first (content.md, then original file)
-  const sourceDir = path.join(sourcesDir, source.id);
+  const dataDir = path.dirname(sourcesDir);
+  const sourceDir = await resolveSourceDir(dataDir, source.id);
   const contentPath = path.join(sourceDir, 'content.md');
 
   try {
@@ -550,7 +552,9 @@ export async function openInEditor(
   // Get content
   let content = state.fullContent;
   if (!content) {
-    const contentPath = path.join(sourcesDir, source.id, 'content.md');
+    const editorDataDir = path.dirname(sourcesDir);
+    const editorSourceDir = await resolveSourceDir(editorDataDir, source.id);
+    const contentPath = path.join(editorSourceDir, 'content.md');
     try {
       const { readFile } = await import('fs/promises');
       content = await readFile(contentPath, 'utf-8');
@@ -617,7 +621,8 @@ export async function openInEditor(
   }
 
   // Save edited content to disk
-  const sourceDir = path.join(sourcesDir, source.id);
+  const saveDataDir = path.dirname(sourcesDir);
+  const sourceDir = await resolveSourceDir(saveDataDir, source.id);
   const contentPath = path.join(sourceDir, 'content.md');
   try {
     const { mkdir, writeFile } = await import('fs/promises');
@@ -699,7 +704,8 @@ async function reindexSource(
     await addSource(dbPath, sourceRecord, vector, { content_hash: contentHash });
 
     // 6. Write insights.json to disk
-    const insightsPath = path.join(dataDir, 'sources', sourceId, 'insights.json');
+    const insightsDir = await resolveSourceDir(dataDir, sourceId);
+    const insightsPath = path.join(insightsDir, 'insights.json');
     try {
       const { writeFile } = await import('fs/promises');
       await writeFile(insightsPath, JSON.stringify(insights, null, 2), 'utf-8');
@@ -1337,14 +1343,14 @@ export async function confirmDelete(
 
     // 1b. Compute content hash from local files if Supabase didn't have one
     let effectiveHash = contentHash;
+    const loreSourcePath = await resolveSourceDir(dataDir, source.id);
     if (!effectiveHash) {
-      const loreOriginal = path.join(dataDir, 'sources', source.id);
       try {
         const { readdir: rd } = await import('fs/promises');
-        const files = await rd(loreOriginal);
+        const files = await rd(loreSourcePath);
         const candidate = files.find(f => f.startsWith('original.')) || files.find(f => f === 'content.md');
         if (candidate) {
-          effectiveHash = await computeFileHash(path.join(loreOriginal, candidate));
+          effectiveHash = await computeFileHash(path.join(loreSourcePath, candidate));
         }
       } catch {
         // No local files to hash
@@ -1356,12 +1362,12 @@ export async function confirmDelete(
 
     // 2. Delete local files in data directory
     const { rm } = await import('fs/promises');
-    const loreSourcePath = path.join(dataDir, 'sources', source.id);
     try {
       await rm(loreSourcePath, { recursive: true });
     } catch {
       // File may not exist on disk - that's ok
     }
+    await removeFromPathIndex(dataDir, source.id);
 
     // 3. Delete original source file from sync directory (and commit to its repo)
     let fileToDelete = originalPath;
@@ -1458,14 +1464,14 @@ async function confirmProjectDelete(
 
         // Compute content hash from local files if Supabase didn't have one
         let effectiveHash = contentHash;
+        const loreSourcePath = await resolveSourceDir(dataDir, source.id);
         if (!effectiveHash) {
-          const loreOriginal = path.join(dataDir, 'sources', source.id);
           try {
             const { readdir: rd } = await import('fs/promises');
-            const files = await rd(loreOriginal);
+            const files = await rd(loreSourcePath);
             const candidate = files.find(f => f.startsWith('original.')) || files.find(f => f === 'content.md');
             if (candidate) {
-              effectiveHash = await computeFileHash(path.join(loreOriginal, candidate));
+              effectiveHash = await computeFileHash(path.join(loreSourcePath, candidate));
             }
           } catch {
             // No local files to hash
@@ -1474,12 +1480,12 @@ async function confirmProjectDelete(
         deletedHashes.push(effectiveHash);
 
         // Delete local files
-        const loreSourcePath = path.join(dataDir, 'sources', source.id);
         try {
           await rm(loreSourcePath, { recursive: true });
         } catch {
           // File may not exist on disk
         }
+        await removeFromPathIndex(dataDir, source.id);
 
         // Delete original source file from sync directory (and commit to its repo)
         let fileToDelete = originalPath;

@@ -12,6 +12,7 @@ import {
   storeSources,
 } from '../core/vector-store.js';
 import { generateEmbeddings, createSearchableText } from '../core/embedder.js';
+import { computeSourcePath, addToPathIndex } from '../core/source-paths.js';
 import type { SourceDocument, SourceRecord, Quote, Theme } from '../core/types.js';
 import { getExtensionRegistry } from '../extensions/registry.js';
 
@@ -116,13 +117,16 @@ export async function saveSourcesToDisk(
   });
 
   for (const result of results) {
-    const sourceDir = path.join(sourcesDir, result.source.id);
+    const project = result.source.projects[0] || 'uncategorized';
+    const relativePath = computeSourcePath(project, result.source.title, result.source.created_at, result.source.id);
+    const sourceDir = path.join(sourcesDir, relativePath);
     await mkdir(sourceDir, { recursive: true });
 
     // Save content
     await writeFile(path.join(sourceDir, 'content.md'), result.source.content);
 
-    // Save metadata
+    // Save metadata BEFORE updating path index — ensures rebuildPathIndex
+    // can always recover from the on-disk state if addToPathIndex fails
     const metadata = {
       id: result.source.id,
       title: result.source.title,
@@ -135,6 +139,7 @@ export async function saveSourcesToDisk(
       source_path: result.source.source_path,
     };
     await writeFile(path.join(sourceDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
+    await addToPathIndex(dataDir, result.source.id, relativePath);
 
     // Save insights if extracted
     if (result.insights) {

@@ -28,6 +28,7 @@ import {
 } from '../../core/vector-store.js';
 import { generateEmbedding, createSearchableText } from '../../core/embedder.js';
 import { gitPull, gitCommitAndPush } from '../../core/git.js';
+import { resolveSourceDir, computeSourcePath, addToPathIndex, bulkAddToPathIndex, loadPathIndex, rebuildPathIndex } from '../../core/source-paths.js';
 import type { SourceRecord, Theme, SourceType, ContentType } from '../../core/types.js';
 
 import { loadSyncConfig, getEnabledSources } from '../../sync/config.js';
@@ -81,7 +82,7 @@ interface SyncResult {
 // ============================================================================
 
 async function loadSourceFromDisk(
-  sourcesDir: string,
+  dataDir: string,
   sourceId: string
 ): Promise<{
   source: {
@@ -97,7 +98,7 @@ async function loadSourceFromDisk(
   };
   insights: { summary: string; themes: Theme[] };
 } | null> {
-  const sourceDir = path.join(sourcesDir, sourceId);
+  const sourceDir = await resolveSourceDir(dataDir, sourceId);
 
   try {
     const metadata = JSON.parse(await readFile(path.join(sourceDir, 'metadata.json'), 'utf-8'));
@@ -184,15 +185,34 @@ async function legacyDiskSync(
   }
 
   // UUID v4 pattern — only index directories with valid UUID names.
-  // Non-UUID directories (e.g. slugs from external systems) cause Supabase errors.
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   try {
+    // Collect IDs from both legacy UUID dirs and path index
+    const diskIds: string[] = [];
+
+    // 1. Legacy UUID directories
     const diskSources = await readdir(sourcesDir, { withFileTypes: true });
-    const diskIds = diskSources
-      .filter((d) => d.isDirectory() && !d.name.startsWith('.') && uuidPattern.test(d.name))
-      .filter((d) => existsSync(path.join(sourcesDir, d.name, 'metadata.json')))
-      .map((d) => d.name);
+    for (const d of diskSources) {
+      if (d.isDirectory() && !d.name.startsWith('.') && uuidPattern.test(d.name)) {
+        if (existsSync(path.join(sourcesDir, d.name, 'metadata.json'))) {
+          diskIds.push(d.name);
+        }
+      }
+    }
+
+    // 2. Path index entries (new-format dirs)
+    const pathIndex = await loadPathIndex(dataDir);
+    const diskIdSet = new Set(diskIds);
+    for (const id of Object.keys(pathIndex)) {
+      if (!diskIdSet.has(id)) {
+        const dir = path.join(sourcesDir, pathIndex[id]);
+        if (existsSync(path.join(dir, 'metadata.json'))) {
+          diskIds.push(id);
+          diskIdSet.add(id);
+        }
+      }
+    }
 
     result.sources_found = diskIds.length;
 
@@ -202,7 +222,7 @@ async function legacyDiskSync(
     const unsyncedIds = diskIds.filter((id) => !indexedIds.has(id));
 
     for (const sourceId of unsyncedIds) {
-      const data = await loadSourceFromDisk(sourcesDir, sourceId);
+      const data = await loadSourceFromDisk(dataDir, sourceId);
       if (data) {
         await indexSource(dbPath, data.source, data.insights);
         result.sources_indexed++;
@@ -230,6 +250,7 @@ async function legacyDiskSync(
  */
 async function reconcileLocalContent(dataDir: string, dbPath: string): Promise<number> {
   const sourcesDir = path.join(dataDir, 'sources');
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const textExts = ['.md', '.txt', '.json', '.jsonl', '.csv', '.xml', '.yaml', '.yml', '.html', '.log'];
 
   // Get all source IDs (paginated, no 1000-row cap) + source_path map
@@ -239,11 +260,49 @@ async function reconcileLocalContent(dataDir: string, dbPath: string): Promise<n
   const sourcesWithPaths = await getSourcesWithPaths(dbPath);
   const pathMap = new Map(sourcesWithPaths.map(s => [s.id, s.source_path]));
 
+  // Pre-fetch metadata for all sources so we can compute human-friendly paths
+  const client = await getSupabase();
+  const sourceMetaMap = new Map<string, { title: string; projects: string; created_at: string }>();
+  let metaFrom = 0;
+  while (true) {
+    const { data } = await client
+      .from('sources')
+      .select('id, title, projects, created_at')
+      .range(metaFrom, metaFrom + 999);
+    if (!data || data.length === 0) break;
+    for (const s of data) sourceMetaMap.set(s.id, s);
+    if (data.length < 1000) break;
+    metaFrom += 1000;
+  }
+
+  /** Resolve source dir, using Supabase metadata to compute human-friendly path.
+   *  First tries index + legacy fallback (finds existing dirs regardless of path format).
+   *  Only computes a new path from metadata when no existing dir is found. */
+  async function resolveWithMeta(sourceId: string): Promise<string> {
+    // Check index + legacy first (finds existing dirs even if path format changed)
+    const existing = await resolveSourceDir(dataDir, sourceId);
+    if (existsSync(existing)) {
+      return existing;
+    }
+    // No existing dir — compute new-format path from metadata
+    const meta = sourceMetaMap.get(sourceId);
+    if (meta) {
+      const projects = typeof meta.projects === 'string' ? JSON.parse(meta.projects) : meta.projects;
+      const project = projects?.[0] || 'uncategorized';
+      return resolveSourceDir(dataDir, sourceId, { project, title: meta.title, createdAt: meta.created_at });
+    }
+    return existing; // return the legacy path (caller will mkdir if needed)
+  }
+
+  // Collect path index updates to write in bulk (avoids hundreds of serial disk writes)
+  const pendingIndexEntries: Record<string, string> = {};
+
   // Phase 1: Determine which sources are missing local content.md
   const missingIds: string[] = [];
   let reconciled = 0;
   for (const sourceId of allSourceIds) {
-    const contentPath = path.join(sourcesDir, sourceId, 'content.md');
+    const sourceDir = await resolveWithMeta(sourceId);
+    const contentPath = path.join(sourceDir, 'content.md');
     if (existsSync(contentPath)) {
       try {
         const existing = await readFile(contentPath, 'utf-8');
@@ -262,8 +321,13 @@ async function reconcileLocalContent(dataDir: string, dbPath: string): Promise<n
         try {
           const content = await readFile(sourcePath, 'utf-8');
           if (content) {
-            await mkdir(path.join(sourcesDir, sourceId), { recursive: true });
+            await mkdir(sourceDir, { recursive: true });
             await writeFile(contentPath, content);
+            // Collect index update for new-format paths (not legacy UUID dirs)
+            const relPath = path.relative(sourcesDir, sourceDir);
+            if (!uuidPattern.test(relPath)) {
+              pendingIndexEntries[sourceId] = relPath;
+            }
             reconciled++;
             continue; // Reconciled from disk — no cloud needed
           }
@@ -284,18 +348,26 @@ async function reconcileLocalContent(dataDir: string, dbPath: string): Promise<n
       const content = cloudContentMap.get(sourceId);
       if (!content) continue;
 
-      const sourceDir = path.join(sourcesDir, sourceId);
+      const sourceDir = await resolveWithMeta(sourceId);
       const contentPath = path.join(sourceDir, 'content.md');
 
       try {
         await mkdir(sourceDir, { recursive: true });
         await writeFile(contentPath, content);
+        // Collect index update for new-format paths (not legacy UUID dirs)
+        const relPath = path.relative(sourcesDir, sourceDir);
+        if (!uuidPattern.test(relPath)) {
+          pendingIndexEntries[sourceId] = relPath;
+        }
         reconciled++;
       } catch {
         // Skip on write failure — will retry on next sync
       }
     }
   }
+
+  // Flush all collected path index updates in a single write
+  await bulkAddToPathIndex(dataDir, pendingIndexEntries);
 
   // Phase 3: Backfill cloud content for pre-feature sources
   // Sources with local content.md but no cloud content get pushed to Lore Cloud
@@ -304,7 +376,8 @@ async function reconcileLocalContent(dataDir: string, dbPath: string): Promise<n
     if (idsWithoutCloud.size > 0) {
       const backfillUpdates: Array<{ id: string; content: string }> = [];
       for (const sourceId of idsWithoutCloud) {
-        const contentPath = path.join(sourcesDir, sourceId, 'content.md');
+        const sourceDir = await resolveSourceDir(dataDir, sourceId);
+        const contentPath = path.join(sourceDir, 'content.md');
         if (!existsSync(contentPath)) continue;
         try {
           const content = await readFile(contentPath, 'utf-8');
@@ -447,6 +520,9 @@ export async function handleSync(
       result.git_error = pullResult.error;
     }
   }
+
+  // 1b. Rebuild path index from disk (self-heals orphaned directories)
+  await rebuildPathIndex(dataDir);
 
   // 2. Sync sources
   if (indexNew) {

@@ -17,7 +17,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import chokidar from 'chokidar';
 import { readdir } from 'fs/promises';
+import { existsSync } from 'fs';
 import path from 'path';
+import { loadPathIndex } from '../core/source-paths.js';
 
 import { toolDefinitions } from './tools.js';
 import { handleSearch } from './handlers/search.js';
@@ -53,13 +55,30 @@ const WATCH_EXTENSIONS =
  */
 async function findUnsyncedSources(): Promise<string[]> {
   const sourcesDir = path.join(LORE_DATA_DIR, 'sources');
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   try {
-    // Get source IDs from disk
+    // Collect disk IDs from both legacy UUID dirs and path index
+    const diskIds: string[] = [];
+    const diskIdSet = new Set<string>();
+
+    // 1. Legacy UUID directories
     const diskSources = await readdir(sourcesDir, { withFileTypes: true });
-    const diskIds = diskSources
-      .filter(d => d.isDirectory() && !d.name.startsWith('.'))
-      .map(d => d.name);
+    for (const d of diskSources) {
+      if (d.isDirectory() && !d.name.startsWith('.') && uuidPattern.test(d.name)) {
+        diskIds.push(d.name);
+        diskIdSet.add(d.name);
+      }
+    }
+
+    // 2. Path index (new-format dirs) — only include if directory exists on disk
+    const pathIndex = await loadPathIndex(LORE_DATA_DIR);
+    for (const [id, relPath] of Object.entries(pathIndex)) {
+      if (!diskIdSet.has(id) && existsSync(path.join(sourcesDir, relPath, 'metadata.json'))) {
+        diskIds.push(id);
+        diskIdSet.add(id);
+      }
+    }
 
     // Get source IDs from index
     const indexedSources = await getAllSources(DB_PATH, {});

@@ -45,7 +45,9 @@ Your personal knowledge repository for Lore.
 
 ## Structure
 
-- \`sources/\` - Ingested content
+- \`sources/\` - Ingested content, organized by project
+  - \`{project}/{YYYY-MM-DD}-{slug}-{short-id}/\` - Each source document
+  - \`.paths.json\` - UUID → directory index (auto-managed)
 
 Vector embeddings are stored in Supabase (cloud) for multi-machine access.
 `

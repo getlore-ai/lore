@@ -205,12 +205,14 @@ export function registerDocsCommand(program: Command, defaultDataDir: string): v
 
       // Delete from disk (lore-data copy)
       const { rm } = await import('fs/promises');
-      const loreSourcePath = path.join(dataDir, 'sources', docId);
+      const { resolveSourceDir, removeFromPathIndex } = await import('../../core/source-paths.js');
+      const loreSourcePath = await resolveSourceDir(dataDir, docId);
       try {
         await rm(loreSourcePath, { recursive: true });
       } catch {
         // File may not exist on disk
       }
+      await removeFromPathIndex(dataDir, docId);
 
       // Delete original source file from sync directory (and commit to its repo)
       if (originalPath) {

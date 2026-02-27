@@ -10,6 +10,7 @@ import { spawn } from 'child_process';
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { existsSync } from 'fs';
+import { loadPathIndex } from './source-paths.js';
 
 export interface LocalSearchMatch {
   line_number: number;
@@ -53,6 +54,7 @@ async function hasRipgrep(): Promise<boolean> {
  */
 async function searchWithRipgrep(
   sourcesDir: string,
+  dataDir: string,
   pattern: string,
   options: LocalSearchOptions
 ): Promise<LocalSearchResult[]> {
@@ -63,6 +65,14 @@ async function searchWithRipgrep(
     contextBefore = 0,
     contextAfter = 0,
   } = options;
+
+  // Build reverse index (relative path → UUID) for new-format dirs
+  // Key is the full relative path (project/slug-dir) to avoid collisions
+  const pathIndex = await loadPathIndex(dataDir);
+  const reverseIndex = new Map<string, string>();
+  for (const [id, relPath] of Object.entries(pathIndex)) {
+    reverseIndex.set(relPath, id);
+  }
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -111,6 +121,9 @@ async function searchWithRipgrep(
       const results: LocalSearchResult[] = [];
       const resultMap = new Map<string, LocalSearchResult>();
 
+      // UUID pattern for legacy directories
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
       // Parse JSON lines output
       const lines = stdout.split('\n').filter((l) => l.trim());
 
@@ -120,10 +133,22 @@ async function searchWithRipgrep(
 
           if (entry.type === 'match') {
             const filePath = entry.data.path.text;
-            // Extract source_id from path (e.g., /path/sources/{source_id}/content.md)
+            // Extract source_id from path
+            // Legacy: /path/sources/{UUID}/content.md
+            // New:    /path/sources/{project}/{date-slug-shortid}/content.md
             const parts = filePath.split(path.sep);
             const contentIdx = parts.findIndex((p: string) => p === 'content.md');
-            const sourceId = contentIdx > 0 ? parts[contentIdx - 1] : path.basename(path.dirname(filePath));
+            const parentDir = contentIdx > 0 ? parts[contentIdx - 1] : path.basename(path.dirname(filePath));
+
+            let sourceId: string;
+            if (uuidPattern.test(parentDir)) {
+              // Legacy UUID directory
+              sourceId = parentDir;
+            } else {
+              // New format — compute relative path from sourcesDir directly
+              const relPath = path.relative(sourcesDir, path.dirname(filePath));
+              sourceId = reverseIndex.get(relPath) || parentDir;
+            }
 
             let result = resultMap.get(sourceId);
             if (!result) {
@@ -166,6 +191,7 @@ async function searchWithRipgrep(
  */
 async function searchWithNative(
   sourcesDir: string,
+  dataDir: string,
   pattern: string,
   options: LocalSearchOptions
 ): Promise<LocalSearchResult[]> {
@@ -190,15 +216,49 @@ async function searchWithNative(
     return [];
   }
 
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // Build reverse index for new-format dirs (full relPath as key to avoid collisions)
+  const pathIndex = await loadPathIndex(dataDir);
+  const reverseIndex = new Map<string, string>();
+  for (const [id, relPath] of Object.entries(pathIndex)) {
+    reverseIndex.set(relPath, id);
+  }
+
+  // Collect all source dirs: both legacy UUID dirs and project/slug dirs
+  const sourceDirs: Array<{ sourceId: string; contentPath: string }> = [];
+
   const entries = await readdir(sourcesDir, { withFileTypes: true });
-
   for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+
+    if (uuidPattern.test(entry.name)) {
+      // Legacy UUID directory
+      const contentPath = path.join(sourcesDir, entry.name, 'content.md');
+      if (existsSync(contentPath)) {
+        sourceDirs.push({ sourceId: entry.name, contentPath });
+      }
+    } else {
+      // Project directory — scan one level deeper
+      try {
+        const subEntries = await readdir(path.join(sourcesDir, entry.name), { withFileTypes: true });
+        for (const sub of subEntries) {
+          if (!sub.isDirectory() || sub.name.startsWith('.')) continue;
+          const contentPath = path.join(sourcesDir, entry.name, sub.name, 'content.md');
+          if (existsSync(contentPath)) {
+            const relPath = path.join(entry.name, sub.name);
+            const sourceId = reverseIndex.get(relPath) || sub.name;
+            sourceDirs.push({ sourceId, contentPath });
+          }
+        }
+      } catch {
+        // Skip unreadable project dirs
+      }
+    }
+  }
+
+  for (const { sourceId, contentPath } of sourceDirs) {
     if (results.length >= maxTotalResults) break;
-
-    if (!entry.isDirectory()) continue;
-
-    const contentPath = path.join(sourcesDir, entry.name, 'content.md');
-    if (!existsSync(contentPath)) continue;
 
     try {
       const content = await readFile(contentPath, 'utf-8');
@@ -227,7 +287,7 @@ async function searchWithNative(
 
       if (matches.length > 0) {
         results.push({
-          source_id: entry.name,
+          source_id: sourceId,
           file_path: contentPath,
           matches,
         });
@@ -264,14 +324,14 @@ export async function searchLocalFiles(
 
   if (useRipgrep) {
     try {
-      return await searchWithRipgrep(sourcesDir, pattern, options);
+      return await searchWithRipgrep(sourcesDir, dataDir, pattern, options);
     } catch {
       // Fall back to native on error
-      return await searchWithNative(sourcesDir, pattern, options);
+      return await searchWithNative(sourcesDir, dataDir, pattern, options);
     }
   }
 
-  return await searchWithNative(sourcesDir, pattern, options);
+  return await searchWithNative(sourcesDir, dataDir, pattern, options);
 }
 
 /**
