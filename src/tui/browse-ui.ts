@@ -262,11 +262,11 @@ export function createUIComponents(): UIComponents {
   /          Search in document (regex)
   n / N      Next/previous match
   y          Copy to clipboard
-  Esc        Back to list
+  q/Esc      Back to list
   e          Edit in $EDITOR (saves + re-indexes)
 
 {bold}Other:{/bold}
-  Esc        Back / Quit (from list)
+  q/Esc      Back / Quit (from list)
   ?          Show this help
 
 {blue-fg}Press any key to close{/blue-fg}
@@ -426,7 +426,7 @@ export function createUIComponents(): UIComponents {
     left: 0,
     width: '100%',
     height: 1,
-    content: ' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ L Logs │ m Move │ i Edit │ Esc Quit │ ? Help',
+    content: ' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ L Logs │ m Move │ i Edit │ q Quit │ ? Help',
     tags: true,
     style: {
       fg: 'white',

@@ -14,7 +14,7 @@ Lore is a research knowledge repository available via MCP. It stores documents, 
 | `log` | Low | Log entries: add/update/delete (hidden from list_sources by default) |
 | `ingest` | Low-Medium | Push content — documents, insights, or decisions |
 | `research` | High | Cross-reference sources, synthesize (depth: quick/standard/deep) |
-| `sync` | Variable | Refresh from configured source directories |
+| `research_status` | Low | Poll for research results (long-polls up to 20s) |
 
 ## When to Ingest
 

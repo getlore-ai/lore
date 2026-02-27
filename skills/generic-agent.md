@@ -30,6 +30,29 @@ After setup, Lore works autonomously.
 
 ## Tools Reference
 
+### `get_brief` — Get the living project brief
+**Start here** when working on a project. Returns current state, key evidence with citations, open questions, and trajectory — without searching from scratch. Reports staleness if new sources have been added since generation.
+
+```json
+{
+  "project": "my-project"
+}
+```
+
+If no brief exists, suggest the user run `lore brief generate <project>` via CLI.
+
+### `log` — Log entries
+Quick status updates, decisions, and progress notes. Supports `action`: `add` (default), `update`, `delete`.
+
+```json
+{
+  "message": "Decided to use JWT for auth",
+  "project": "my-project"
+}
+```
+
+Log entries are searchable via `search` and included in project briefs. Hidden from `list_sources` by default (pass `include_logs: true` to see them).
+
 ### `ingest` — Push content into Lore
 The primary way to add content. Accepts any document with metadata.
 
@@ -104,17 +127,15 @@ Runs an internal agent that iteratively searches, reads, and synthesizes finding
 
 **Async**: Returns a `job_id` immediately. Poll `research_status` for results. Use `search` for simple lookups.
 
-### `sync` — Refresh from source directories
-Scans configured directories for new files. Use `ingest` for agent-pushed content instead.
-
-### `archive_project` — Archive a project
-Excludes from default search. Only use when explicitly requested.
+### `research_status` — Poll for research results
+Long-polls for up to 20 seconds. Returns activity updates during research. When `status` is `"complete"`, the full research package is in `result`.
 
 ## Best Practices
 
-1. **Search before you answer**: If a question might have documented context, search Lore first.
-2. **Ingest what matters**: After meaningful conversations or when processing external content, ingest it.
-3. **Always pass source_url**: Enables citation linking back to the original.
-4. **Ingest handles both long and short content**: For short insights, decisions, or notes — just pass the content. Title and source_type are optional.
-5. **Prefer search over research**: `search` is 10x cheaper. Only use `research` for multi-source synthesis.
-6. **Cite your sources**: When presenting Lore results, reference the source title and date.
+1. **Start with the brief**: Use `get_brief` first when working on a project — it's the fastest way to get context.
+2. **Search before you answer**: If a question might have documented context, search Lore first.
+3. **Ingest what matters**: After meaningful conversations or when processing external content, ingest it.
+4. **Log progress**: Use `log` for quick status updates and decisions during work sessions.
+5. **Always pass source_url**: Enables citation linking back to the original.
+6. **Prefer search over research**: `search` is 10x cheaper. Only use `research` for multi-source synthesis.
+7. **Cite your sources**: When presenting Lore results, reference the source title and date.

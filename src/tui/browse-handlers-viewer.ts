@@ -224,7 +224,7 @@ export function exitFullView(state: BrowserState, ui: UIComponents): void {
   ui.fullViewPane.hide();
   ui.listPane.show();
   ui.previewPane.show();
-  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ Esc Quit │ ? Help');
+  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ q Quit │ ? Help');
   ui.screen.render();
 }
 

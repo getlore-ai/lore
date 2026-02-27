@@ -159,7 +159,7 @@ export function exitAskMode(state: BrowserState, ui: UIComponents): void {
   ui.listPane.show();
   ui.previewPane.show();
 
-  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ Esc Quit │ ? Help');
+  ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ m Move │ i Edit │ q Quit │ ? Help');
   ui.listContent.focus();
   ui.screen.render();
 }

@@ -187,7 +187,7 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     }
   });
 
-  screen.key(['escape'], () => {
+  const handleEscapeOrQuit = (key: 'escape' | 'q') => {
     if (state.mode === 'fullview') {
       if (state.docSearchPattern) {
         // Clear document search first
@@ -198,6 +198,8 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     } else if (state.mode === 'doc-search') {
       exitDocSearch(state, ui, false);
     } else if (state.mode === 'search' || state.mode === 'regex-search') {
+      // q during text input would be captured by the textbox, not here.
+      // But if we do get here, treat like escape.
       exitSearch(state, ui);
     } else if (state.mode === 'help') {
       hideHelp(state, ui);
@@ -210,26 +212,29 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
     } else if (state.mode === 'content-type-filter') {
       cancelContentTypeFilter(state, ui);
     } else if (state.mode === 'edit-info') {
-      exitEditInfo(state, ui);
+      if (key === 'escape') exitEditInfo(state, ui);
+      // q is ignored in edit-info (user may be typing)
     } else if (state.mode === 'delete-confirm') {
       cancelDelete(state, ui);
     } else if (state.mode === 'extensions') {
       state.mode = 'list';
       ui.listTitle.setContent(state.showLogs ? ' Logs' : ' Documents');
       ui.previewTitle.setContent(' Preview');
-      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ L Logs │ m Move │ i Edit │ Esc Quit │ ? Help');
+      ui.footer.setContent(' j/k Nav │ / Search │ a Ask │ R Research │ p Proj │ c Type │ L Logs │ m Move │ i Edit │ q Quit │ ? Help');
       updateStatus(ui, state, state.currentProject, sourceType);
       renderList(ui, state);
       renderPreview(ui, state);
       screen.render();
     } else if (state.mode === 'ask') {
-      if (!state.askStreaming) {
+      if (key === 'escape' && !state.askStreaming) {
         exitAskMode(state, ui);
       }
+      // q is ignored in ask mode (user may be typing)
     } else if (state.mode === 'research') {
-      if (!state.researchRunning) {
+      if (key === 'escape' && !state.researchRunning) {
         exitResearchMode(state, ui);
       }
+      // q is ignored in research mode (user may be typing)
     } else if (state.mode === 'list' && state.searchQuery) {
       // Clear search filter
       applyFilter(state, ui, '', 'hybrid', dbPath, dataDir, state.currentProject, sourceType);
@@ -239,7 +244,10 @@ export async function startBrowser(options: BrowseOptions): Promise<void> {
       screen.destroy();
       process.exit(0);
     }
-  });
+  };
+
+  screen.key(['escape'], () => handleEscapeOrQuit('escape'));
+  screen.key(['q'], () => handleEscapeOrQuit('q'));
 
   screen.key(['j', 'down'], () => {
     if (state.mode === 'project-picker') {
