@@ -169,7 +169,42 @@ Same source can appear in multiple collections.
 - Search can be scoped to collection/workspace
 - Collections can have custom metadata/description
 
-### 2.3 Tagging System 🟡
+### 2.3 AI-Driven Directory Organization 🟡
+
+Current source directories use a deterministic layout: `{project}/{date}-{slug}-{id}`. A smarter approach would use Claude to infer a richer directory hierarchy from actual content — grouping by phase, participant, topic, or whatever structure emerges naturally.
+
+```
+Before (current):
+ridekick/
+  2026-01-28-linda-lee-car-buying-experience-5f46e05a/
+  2026-01-28-daniel-car-buying-journey-4d6ead57/
+  2025-12-19-chris-automotive-dealership-8daf6ddd/
+  2026-01-15-car-buying-ai-prototype-strategy-4cc4bba4/
+
+After (AI-organized):
+ridekick/
+  user-interviews/
+    validation-phase/
+      2026-01-28-linda-lee-car-buying-experience/
+      2026-01-28-daniel-car-buying-journey/
+    discovery-phase/
+      2025-12-19-chris-automotive-dealership/
+  strategy/
+    2026-01-15-car-buying-ai-prototype-strategy/
+```
+
+**Key challenge:** Consistency over time. Source #1 gets categorized as `user-interviews/validation-phase`, but source #50 ingested weeks later might get `interviews/validation` or `user-research/phase-2`. Two approaches:
+
+1. **Schema-driven** — User defines category tree per project in a config file; Claude picks from fixed options. Deterministic but requires maintenance.
+2. **AI-inferred with normalization** — Claude proposes a category; system fuzzy-matches against existing categories on disk. New categories only when nothing close exists. Self-organizing but occasionally messy.
+
+**Implementation notes:**
+- Slots into `computeSourcePath()` — add a `category` field between project and date-slug
+- Extraction prompt already calls Claude; add `category` or `subfolder` to the JSON schema
+- For approach 2: at ingest time, list existing subdirectories and include them in the prompt as options
+- Migration: re-categorize existing sources in bulk (read content, ask Claude, move dirs, update index)
+
+### 2.4 Tagging System 🟡
 
 User-defined and auto-suggested tags.
 
